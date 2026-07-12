@@ -1,0 +1,1 @@
+"""JMA weather feed collector."""

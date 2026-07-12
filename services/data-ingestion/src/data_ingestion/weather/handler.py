@@ -1,4 +1,4 @@
-"""Scheduled HTTPS collector for a JMA XML feed."""
+"""Scheduled HTTPS collector for the JMA weather Atom feed."""
 
 from __future__ import annotations
 

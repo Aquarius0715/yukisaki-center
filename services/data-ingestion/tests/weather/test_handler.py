@@ -1,7 +1,7 @@
 import io
 import unittest
 
-from data_ingestion.handler import make_run_id, read_limited_response, validate_source_url
+from data_ingestion.weather.handler import make_run_id, read_limited_response, validate_source_url
 
 
 class CollectorHelpersTest(unittest.TestCase):

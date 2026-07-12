@@ -10,4 +10,4 @@ FROM public.ecr.aws/lambda/python:3.13 AS runtime
 
 COPY src/ ${LAMBDA_TASK_ROOT}/
 
-CMD ["data_ingestion.handler.handler"]
+CMD ["data_ingestion.weather.handler.handler"]
