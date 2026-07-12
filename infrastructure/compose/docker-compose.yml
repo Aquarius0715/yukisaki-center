@@ -1,0 +1,47 @@
+services:
+  data-ingestion-test:
+    build:
+      context: ../../services/data-ingestion
+      target: test
+
+  data-processing-test:
+    build:
+      context: ../../services/data-processing
+      target: test
+
+  drivability-scoring-test:
+    build:
+      context: ../../services/drivability-scoring
+      target: test
+
+  route-planning-test:
+    build:
+      context: ../../services/route-planning
+      target: test
+
+  ai-assistant-test:
+    build:
+      context: ../../services/ai-assistant
+      target: test
+
+  api-test:
+    build:
+      context: ../../services/api
+      target: test
+
+  web-test:
+    build:
+      context: ../../services/web
+      target: test
+    command: ["sh", "-c", "true"]
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: yukisaki
+      POSTGRES_USER: yukisaki
+      POSTGRES_PASSWORD: yukisaki-local-only
+    ports:
+      - "5432:5432"
+    volumes:
+      - ../postgres/init:/docker-entrypoint-initdb.d:ro

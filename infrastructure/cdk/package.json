@@ -1,0 +1,27 @@
+{
+  "name": "yukisaki-center-infrastructure",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "aws": "bash scripts/aws-docker.sh",
+    "test": "npm run test:infra && npm run test:services",
+    "test:infra": "jest --runInBand",
+    "test:services": "docker compose -f ../compose/docker-compose.yml run --build --rm data-ingestion-test && docker compose -f ../compose/docker-compose.yml run --build --rm data-processing-test && docker compose -f ../compose/docker-compose.yml run --build --rm drivability-scoring-test && docker compose -f ../compose/docker-compose.yml run --build --rm route-planning-test && docker compose -f ../compose/docker-compose.yml run --build --rm ai-assistant-test && docker compose -f ../compose/docker-compose.yml run --build --rm api-test && docker compose -f ../compose/docker-compose.yml run --build --rm web-test",
+    "synth": "cdk synth",
+    "diff": "cdk diff",
+    "deploy": "cdk deploy"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^24.0.0",
+    "aws-cdk": "2.1130.0",
+    "aws-cdk-lib": "^2.261.0",
+    "constructs": "^10.4.2",
+    "jest": "^29.7.0",
+    "jest-util": "^29.7.0",
+    "ts-jest": "^29.4.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
