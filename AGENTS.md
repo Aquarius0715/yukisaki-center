@@ -22,7 +22,7 @@
 - Weatherと道路はEventBridge Ruleを共通の入口とし、両Ruleはデプロイ時に`DISABLED`。`env:start|stop|status`でまとめて管理する
 - 全Collectorは共通メタデータ契約で`run_id`、取得日時、対象期間、出典URL、SHA-256をS3 metadata/manifestへ保持し、PostgreSQLへ直接書かない
 - `services/`直下の7サービスはすべてDockerfileを持ち、ローカルテストもDocker Composeから実行する
-- 2026-07-14に気象系をAWSへデプロイし、対象7件のRDS投入とDLQ 0件を確認済み。道路収集スタックのAWSデプロイ状況は別途確認する
+- 2026-07-14に気象・道路収集スタックをAWSへデプロイ済み。対象7件のRDS投入、両EventBridge Ruleの`DISABLED`、実行中道路タスク0件、両Schedule DLQ 0件を確認済み
 - 旧JMA Atom Collector、旧Normalizer、固定fixture Lambda、旧気象用EventBridge SchedulerはAWSから削除済み
 - AWS実行系は開発・デモ時だけ起動し、`npm run env:start|stop|status`で管理する。S3等の正本は停止対象にしない
 

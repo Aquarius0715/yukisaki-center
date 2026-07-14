@@ -46,6 +46,9 @@ AWSリソースは次のとおり。
 - Processing DLQは0件
 - 旧Lambda 3個とEventBridge Schedulerは存在しない
 - 2026-07-14にSecrets Manager Endpointを1 AZ化し、RDSの7件が維持されることを再確認済み
+- 2026-07-14に気象・道路収集スタックを再デプロイし、両CloudFormationスタックの`UPDATE_COMPLETE`を確認済み
+- Weather・道路のEventBridge Ruleはいずれも`DISABLED`、実行中の道路ECSタスクは0件
+- Weather Schedule DLQ・Road Schedule DLQはいずれも0件
 
 ## ローカル検証
 
