@@ -71,6 +71,9 @@ export class RoadCollectorStack extends Stack {
         ROAD_S3_DATASET: 'road-network',
         UPLOAD_TO_S3: 'true',
         AWS_REGION: this.region,
+        FALLBACK_CENTER_LAT: '37.442959',
+        FALLBACK_CENTER_LON: '138.790936',
+        FALLBACK_RADIUS_M: '1500',
       },
     });
     roadBucket.grantPut(taskDefinition.taskRole, 'raw/osm/road-network/*');
