@@ -1,6 +1,6 @@
 # データ処理・PostgreSQLロードサービス
 
-S3 `raw/open-meteo/weather-window/`を読み、基準時刻の前後3時間を7件のレコードへ正規化して、S3 `normalized/`とAWS RDS PostgreSQLへ冪等保存する。
+S3 `raw/open-meteo/weather-window/`を読み、rawオブジェクトのSHA-256を検証してから、基準時刻の前後3時間を7件のレコードへ正規化し、S3 `normalized/`とAWS RDS PostgreSQLへ冪等保存する。外部APIからPostgreSQLへ直接書き込まない。
 
 ```text
 S3 raw response.json

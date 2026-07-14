@@ -1,5 +1,6 @@
 import * as path from 'path';
 import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps, Tags } from 'aws-cdk-lib';
+import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
 import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
@@ -12,6 +13,7 @@ import { Construct } from 'constructs';
 
 export interface RoadCollectorStackProps extends StackProps {
   readonly environment: string;
+  readonly scheduleEnabled: boolean;
   readonly scheduleHours: number;
 }
 
@@ -40,26 +42,44 @@ export class RoadCollectorStack extends Stack {
         abortIncompleteMultipartUploadAfter: Duration.days(7),
       }],
     });
+    Tags.of(roadBucket).add('Service', 'data-platform');
+    Tags.of(roadBucket).add('Component', 'road-collector');
+    Tags.of(roadBucket).add('Lifecycle', 'persistent');
     const schedulerDlq = new sqs.Queue(this, 'RoadSchedulerDeadLetterQueue', {
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       retentionPeriod: Duration.days(14),
       enforceSSL: true,
     });
+    Tags.of(schedulerDlq).add('Service', 'data-ingestion');
+    Tags.of(schedulerDlq).add('Component', 'road-collector');
+    Tags.of(schedulerDlq).add('Lifecycle', 'persistent');
     const vpc = new ec2.Vpc(this, 'RoadTaskVpc', {
       maxAzs: 2,
       natGateways: 0,
       subnetConfiguration: [{ name: 'Public', subnetType: ec2.SubnetType.PUBLIC }],
     });
+    Tags.of(vpc).add('Service', 'data-ingestion');
+    Tags.of(vpc).add('Component', 'road-collector');
+    Tags.of(vpc).add('Lifecycle', 'persistent');
     const cluster = new ecs.Cluster(this, 'RoadTaskCluster', { vpc });
+    Tags.of(cluster).add('Service', 'data-ingestion');
+    Tags.of(cluster).add('Component', 'road-collector');
+    Tags.of(cluster).add('Lifecycle', 'persistent');
     const logGroup = new logs.LogGroup(this, 'RoadTaskLogs', {
       retention: logs.RetentionDays.ONE_MONTH,
-      removalPolicy: RemovalPolicy.RETAIN,
+      removalPolicy: RemovalPolicy.DESTROY,
     });
+    Tags.of(logGroup).add('Service', 'data-ingestion');
+    Tags.of(logGroup).add('Component', 'road-collector');
+    Tags.of(logGroup).add('Lifecycle', 'persistent');
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'RoadTaskDefinition', {
       cpu: 1024,
       memoryLimitMiB: 4096,
       ephemeralStorageGiB: 50,
     });
+    Tags.of(taskDefinition).add('Service', 'data-ingestion');
+    Tags.of(taskDefinition).add('Component', 'road-collector');
+    Tags.of(taskDefinition).add('Lifecycle', 'on-demand');
     taskDefinition.addContainer('RoadCollector', {
       image: ecs.ContainerImage.fromAsset(
         path.join(__dirname, '../../../services/data-ingestion'),
@@ -79,8 +99,9 @@ export class RoadCollectorStack extends Stack {
     roadBucket.grantPut(taskDefinition.taskRole, 'raw/osm/road-network/*');
     roadBucket.grantPut(taskDefinition.taskRole, 'manifests/data-ingestion/*');
 
-    new events.Rule(this, 'RoadCollectionSchedule', {
+    const collectionSchedule = new events.Rule(this, 'RoadCollectionSchedule', {
       description: 'Runs the OpenStreetMap road collector as an isolated ECS Fargate task',
+      enabled: props.scheduleEnabled,
       schedule: events.Schedule.rate(Duration.hours(props.scheduleHours)),
       targets: [new eventTargets.EcsTask({
         cluster,
@@ -94,9 +115,24 @@ export class RoadCollectorStack extends Stack {
         retryAttempts: 0,
       })],
     });
+    Tags.of(collectionSchedule).add('Service', 'data-ingestion');
+    Tags.of(collectionSchedule).add('Component', 'road-collector');
+    Tags.of(collectionSchedule).add('Lifecycle', 'runtime');
+
+    new cloudwatch.Alarm(this, 'RoadScheduleDlqMessagesAlarm', {
+      metric: schedulerDlq.metricApproximateNumberOfMessagesVisible({
+        period: Duration.minutes(5),
+        statistic: 'max',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
 
     new CfnOutput(this, 'RoadDataBucketName', { value: roadBucket.bucketName });
     new CfnOutput(this, 'RoadClusterName', { value: cluster.clusterName });
     new CfnOutput(this, 'RoadTaskDefinitionArn', { value: taskDefinition.taskDefinitionArn });
+    new CfnOutput(this, 'RoadScheduleName', { value: collectionSchedule.ruleName });
+    new CfnOutput(this, 'RoadScheduleDlqUrl', { value: schedulerDlq.queueUrl });
   }
 }

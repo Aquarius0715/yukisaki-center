@@ -6,6 +6,9 @@
     "targetReferenceTime": "2026-01-23T12:00:00+09:00",
     "targetLatitude": 37.442762,
     "targetLongitude": 138.790865,
+    "weatherScheduleEnabled": false,
+    "weatherScheduleHours": 24,
+    "roadScheduleEnabled": false,
     "roadScheduleHours": 168
   }
 }

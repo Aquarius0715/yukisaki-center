@@ -19,8 +19,11 @@
 - private subnetのRDS PostgreSQL `weather_hourly_windows`へ冪等UPSERT
 - 道路ネットワークは独立したECS FargateスタックでOpenStreetMapから収集し、道路専用S3バケットの`raw/osm/road-network/`へ保存
 - AWS CDKでは気象データパイプラインと道路収集を別スタックとして管理
+- Weatherと道路はEventBridge Ruleを共通の入口とし、両Ruleはデプロイ時に`DISABLED`。`env:start|stop|status`でまとめて管理する
+- 全Collectorは共通メタデータ契約で`run_id`、取得日時、対象期間、出典URL、SHA-256をS3 metadata/manifestへ保持し、PostgreSQLへ直接書かない
+- `services/`直下の7サービスはすべてDockerfileを持ち、ローカルテストもDocker Composeから実行する
 - 2026-07-14に気象系をAWSへデプロイし、対象7件のRDS投入とDLQ 0件を確認済み。道路収集スタックのAWSデプロイ状況は別途確認する
-- 旧JMA Atom Collector、旧Normalizer、固定fixture Lambda、気象用EventBridge SchedulerはAWSから削除済み
+- 旧JMA Atom Collector、旧Normalizer、固定fixture Lambda、旧気象用EventBridge SchedulerはAWSから削除済み
 - AWS実行系は開発・デモ時だけ起動し、`npm run env:start|stop|status`で管理する。S3等の正本は停止対象にしない
 
 標高・勾配、除雪車GPS、消雪パイプ、走りやすさ指数、経路探索、AI、API、Web画面は未実装または骨組みのみである。未実装の機能を、すでに動作しているかのように扱わない。

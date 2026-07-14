@@ -203,8 +203,19 @@ def put_json(bucket: str, key: str, value: dict[str, Any]) -> None:
     )
 
 
+def parse_verified_raw(source_object: dict[str, Any]) -> tuple[dict[str, Any], str]:
+    """Verify the immutable S3 raw checksum before parsing its JSON body."""
+    source_body = source_object["Body"].read()
+    source_checksum = hashlib.sha256(source_body).hexdigest()
+    expected_checksum = source_object.get("Metadata", {}).get("sha256")
+    if not expected_checksum or expected_checksum != source_checksum:
+        raise ValueError("S3 raw weather checksum is missing or does not match the object body")
+    return json.loads(source_body), source_checksum
+
+
 def process_object(bucket: str, key: str) -> dict[str, Any]:
-    raw = json.loads(s3_client().get_object(Bucket=bucket, Key=key)["Body"].read())
+    source_object = s3_client().get_object(Bucket=bucket, Key=key)
+    raw, source_checksum = parse_verified_raw(source_object)
     records = normalize_window(raw)
     reference_date = records[0]["reference_time"][:10]
     run_id = raw["run_id"]
@@ -238,8 +249,16 @@ def process_object(bucket: str, key: str) -> dict[str, Any]:
         bucket,
         f"manifests/data-processing/{run_id}.json",
         {
+            "metadata_schema_version": "1.0.0",
             "run_id": run_id,
             "pipeline": "weather-window-processing",
+            "dataset": "weather-hourly-window",
+            "source": "open-meteo",
+            "source_urls": [raw["sources"]["observation"]["url"], raw["sources"]["forecast"]["url"]],
+            "fetched_at": raw["fetched_at"],
+            "target_start_at": raw["window_start"],
+            "target_end_at": raw["window_end"],
+            "checksum_sha256": source_checksum,
             "status": "succeeded",
             "input_keys": [f"s3://{bucket}/{key}"],
             "output_keys": [f"s3://{bucket}/{output_key}"],

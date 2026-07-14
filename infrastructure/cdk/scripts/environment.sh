@@ -3,7 +3,7 @@ set -euo pipefail
 
 ACTION="${1:-}"
 if [[ -z "${ACTION}" ]]; then
-  echo "Usage: $0 <start|stop|status> [--profile PROFILE] [--region REGION] [--stack STACK_NAME]" >&2
+  echo "Usage: $0 <start|stop|status> [--profile PROFILE] [--region REGION] [--data-stack STACK] [--road-stack STACK]" >&2
   exit 2
 fi
 shift
@@ -11,6 +11,7 @@ shift
 PROFILE="${AWS_PROFILE:-yukisaki-dev}"
 REGION="${AWS_REGION:-ap-northeast-1}"
 STACK_NAME="${STACK_NAME:-YukisakiDataPipeline-dev}"
+ROAD_STACK_NAME="${ROAD_STACK_NAME:-YukisakiRoadCollector-dev}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -24,6 +25,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --stack)
       STACK_NAME="$2"
+      shift 2
+      ;;
+    --data-stack)
+      STACK_NAME="$2"
+      shift 2
+      ;;
+    --road-stack)
+      ROAD_STACK_NAME="$2"
       shift 2
       ;;
     *)
@@ -41,18 +50,21 @@ aws_cli() {
 }
 
 stack_output() {
-  local output_key="$1"
+  local stack_name="$1"
+  local output_key="$2"
   aws_cli cloudformation describe-stacks \
-    --stack-name "${STACK_NAME}" \
+    --stack-name "${stack_name}" \
     --query "Stacks[0].Outputs[?OutputKey=='${output_key}'].OutputValue | [0]" \
     --output text
 }
 
-DATABASE_ID="$(stack_output DatabaseIdentifier)"
-COLLECTOR_FUNCTION="$(stack_output CollectorFunctionName)"
-LOADER_FUNCTION="$(stack_output LoaderFunctionName)"
+DATABASE_ID="$(stack_output "${STACK_NAME}" DatabaseIdentifier)"
+COLLECTOR_FUNCTION="$(stack_output "${STACK_NAME}" CollectorFunctionName)"
+LOADER_FUNCTION="$(stack_output "${STACK_NAME}" LoaderFunctionName)"
+WEATHER_SCHEDULE="$(stack_output "${STACK_NAME}" WeatherScheduleName)"
+ROAD_SCHEDULE="$(stack_output "${ROAD_STACK_NAME}" RoadScheduleName)"
 
-if [[ "${DATABASE_ID}" == "None" || "${COLLECTOR_FUNCTION}" == "None" || "${LOADER_FUNCTION}" == "None" ]]; then
+if [[ "${DATABASE_ID}" == "None" || "${COLLECTOR_FUNCTION}" == "None" || "${LOADER_FUNCTION}" == "None" || "${WEATHER_SCHEDULE}" == "None" || "${ROAD_SCHEDULE}" == "None" ]]; then
   echo "Required CloudFormation outputs are missing. Deploy the latest CDK stack first." >&2
   exit 1
 fi
@@ -91,22 +103,39 @@ function_state() {
   fi
 }
 
+schedule_state() {
+  aws_cli events describe-rule --name "$1" --query 'State' --output text
+}
+
+enable_schedule() {
+  aws_cli events enable-rule --name "$1" >/dev/null
+}
+
+disable_schedule() {
+  aws_cli events disable-rule --name "$1" >/dev/null
+}
+
 case "${ACTION}" in
   status)
-    echo "stack=${STACK_NAME}"
+    echo "dataStack=${STACK_NAME}"
+    echo "roadStack=${ROAD_STACK_NAME}"
     echo "database=${DATABASE_ID} status=$(database_status)"
     echo "collector=${COLLECTOR_FUNCTION} state=$(function_state "${COLLECTOR_FUNCTION}")"
     echo "loader=${LOADER_FUNCTION} state=$(function_state "${LOADER_FUNCTION}")"
+    echo "weatherSchedule=${WEATHER_SCHEDULE} state=$(schedule_state "${WEATHER_SCHEDULE}")"
+    echo "roadSchedule=${ROAD_SCHEDULE} state=$(schedule_state "${ROAD_SCHEDULE}")"
     ;;
   stop)
+    disable_schedule "${WEATHER_SCHEDULE}"
+    disable_schedule "${ROAD_SCHEDULE}"
     pause_function "${COLLECTOR_FUNCTION}"
     pause_function "${LOADER_FUNCTION}"
     status="$(database_status)"
     if [[ "${status}" == "available" ]]; then
       aws_cli rds stop-db-instance --db-instance-identifier "${DATABASE_ID}" >/dev/null
-      echo "Stop requested for ${DATABASE_ID}. Lambda execution is paused."
+      echo "Stop requested for ${DATABASE_ID}. Collection schedules are disabled and Lambda execution is paused."
     elif [[ "${status}" == "stopped" || "${status}" == "stopping" ]]; then
-      echo "Database is already ${status}. Lambda execution is paused."
+      echo "Database is already ${status}. Collection schedules are disabled and Lambda execution is paused."
     else
       echo "Database is ${status}; Lambda execution is paused, but the database was not changed." >&2
       exit 1
@@ -126,7 +155,9 @@ case "${ACTION}" in
     fi
     resume_function "${COLLECTOR_FUNCTION}"
     resume_function "${LOADER_FUNCTION}"
-    echo "Database is available. Lambda execution is enabled."
+    enable_schedule "${WEATHER_SCHEDULE}"
+    enable_schedule "${ROAD_SCHEDULE}"
+    echo "Database is available. Lambda execution and collection schedules are enabled."
     ;;
   *)
     echo "Unknown action: ${ACTION}" >&2

@@ -7,8 +7,21 @@ const app = new cdk.App();
 const environment = app.node.tryGetContext('environment') ?? 'dev';
 const region = app.node.tryGetContext('region') ?? 'ap-northeast-1';
 
+const contextBoolean = (key: string, defaultValue: boolean): boolean => {
+  const value = app.node.tryGetContext(key);
+  if (value === undefined) {
+    return defaultValue;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  return String(value).trim().toLowerCase() === 'true';
+};
+
 new DataPipelineStack(app, `YukisakiDataPipeline-${environment}`, {
   environment,
+  scheduleEnabled: contextBoolean('weatherScheduleEnabled', false),
+  scheduleHours: Number(app.node.tryGetContext('weatherScheduleHours') ?? 24),
   targetReferenceTime:
     app.node.tryGetContext('targetReferenceTime') ?? '2026-01-23T12:00:00+09:00',
   targetLatitude: Number(app.node.tryGetContext('targetLatitude') ?? 37.442762),
@@ -22,6 +35,7 @@ new DataPipelineStack(app, `YukisakiDataPipeline-${environment}`, {
 
 new RoadCollectorStack(app, `YukisakiRoadCollector-${environment}`, {
   environment,
+  scheduleEnabled: contextBoolean('roadScheduleEnabled', false),
   scheduleHours: Number(app.node.tryGetContext('roadScheduleHours') ?? 168),
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,

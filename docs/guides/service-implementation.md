@@ -31,6 +31,6 @@ docker compose -f infrastructure/compose/docker-compose.yml up postgres
 
 ## 3. AWS実装順
 
-気象についてはS3、Collector/Loader Lambda、private RDS PostgreSQL、VPC Endpoint、DLQ、監視をCDKで構築する。固定日のためSchedulerは使わず手動実行する。道路のPostGIS/pgRouting拡張、API、Web、LLM基盤は次段階で追加する。
+気象についてはS3、Collector/Loader Lambda、private RDS PostgreSQL、VPC Endpoint、EventBridge Rule、DLQ、監視をCDKで構築する。道路収集もEventBridge Ruleを入口とするが、実行先はECS Fargateとする。両Ruleはデプロイ時に無効とし、開発・デモ時だけ運用コマンドで有効化する。道路のPostGIS/pgRouting拡張、API、Web、LLM基盤は次段階で追加する。
 
 各段階で`run_id`からrawまで追跡でき、PostgreSQLを空にしてもS3から復元できることをテストする。

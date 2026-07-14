@@ -56,7 +56,7 @@
 | quarantine件数 | 1件以上、または割合が閾値超過 |
 | 処理時間 | 通常値の2倍超が継続 |
 | Lambda Error/Throttle | 1件以上を調査 |
-| Scheduler DLQ | メッセージ1件以上 |
+| EventBridge target DLQ | メッセージ1件以上 |
 | ECS Task失敗 | 終了コード非0、または品質検査失敗 |
 | RDS容量・接続数 | 設定閾値超過 |
 

@@ -1,7 +1,10 @@
 import unittest
+import hashlib
+import io
+import json
 from datetime import datetime, timedelta
 
-from data_processing.weather.window_loader import FIELDS, normalize_window
+from data_processing.weather.window_loader import FIELDS, normalize_window, parse_verified_raw
 
 
 def response(reference):
@@ -30,6 +33,19 @@ class WeatherWindowLoaderTest(unittest.TestCase):
         self.assertEqual([record["relative_hour"] for record in records], [-3, -2, -1, 0, 1, 2, 3])
         self.assertEqual([record["data_kind"] for record in records], ["observed"] * 4 + ["forecast"] * 3)
         self.assertFalse(any(record["is_simulated"] for record in records))
+
+    def test_verifies_the_s3_raw_checksum_before_parsing(self):
+        body = json.dumps({"run_id": "run-1"}).encode()
+        checksum = hashlib.sha256(body).hexdigest()
+        payload, actual_checksum = parse_verified_raw({
+            "Body": io.BytesIO(body),
+            "Metadata": {"sha256": checksum},
+        })
+        self.assertEqual(payload["run_id"], "run-1")
+        self.assertEqual(actual_checksum, checksum)
+
+        with self.assertRaises(ValueError):
+            parse_verified_raw({"Body": io.BytesIO(body), "Metadata": {"sha256": "invalid"}})
 
 
 if __name__ == "__main__":

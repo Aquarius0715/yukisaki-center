@@ -4,7 +4,7 @@ S3を全データの正本とする。各サービスは、別サービスの実
 
 | サービス | 責務 | 入力 | 出力 | 状態 |
 |---|---|---|---|---|
-| `data-ingestion/` | 外部データを収集して原本保存 | 公開API | S3 `raw/` | Open-Meteoの固定7時間窓を実装済み |
+| `data-ingestion/` | 外部データを収集して原本保存 | EventBridge、公開API | S3 `raw/` | Open-Meteo LambdaとOSM Fargateを実装済み（Ruleは既定停止） |
 | `data-processing/` | 検証・正規化・curated化・DBロード | S3 `raw/` / `normalized/` | S3 `normalized/` / `curated/`、PostgreSQL | 気象7件の正規化・RDS投入を実装済み |
 | `drivability-scoring/` | 区間ごとの指数・信頼度を算出 | curated、気象、設備、GPS | S3 `curated/scores/`、PostgreSQL | 設計済み |
 | `route-planning/` | 指数をコストとして経路探索 | PostgreSQL/PostGIS | 経路候補 | 設計済み |
@@ -26,6 +26,8 @@ web -> REST API
 PostgreSQLのデータはS3の`curated/`から再作成可能でなければならない。収集サービスが外部レスポンスを直接PostgreSQLへ保存すること、LLMが指数・通行可否を決めることは禁止する。
 
 AWS上のサービスは`persistent`、`runtime`、`on-demand`に分類し、開発・デモ時だけ実行系を起動する。詳細は[開発・デモ環境の起動と停止](../docs/guides/environment-lifecycle.md)を参照する。
+
+すべてのサービスはDockerfileを持つ。収集サービスは共通メタデータ契約を使ってS3 rawへ保存し、PostgreSQLへの書込みはS3を入力とする`data-processing`だけが行う。
 
 ## 共通ディレクトリ規約
 

@@ -12,6 +12,8 @@ AWSリソースを次の3種類に分ける。
 
 S3を正本とし、PostgreSQLなどの`runtime`はS3から再構築できる状態を保つ。データを守るため、停止操作でS3を削除しない。
 
+Weatherと道路のEventBridge RuleはCDKデプロイ直後はどちらも`DISABLED`である。リソースをデプロイしただけでは定期収集を開始しない。
+
 ## 現在の操作
 
 最新のCDKをデプロイした後、`infrastructure/cdk/`で実行する。
@@ -29,11 +31,12 @@ npm run env:start -- --profile yukisaki-dev
 
 `env:stop`は次を行う。
 
-1. CollectorとLoader Lambdaの予約同時実行数を0にして、新しい処理を受け付けない。
-2. RDS PostgreSQLへ停止を要求する。
-3. S3、ECR、Secrets Manager、DLQ、ログは維持する。
+1. Weatherと道路のEventBridge Ruleを無効化する。
+2. CollectorとLoader Lambdaの予約同時実行数を0にして、新しい処理を受け付けない。
+3. RDS PostgreSQLへ停止を要求する。
+4. S3、ECR、Secrets Manager、DLQ、ログは維持する。
 
-`env:start`はRDSを起動して利用可能になるまで待ち、その後にLambdaを有効化する。RDSの起動には数分以上かかる場合があるため、デモ直前ではなく余裕を持って実行する。
+`env:start`はRDSを起動して利用可能になるまで待ち、その後にLambdaと両方のEventBridge Ruleを有効化する。RDSの起動には数分以上かかる場合があるため、デモ直前ではなく余裕を持って実行する。
 
 CDKのデプロイやデータ投入を行う前にも`env:start`を実行する。停止中にS3の対象プレフィックスへ新しい原本を置くと処理されないため、手動アップロードを行わない。
 
@@ -49,7 +52,7 @@ CDKのデプロイやデータ投入を行う前にも`env:start`を実行する
 
 | サービス | AWS実行方式の基本方針 | 開発停止時 |
 |---|---|---|
-| `data-ingestion` | Lambdaの手動・イベント実行 | 同時実行数0 |
+| `data-ingestion` | EventBridgeからLambdaまたはFargateを起動 | Rule無効、Lambda同時実行数0、Fargateタスク0 |
 | `data-processing` | Lambda、RDS | Lambda停止、RDS停止 |
 | `drivability-scoring` | Lambdaまたは一時ECSタスク | Lambda停止、ECSタスク0 |
 | `route-planning` | LambdaまたはECS Service | Lambda停止、ECS desired count 0 |

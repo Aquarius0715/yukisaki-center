@@ -6,7 +6,7 @@
 
 気象・道路・GPSなどのデータは、まずS3へ不変保存する。S3の`raw/`、`normalized/`、`curated/`を正本とし、PostgreSQLは地図表示・経路探索・REST APIのために再作成可能な投影として利用する。
 
-現在は`data-ingestion`と`data-processing`をDockerコンテナとして実装し、AWS CDKでLambda、S3、EventBridge Scheduler、SQS、CloudWatchへデプロイしている。
+すべてのサービスにDockerfileを配置している。現在の収集基盤はAWS CDKでLambda、ECS Fargate、S3、デフォルト無効のEventBridge Rule、SQS、CloudWatchを管理する。
 
 ```bash
 cd infrastructure/cdk

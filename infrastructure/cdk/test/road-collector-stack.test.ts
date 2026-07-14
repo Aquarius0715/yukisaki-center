@@ -5,6 +5,7 @@ import { RoadCollectorStack } from '../lib/road-collector-stack';
 describe('RoadCollectorStack', () => {
   const stack = new RoadCollectorStack(new App(), 'RoadTestStack', {
     environment: 'test',
+    scheduleEnabled: false,
     scheduleHours: 168,
   });
   const template = Template.fromStack(stack);
@@ -20,6 +21,8 @@ describe('RoadCollectorStack', () => {
     });
     template.hasResourceProperties('AWS::Events::Rule', {
       ScheduleExpression: 'rate(7 days)',
+      State: 'DISABLED',
     });
+    template.resourceCountIs('AWS::SQS::Queue', 1);
   });
 });

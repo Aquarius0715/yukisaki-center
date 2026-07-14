@@ -5,6 +5,8 @@ import { DataPipelineStack } from '../lib/data-pipeline-stack';
 describe('DataPipelineStack', () => {
   const stack = new DataPipelineStack(new App(), 'TestStack', {
     environment: 'test',
+    scheduleEnabled: false,
+    scheduleHours: 24,
     targetReferenceTime: '2026-01-23T12:00:00+09:00',
     targetLatitude: 37.442762,
     targetLongitude: 138.790865,
@@ -52,7 +54,16 @@ describe('DataPipelineStack', () => {
     expect(endpoint.Properties.SubnetIds).toHaveLength(1);
   });
 
-  test('does not create the obsolete periodic scheduler', () => {
+  test('creates a disabled EventBridge weather schedule with a DLQ', () => {
+    template.hasResourceProperties('AWS::Events::Rule', {
+      ScheduleExpression: 'rate(1 day)',
+      State: 'DISABLED',
+    });
+    template.resourceCountIs('AWS::Scheduler::Schedule', 0);
+    template.resourceCountIs('AWS::SQS::Queue', 2);
+  });
+
+  test('does not create the obsolete EventBridge Scheduler resource', () => {
     template.resourceCountIs('AWS::Scheduler::Schedule', 0);
   });
 
@@ -61,10 +72,26 @@ describe('DataPipelineStack', () => {
       () =>
         new DataPipelineStack(new App(), 'InvalidStack', {
           environment: 'test',
+          scheduleEnabled: false,
+          scheduleHours: 24,
           targetReferenceTime: 'not-a-date',
           targetLatitude: 37.442762,
           targetLongitude: 138.790865,
         }),
     ).toThrow('targetReferenceTime must be an ISO 8601 timestamp');
+  });
+
+  test('rejects an invalid weather schedule interval', () => {
+    expect(
+      () =>
+        new DataPipelineStack(new App(), 'InvalidScheduleStack', {
+          environment: 'test',
+          scheduleEnabled: false,
+          scheduleHours: 0,
+          targetReferenceTime: '2026-01-23T12:00:00+09:00',
+          targetLatitude: 37.442762,
+          targetLongitude: 138.790865,
+        }),
+    ).toThrow('scheduleHours must be an integer greater than or equal to 1');
   });
 });

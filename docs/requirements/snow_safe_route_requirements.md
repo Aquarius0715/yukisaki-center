@@ -465,7 +465,7 @@ $$
 | Web配信 | Amazon S3、Amazon CloudFront |
 | API公開 | Amazon API Gateway |
 | API・経路探索 | Amazon ECS Fargate |
-| 定期データ取得 | AWS Lambda、Amazon EventBridge Scheduler |
+| 定期データ取得 | Amazon EventBridge、AWS Lambda、Amazon ECS Fargate |
 | 元データ保存 | Amazon S3 |
 | 地理空間DB | Amazon RDS for PostgreSQL、PostGIS、pgRouting |
 | 自然言語解析・経路比較・危険説明 | Amazon Bedrock |

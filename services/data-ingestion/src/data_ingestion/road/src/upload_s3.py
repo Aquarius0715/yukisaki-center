@@ -30,17 +30,31 @@ def upload_outputs(
     metadata_key = f"{root}/metadata.json"
     manifest_key = f"manifests/data-ingestion/{run_id}.json"
     checksum = hashlib.sha256(geojson.read_bytes()).hexdigest()
+    attributes_checksum = hashlib.sha256(attributes.read_bytes()).hexdigest()
+    metadata_checksum = hashlib.sha256(metadata.read_bytes()).hexdigest()
+    collection_metadata = json.loads(metadata.read_text(encoding="utf-8"))
+    if collection_metadata.get("checksum_sha256") != checksum:
+        raise ValueError("road metadata checksum does not match road_segments.geojson")
     try:
         client.upload_file(str(geojson), bucket, geojson_key, ExtraArgs={
-            "ContentType": "application/geo+json", "Metadata": {"sha256": checksum, "run-id": run_id, "source": "osm"},
+            "ContentType": "application/geo+json", "Metadata": {"sha256": checksum, "run-id": run_id, "source": "openstreetmap"},
         })
-        client.upload_file(str(attributes), bucket, attributes_key, ExtraArgs={"ContentType": "text/csv; charset=utf-8"})
-        client.upload_file(str(metadata), bucket, metadata_key, ExtraArgs={"ContentType": "application/json"})
+        client.upload_file(str(attributes), bucket, attributes_key, ExtraArgs={
+            "ContentType": "text/csv; charset=utf-8", "Metadata": {"sha256": attributes_checksum, "run-id": run_id, "source": "openstreetmap"},
+        })
+        client.upload_file(str(metadata), bucket, metadata_key, ExtraArgs={
+            "ContentType": "application/json", "Metadata": {"sha256": metadata_checksum, "run-id": run_id, "source": "openstreetmap"},
+        })
         manifest: dict[str, Any] = {
-            "run_id": run_id, "pipeline": "data-ingestion", "dataset": dataset,
-            "schema_version": "1.0.0", "status": "collected",
-            "source": "osm", "output_keys": [f"s3://{bucket}/{geojson_key}", f"s3://{bucket}/{attributes_key}", f"s3://{bucket}/{metadata_key}"],
-            "input_count": 1, "output_count": 2, "checksum_sha256": checksum,
+            **{key: collection_metadata[key] for key in (
+                "metadata_schema_version", "run_id", "dataset", "source", "source_urls",
+                "fetched_at", "target_start_at", "target_end_at", "checksum_sha256", "is_simulated",
+            )},
+            "pipeline": "road-network-ingestion", "status": "collected",
+            "started_at": collection_metadata["target_start_at"],
+            "finished_at": datetime.now(timezone.utc).isoformat(),
+            "output_keys": [f"s3://{bucket}/{geojson_key}", f"s3://{bucket}/{attributes_key}", f"s3://{bucket}/{metadata_key}"],
+            "input_count": 1, "output_count": 2,
         }
         client.put_object(Bucket=bucket, Key=manifest_key, Body=(json.dumps(manifest, ensure_ascii=False, sort_keys=True) + "\n").encode("utf-8"), ContentType="application/json")
     except NoCredentialsError as error:
@@ -49,4 +63,3 @@ def upload_outputs(
         raise RuntimeError(f"S3 upload failed: {error}") from error
     LOGGER.info("Uploaded immutable road outputs to s3://%s/%s/", bucket, root)
     return {"geojson_key": geojson_key, "attributes_key": attributes_key, "metadata_key": metadata_key, "manifest_key": manifest_key}
-

@@ -10,6 +10,8 @@ import {
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as eventTargets from 'aws-cdk-lib/aws-events-targets';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
@@ -20,6 +22,8 @@ import { Construct } from 'constructs';
 
 export interface DataPipelineStackProps extends StackProps {
   readonly environment: string;
+  readonly scheduleEnabled: boolean;
+  readonly scheduleHours: number;
   readonly targetReferenceTime: string;
   readonly targetLatitude: number;
   readonly targetLongitude: number;
@@ -28,9 +32,11 @@ export interface DataPipelineStackProps extends StackProps {
 export class DataPipelineStack extends Stack {
   public readonly dataBucket: s3.Bucket;
   public readonly processingDlq: sqs.Queue;
+  public readonly scheduleDlq: sqs.Queue;
   public readonly collectorFunction: lambda.DockerImageFunction;
   public readonly loaderFunction: lambda.DockerImageFunction;
   public readonly database: rds.DatabaseInstance;
+  public readonly collectionSchedule: events.Rule;
 
   constructor(scope: Construct, id: string, props: DataPipelineStackProps) {
     super(scope, id, props);
@@ -38,6 +44,9 @@ export class DataPipelineStack extends Stack {
     const referenceTime = new Date(props.targetReferenceTime);
     if (Number.isNaN(referenceTime.valueOf())) {
       throw new Error('targetReferenceTime must be an ISO 8601 timestamp');
+    }
+    if (!Number.isInteger(props.scheduleHours) || props.scheduleHours < 1) {
+      throw new Error('scheduleHours must be an integer greater than or equal to 1');
     }
     if (!Number.isFinite(props.targetLatitude) || !Number.isFinite(props.targetLongitude)) {
       throw new Error('target coordinates must be finite numbers');
@@ -68,6 +77,7 @@ export class DataPipelineStack extends Stack {
       ],
     });
     Tags.of(this.dataBucket).add('Service', 'data-platform');
+    Tags.of(this.dataBucket).add('Component', 'weather-data');
     Tags.of(this.dataBucket).add('Lifecycle', 'persistent');
 
     const vpc = new ec2.Vpc(this, 'DatabaseVpc', {
@@ -92,6 +102,7 @@ export class DataPipelineStack extends Stack {
       subnets: { subnets: [vpc.isolatedSubnets[0]] },
     });
     Tags.of(secretsManagerEndpoint).add('Service', 'data-processing');
+    Tags.of(secretsManagerEndpoint).add('Component', 'weather-loader');
     Tags.of(secretsManagerEndpoint).add('Lifecycle', 'runtime');
 
     this.database = new rds.DatabaseInstance(this, 'WeatherDatabase', {
@@ -117,6 +128,7 @@ export class DataPipelineStack extends Stack {
     });
     this.database.secret?.applyRemovalPolicy(RemovalPolicy.DESTROY);
     Tags.of(this.database).add('Service', 'data-processing');
+    Tags.of(this.database).add('Component', 'weather-database');
     Tags.of(this.database).add('Lifecycle', 'runtime');
 
     this.processingDlq = new sqs.Queue(this, 'ProcessingDeadLetterQueue', {
@@ -125,12 +137,25 @@ export class DataPipelineStack extends Stack {
       enforceSSL: true,
     });
     Tags.of(this.processingDlq).add('Service', 'data-platform');
+    Tags.of(this.processingDlq).add('Component', 'weather-processing');
     Tags.of(this.processingDlq).add('Lifecycle', 'persistent');
+
+    this.scheduleDlq = new sqs.Queue(this, 'WeatherSchedulerDeadLetterQueue', {
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      retentionPeriod: Duration.days(14),
+      enforceSSL: true,
+    });
+    Tags.of(this.scheduleDlq).add('Service', 'data-ingestion');
+    Tags.of(this.scheduleDlq).add('Component', 'weather-collector');
+    Tags.of(this.scheduleDlq).add('Lifecycle', 'persistent');
 
     const collectorLogGroup = new logs.LogGroup(this, 'WeatherWindowCollectorLogs', {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: RemovalPolicy.DESTROY,
     });
+    Tags.of(collectorLogGroup).add('Service', 'data-ingestion');
+    Tags.of(collectorLogGroup).add('Component', 'weather-collector');
+    Tags.of(collectorLogGroup).add('Lifecycle', 'persistent');
     this.collectorFunction = new lambda.DockerImageFunction(this, 'WeatherWindowCollector', {
       architecture: lambda.Architecture.ARM_64,
       description: 'Collects the fixed historical observation and forecast window into S3',
@@ -157,6 +182,7 @@ export class DataPipelineStack extends Stack {
     this.dataBucket.grantPut(this.collectorFunction, 'raw/open-meteo/weather-window/*');
     this.dataBucket.grantPut(this.collectorFunction, 'manifests/data-ingestion/*');
     Tags.of(this.collectorFunction).add('Service', 'data-ingestion');
+    Tags.of(this.collectorFunction).add('Component', 'weather-collector');
     Tags.of(this.collectorFunction).add('Lifecycle', 'on-demand');
 
     const loaderSecurityGroup = new ec2.SecurityGroup(this, 'WeatherLoaderSecurityGroup', {
@@ -164,10 +190,16 @@ export class DataPipelineStack extends Stack {
       allowAllOutbound: true,
       description: 'Security group for the S3 to PostgreSQL weather loader',
     });
+    Tags.of(loaderSecurityGroup).add('Service', 'data-processing');
+    Tags.of(loaderSecurityGroup).add('Component', 'weather-loader');
+    Tags.of(loaderSecurityGroup).add('Lifecycle', 'runtime');
     const loaderLogGroup = new logs.LogGroup(this, 'WeatherWindowLoaderLogs', {
       retention: logs.RetentionDays.ONE_MONTH,
       removalPolicy: RemovalPolicy.DESTROY,
     });
+    Tags.of(loaderLogGroup).add('Service', 'data-processing');
+    Tags.of(loaderLogGroup).add('Component', 'weather-loader');
+    Tags.of(loaderLogGroup).add('Lifecycle', 'persistent');
     this.loaderFunction = new lambda.DockerImageFunction(this, 'WeatherWindowLoader', {
       architecture: lambda.Architecture.ARM_64,
       description: 'Normalizes the S3 weather window and upserts seven hourly rows into PostgreSQL',
@@ -203,7 +235,26 @@ export class DataPipelineStack extends Stack {
       { prefix: 'raw/open-meteo/weather-window/', suffix: '/response.json' },
     );
     Tags.of(this.loaderFunction).add('Service', 'data-processing');
+    Tags.of(this.loaderFunction).add('Component', 'weather-loader');
     Tags.of(this.loaderFunction).add('Lifecycle', 'runtime');
+
+    this.collectionSchedule = new events.Rule(this, 'WeatherCollectionSchedule', {
+      description: 'Invokes the fixed Open-Meteo weather collector during development or demos',
+      enabled: props.scheduleEnabled,
+      schedule: events.Schedule.rate(Duration.hours(props.scheduleHours)),
+    });
+    this.collectionSchedule.addTarget(new eventTargets.LambdaFunction(this.collectorFunction, {
+      deadLetterQueue: this.scheduleDlq,
+      retryAttempts: 0,
+      maxEventAge: Duration.hours(1),
+      event: events.RuleTargetInput.fromObject({
+        trigger: 'eventbridge',
+        referenceTime: props.targetReferenceTime,
+      }),
+    }));
+    Tags.of(this.collectionSchedule).add('Service', 'data-ingestion');
+    Tags.of(this.collectionSchedule).add('Component', 'weather-collector');
+    Tags.of(this.collectionSchedule).add('Lifecycle', 'runtime');
 
     this.createMonitoring();
 
@@ -213,6 +264,8 @@ export class DataPipelineStack extends Stack {
     new CfnOutput(this, 'DatabaseEndpoint', { value: this.database.dbInstanceEndpointAddress });
     new CfnOutput(this, 'DatabaseIdentifier', { value: this.database.instanceIdentifier });
     new CfnOutput(this, 'DatabaseSecretArn', { value: this.database.secret!.secretArn });
+    new CfnOutput(this, 'WeatherScheduleName', { value: this.collectionSchedule.ruleName });
+    new CfnOutput(this, 'WeatherScheduleDlqUrl', { value: this.scheduleDlq.queueUrl });
     new CfnOutput(this, 'ProcessingDlqUrl', { value: this.processingDlq.queueUrl });
   }
 
@@ -239,6 +292,15 @@ export class DataPipelineStack extends Stack {
     });
     new cloudwatch.Alarm(this, 'ProcessingDlqMessagesAlarm', {
       metric: this.processingDlq.metricApproximateNumberOfMessagesVisible({
+        period: Duration.minutes(5),
+        statistic: 'max',
+      }),
+      threshold: 1,
+      evaluationPeriods: 1,
+      treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
+    });
+    new cloudwatch.Alarm(this, 'WeatherScheduleDlqMessagesAlarm', {
+      metric: this.scheduleDlq.metricApproximateNumberOfMessagesVisible({
         period: Duration.minutes(5),
         statistic: 'max',
       }),

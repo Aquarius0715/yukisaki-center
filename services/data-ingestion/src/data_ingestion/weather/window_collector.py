@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -14,6 +13,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
 from zoneinfo import ZoneInfo
+
+from data_ingestion.common.metadata import build_collection_metadata, sha256_bytes
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
@@ -149,7 +150,20 @@ def collect(event: dict[str, Any]) -> dict[str, Any]:
         },
     }
     body = (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode()
-    checksum = hashlib.sha256(body).hexdigest()
+    checksum = sha256_bytes(body)
+    target_start_at = (reference_time - timedelta(hours=3)).isoformat()
+    target_end_at = (reference_time + timedelta(hours=3)).isoformat()
+    collection_metadata = build_collection_metadata(
+        run_id=run_id,
+        dataset="weather-hourly-window",
+        source="open-meteo",
+        source_urls=[observation_url, forecast_url],
+        fetched_at=started_at.isoformat(),
+        target_start_at=target_start_at,
+        target_end_at=target_end_at,
+        checksum_sha256=checksum,
+        is_simulated=False,
+    )
     raw_prefix = (
         "raw/open-meteo/weather-window/"
         f"event_date={reference_time.date().isoformat()}/run_id={run_id}"
@@ -167,31 +181,23 @@ def collect(event: dict[str, Any]) -> dict[str, Any]:
         bucket,
         metadata_key,
         {
+            **collection_metadata,
             "schema_version": "2.0.0",
-            "source": "open-meteo",
-            "source_urls": [observation_url, forecast_url],
-            "fetched_at": started_at.isoformat(),
             "reference_time": reference_time.isoformat(),
-            "run_id": run_id,
-            "checksum_sha256": checksum,
-            "is_simulated": False,
         },
     )
     put_json(
         bucket,
         f"manifests/data-ingestion/{run_id}.json",
         {
-            "run_id": run_id,
+            **collection_metadata,
             "pipeline": "weather-window-ingestion",
-            "dataset": "weather-hourly-window",
             "status": "collected",
             "started_at": started_at.isoformat(),
             "finished_at": utc_now().isoformat(),
             "input_keys": [observation_url, forecast_url],
             "output_keys": [f"s3://{bucket}/{raw_key}", f"s3://{bucket}/{metadata_key}"],
             "output_count": 1,
-            "checksum_sha256": checksum,
-            "is_simulated": False,
         },
     )
     return {"status": "collected", "runId": run_id, "rawKey": raw_key}

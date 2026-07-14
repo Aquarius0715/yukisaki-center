@@ -1,4 +1,36 @@
-# 気象収集の入出力契約
+# データ収集の共通入出力契約
+
+## 原則
+
+- 外部から取得した原本は、データ源ごとのS3バケットの`raw/`へ不変保存する。
+- CollectorはPostgreSQLへ直接接続しない。
+- PostgreSQLへのロードはS3 rawを入力とする`data-processing`だけが行う。
+- Weatherと道路を含む全Collectorは、`data_ingestion.common.metadata`で共通メタデータを生成する。
+
+## 共通メタデータ
+
+| 項目 | 内容 |
+|---|---|
+| `metadata_schema_version` | 共通メタデータ契約のバージョン |
+| `run_id` | 収集実行を一意に追跡するID |
+| `dataset` | データセット名 |
+| `fetched_at` | 外部データ取得完了時刻（UTC ISO 8601） |
+| `target_start_at` | 対象期間の開始日時 |
+| `target_end_at` | 対象期間の終了日時 |
+| `source` | `open-meteo`、`openstreetmap`等の出典ID |
+| `source_urls` | 実際に参照した取得元URL配列 |
+| `checksum_sha256` | 主たるrawオブジェクトのSHA-256 |
+| `is_simulated` | fixture・仮データの場合だけ`true` |
+
+同じフィールドを`metadata.json`と`manifests/data-ingestion/{run_id}.json`へ保存する。S3オブジェクトメタデータにも`sha256`と`run-id`を設定する。
+
+## S3キー
+
+```text
+raw/open-meteo/weather-window/event_date={date}/run_id={run_id}/...
+raw/osm/road-network/ingest_date={date}/run_id={run_id}/...
+manifests/data-ingestion/{run_id}.json
+```
 
 ## 基準時刻と地点
 

@@ -2,13 +2,14 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
 from statistics import median
+
+from data_ingestion.common.metadata import build_collection_metadata, sha256_bytes
 
 from .config import load_settings
 from .export_geojson import write_attributes_csv, write_geojson, write_metadata
@@ -38,6 +39,7 @@ def run(args: argparse.Namespace, force_upload: bool = False) -> dict[str, objec
     started_at = datetime.now(timezone.utc)
     run_id = getattr(args, "run_id", None) or str(uuid.uuid4())
     acquired = fetch_drive_network(settings.place_name, settings.fallback_center_lat, settings.fallback_center_lon, settings.fallback_radius_m)
+    fetched_at = datetime.now(timezone.utc)
     edges = graph_edges(acquired.graph)
     deduplicated = deduplicate_edges(edges)
     metric = deduplicated.to_crs(deduplicated.estimate_utm_crs())
@@ -48,17 +50,27 @@ def run(args: argparse.Namespace, force_upload: bool = False) -> dict[str, objec
     write_geojson(segments, settings.output)
     write_attributes_csv(segments, settings.attributes_output)
     lengths = list(segments["length_m"])
-    metadata: dict[str, object] = {
-        "schema_version": "1.0.0", "source": "osm", "created_at": started_at.isoformat(),
-        "fetched_at": datetime.now(timezone.utc).isoformat(), "run_id": run_id, "is_simulated": False,
-        "source_url": "https://www.openstreetmap.org/", "target_place": settings.place_name,
-        "acquisition_method": acquired.method, "osm_network_type": "drive", "target_segment_length_m": settings.segment_length_m,
-        "projected_crs": str(metric.crs), "source_edge_count": len(edges), "deduplicated_edge_count": len(deduplicated),
-        "segment_count": len(segments), "minimum_segment_length_m": min(lengths), "maximum_segment_length_m": max(lengths),
-        "average_segment_length_m": round(sum(lengths) / len(lengths), 2), "median_segment_length_m": median(lengths),
-        "output_crs": "EPSG:4326", "output_file": str(settings.output), "attributes_file": str(settings.attributes_output),
-    }
-    metadata["checksum_sha256"] = hashlib.sha256(settings.output.read_bytes()).hexdigest()
+    checksum = sha256_bytes(settings.output.read_bytes())
+    metadata: dict[str, object] = build_collection_metadata(
+        run_id=run_id,
+        dataset=settings.s3_dataset,
+        source="openstreetmap",
+        source_urls=["https://www.openstreetmap.org/"],
+        fetched_at=fetched_at.isoformat(),
+        target_start_at=started_at.isoformat(),
+        target_end_at=fetched_at.isoformat(),
+        checksum_sha256=checksum,
+        is_simulated=False,
+        extra={
+            "schema_version": "1.0.0", "created_at": started_at.isoformat(),
+            "source_url": "https://www.openstreetmap.org/", "target_place": settings.place_name,
+            "acquisition_method": acquired.method, "osm_network_type": "drive", "target_segment_length_m": settings.segment_length_m,
+            "projected_crs": str(metric.crs), "source_edge_count": len(edges), "deduplicated_edge_count": len(deduplicated),
+            "segment_count": len(segments), "minimum_segment_length_m": min(lengths), "maximum_segment_length_m": max(lengths),
+            "average_segment_length_m": round(sum(lengths) / len(lengths), 2), "median_segment_length_m": median(lengths),
+            "output_crs": "EPSG:4326", "output_file": str(settings.output), "attributes_file": str(settings.attributes_output),
+        },
+    )
     write_metadata(metadata, settings.metadata_output)
     logging.info("Edges: %d -> %d; skipped geometries: %d; segments: %d", len(edges), len(deduplicated), skipped, len(segments))
     logging.info("Segment lengths min/max/avg/median: %s/%s/%s/%s", metadata["minimum_segment_length_m"], metadata["maximum_segment_length_m"], metadata["average_segment_length_m"], metadata["median_segment_length_m"])
@@ -89,4 +101,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
