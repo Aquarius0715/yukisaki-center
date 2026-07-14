@@ -4,7 +4,7 @@ import geopandas as gpd
 import pytest
 from shapely.geometry import LineString, MultiLineString
 
-from src.segment_roads import segment_count_for_length, segment_edges
+from data_ingestion.road.src.segment_roads import segment_count_for_length, segment_edges
 
 
 def edge(geometry):
@@ -37,4 +37,3 @@ def test_ids_are_stable_and_empty_geometry_is_skipped():
     assert len(set(first.segment_id)) == len(first)
     empty, skipped = segment_edges(edge(LineString()), 25)
     assert empty.empty and skipped == 1
-

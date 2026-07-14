@@ -3,7 +3,9 @@
   "context": {
     "environment": "dev",
     "region": "ap-northeast-1",
-    "scheduleMinutes": 60,
-    "weatherSourceUrl": "https://www.data.jma.go.jp/developer/xml/feed/regular.xml"
+    "targetReferenceTime": "2026-01-23T12:00:00+09:00",
+    "targetLatitude": 37.442762,
+    "targetLongitude": 138.790865,
+    "roadScheduleHours": 168
   }
 }

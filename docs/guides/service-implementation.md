@@ -2,7 +2,7 @@
 
 ## 1. 先に完成させる縦切り
 
-1. `data-ingestion`でデモ用の気象・道路・GPS fixtureをS3 `raw/`へ投入する。
+1. `data-ingestion`で対象日の実気象・当時予報と、道路・GPS fixtureをS3 `raw/`へ投入する。
 2. `data-processing`で各データを検証し、`normalized/`と道路区間単位の`curated/`へ出力する。
 3. `curated/`をPostgreSQLへロードし、ロード元S3キーと`run_id`を記録する。
 4. `drivability-scoring`で固定入力から指数を出力する。
@@ -31,12 +31,6 @@ docker compose -f infrastructure/compose/docker-compose.yml up postgres
 
 ## 3. AWS実装順
 
-現在AWSへデプロイ済みなのは、S3、気象収集Lambda、気象正規化Lambda、Scheduler、DLQ、監視である。RDS、ECS、API、Web、LLM基盤はまだデプロイしない。
-
-次のAWS変更は、`curated/`の道路・デモfixtureが完成してから行う。
-
-1. private subnet内にRDS PostgreSQL（PostGIS / pgRouting対応版）を作成する。
-2. `data-processing`をECS Fargateとして実行し、S3からRDSへロードする。
-3. 指数・経路サービス、API、Webを段階的に追加する。
+気象についてはS3、Collector/Loader Lambda、private RDS PostgreSQL、VPC Endpoint、DLQ、監視をCDKで構築する。固定日のためSchedulerは使わず手動実行する。道路のPostGIS/pgRouting拡張、API、Web、LLM基盤は次段階で追加する。
 
 各段階で`run_id`からrawまで追跡でき、PostgreSQLを空にしてもS3から復元できることをテストする。

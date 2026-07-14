@@ -8,24 +8,35 @@ CREATE TABLE IF NOT EXISTS data_load_runs (
   record_count INTEGER NOT NULL CHECK (record_count >= 0)
 );
 
-CREATE TABLE IF NOT EXISTS weather_records (
-  weather_record_id TEXT PRIMARY KEY,
-  entry_id TEXT NOT NULL,
-  title TEXT,
-  bulletin_url TEXT NOT NULL,
-  data_timestamp TIMESTAMPTZ NOT NULL,
-  content TEXT,
-  author TEXT,
+CREATE TABLE IF NOT EXISTS weather_hourly_windows (
+  weather_window_record_id TEXT PRIMARY KEY,
+  location_id TEXT NOT NULL,
+  location_name TEXT NOT NULL,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  reference_time TIMESTAMPTZ NOT NULL,
+  valid_time TIMESTAMPTZ NOT NULL,
+  relative_hour SMALLINT NOT NULL CHECK (relative_hour BETWEEN -3 AND 3),
+  data_kind TEXT NOT NULL CHECK (data_kind IN ('observed', 'forecast')),
+  temperature_c NUMERIC,
+  relative_humidity_percent NUMERIC,
+  precipitation_mm NUMERIC,
+  snowfall_cm NUMERIC,
+  snow_depth_m NUMERIC,
+  weather_code INTEGER,
+  wind_speed_kmh NUMERIC,
+  wind_gusts_kmh NUMERIC,
   source TEXT NOT NULL,
   source_url TEXT NOT NULL,
   fetched_at TIMESTAMPTZ NOT NULL,
   run_id TEXT NOT NULL,
   schema_version TEXT NOT NULL,
-  is_simulated BOOLEAN NOT NULL DEFAULT false
+  is_simulated BOOLEAN NOT NULL DEFAULT false,
+  UNIQUE (location_id, reference_time, valid_time, data_kind)
 );
 
-CREATE INDEX IF NOT EXISTS weather_records_data_timestamp_idx
-  ON weather_records (data_timestamp DESC);
+CREATE INDEX IF NOT EXISTS weather_hourly_windows_lookup_idx
+  ON weather_hourly_windows (location_id, reference_time, relative_hour);
 
 -- Geometry is initially retained as GeoJSON. The production serving DB adds
 -- PostGIS and pgRouting before route search is enabled.

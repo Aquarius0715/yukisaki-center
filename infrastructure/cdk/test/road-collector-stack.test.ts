@@ -19,7 +19,7 @@ describe('RoadCollectorStack', () => {
       Memory: '4096',
     });
     template.hasResourceProperties('AWS::Events::Rule', {
-      ScheduleExpression: 'rate(168 hours)',
+      ScheduleExpression: 'rate(7 days)',
     });
   });
 });

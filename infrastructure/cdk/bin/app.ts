@@ -9,15 +9,15 @@ const region = app.node.tryGetContext('region') ?? 'ap-northeast-1';
 
 new DataPipelineStack(app, `YukisakiDataPipeline-${environment}`, {
   environment,
-  scheduleMinutes: Number(app.node.tryGetContext('scheduleMinutes') ?? 60),
-  weatherSourceUrl:
-    app.node.tryGetContext('weatherSourceUrl') ??
-    'https://www.data.jma.go.jp/developer/xml/feed/regular.xml',
+  targetReferenceTime:
+    app.node.tryGetContext('targetReferenceTime') ?? '2026-01-23T12:00:00+09:00',
+  targetLatitude: Number(app.node.tryGetContext('targetLatitude') ?? 37.442762),
+  targetLongitude: Number(app.node.tryGetContext('targetLongitude') ?? 138.790865),
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,
   },
-  description: 'Yukisaki snow-safe route data collection and normalization pipeline',
+  description: 'Yukisaki historical weather window to PostgreSQL pipeline',
 });
 
 new RoadCollectorStack(app, `YukisakiRoadCollector-${environment}`, {

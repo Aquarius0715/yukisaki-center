@@ -3,8 +3,8 @@ import json
 import geopandas as gpd
 from shapely.geometry import LineString
 
-from src.export_geojson import write_geojson
-from src.segment_roads import add_wgs84_endpoints, segment_edges
+from data_ingestion.road.src.export_geojson import write_geojson
+from data_ingestion.road.src.segment_roads import add_wgs84_endpoints, segment_edges
 
 
 def test_geojson_is_wgs84_and_keeps_japanese(tmp_path):
@@ -20,4 +20,3 @@ def test_geojson_is_wgs84_and_keeps_japanese(tmp_path):
     assert feature["properties"]["road_name"] == "石動南町道路"
     assert feature["properties"]["snow_depth_cm"] is None
     assert feature["properties"]["snow_level"] == "unknown"
-

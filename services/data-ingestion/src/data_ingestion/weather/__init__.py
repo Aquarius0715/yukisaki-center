@@ -1,1 +1,1 @@
-"""JMA weather feed collector."""
+"""Open-Meteo historical observation and forecast collector."""

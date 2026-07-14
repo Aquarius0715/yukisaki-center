@@ -10,16 +10,20 @@
 
 ## 現在の実装範囲
 
-実装済みなのは、S3を正本とするデータ収集・処理の最初の縦切りである。
+気象の縦切りは、S3を正本としてAWS RDS PostgreSQLへロードする構成で実装している。
 
-- 気象庁公開Atomフィードの定期収集
-- S3の`raw/`への原本・メタデータ保存
-- Atomフィード項目のJSON Lines正規化
-- S3の`normalized/`、`quarantine/`、`manifests/`への出力
-- S3 JSON LinesをPostgreSQLへ冪等ロードするコンテナ用ローダーとローカルDBスキーマ
-- AWS CDKによる汎用データパイプラインと、独立した道路収集用ECS Fargateスタックの構築
+- Open-Meteo Historical Weather APIから基準時刻3時間前〜基準時刻の実気象を取得
+- Open-Meteo Historical Forecast APIから基準時刻1〜3時間後の当時予報を取得
+- 基準時刻は2026-01-23 12:00 JST、地点は長岡市石動南町（37.442762, 138.790865）
+- API原本・メタデータをS3 `raw/`へ保存し、7件のJSON Linesを`normalized/`へ保存
+- private subnetのRDS PostgreSQL `weather_hourly_windows`へ冪等UPSERT
+- 道路ネットワークは独立したECS FargateスタックでOpenStreetMapから収集し、道路専用S3バケットの`raw/osm/road-network/`へ保存
+- AWS CDKでは気象データパイプラインと道路収集を別スタックとして管理
+- 2026-07-14に気象系をAWSへデプロイし、対象7件のRDS投入とDLQ 0件を確認済み。道路収集スタックのAWSデプロイ状況は別途確認する
+- 旧JMA Atom Collector、旧Normalizer、固定fixture Lambda、気象用EventBridge SchedulerはAWSから削除済み
+- AWS実行系は開発・デモ時だけ起動し、`npm run env:start|stop|status`で管理する。S3等の正本は停止対象にしない
 
-RDS、標高・勾配、除雪車GPS、消雪パイプ、走りやすさ指数、経路探索、AI、API、Web画面は未実装または骨組みのみである。道路データはOpenStreetMapから取得して道路専用S3バケットへ保存する独立Fargateバッチまで実装済みである。未実装の機能を、すでに動作しているかのように扱わない。
+標高・勾配、除雪車GPS、消雪パイプ、走りやすさ指数、経路探索、AI、API、Web画面は未実装または骨組みのみである。未実装の機能を、すでに動作しているかのように扱わない。
 
 ## デモ固定条件
 
@@ -80,6 +84,7 @@ cd infrastructure/cdk
 npm test
 npm run build
 npm run synth
+npm run env:status -- --profile yukisaki-dev
 ```
 
 詳細は[docs/README.md](docs/README.md)、サービスの責務は[services/README.md](services/README.md)を参照する。

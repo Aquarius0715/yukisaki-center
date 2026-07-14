@@ -1,17 +1,18 @@
 import { App } from 'aws-cdk-lib';
-import { Match, Template } from 'aws-cdk-lib/assertions';
+import { Template } from 'aws-cdk-lib/assertions';
 import { DataPipelineStack } from '../lib/data-pipeline-stack';
 
 describe('DataPipelineStack', () => {
-  const app = new App();
-  const stack = new DataPipelineStack(app, 'TestStack', {
+  const stack = new DataPipelineStack(new App(), 'TestStack', {
     environment: 'test',
-    scheduleMinutes: 60,
-    weatherSourceUrl: 'https://www.data.jma.go.jp/developer/xml/feed/regular.xml',
+    targetReferenceTime: '2026-01-23T12:00:00+09:00',
+    targetLatitude: 37.442762,
+    targetLongitude: 138.790865,
   });
   const template = Template.fromStack(stack);
 
-  test('creates a private versioned data bucket', () => {
+  test('keeps one private versioned source-of-truth bucket', () => {
+    template.resourceCountIs('AWS::S3::Bucket', 1);
     template.hasResourceProperties('AWS::S3::Bucket', {
       VersioningConfiguration: { Status: 'Enabled' },
       PublicAccessBlockConfiguration: {
@@ -23,40 +24,47 @@ describe('DataPipelineStack', () => {
     });
   });
 
-  test('creates collector and normalizer functions', () => {
-    template.resourcePropertiesCountIs(
-      'AWS::Lambda::Function',
-      { PackageType: 'Image' },
-      2,
-    );
+  test('creates only collector and PostgreSQL loader Lambda images', () => {
+    template.resourcePropertiesCountIs('AWS::Lambda::Function', { PackageType: 'Image' }, 2);
     template.hasResourceProperties('AWS::Lambda::Function', {
       PackageType: 'Image',
-      Architectures: ['arm64'],
+      ImageConfig: { Command: ['data_ingestion.weather.window_collector.handler'] },
     });
   });
 
-  test('schedules collection and configures dead-letter queues', () => {
-    template.hasResourceProperties('AWS::Scheduler::Schedule', {
-      ScheduleExpression: 'rate(1 hour)',
-      FlexibleTimeWindow: { Mode: 'OFF' },
-      Target: Match.objectLike({
-        RetryPolicy: {
-          MaximumEventAgeInSeconds: 900,
-          MaximumRetryAttempts: 2,
-        },
-      }),
+  test('creates a private encrypted PostgreSQL instance', () => {
+    template.hasResourceProperties('AWS::RDS::DBInstance', {
+      Engine: 'postgres',
+      DBName: 'yukisaki',
+      PubliclyAccessible: false,
+      StorageEncrypted: true,
+      MultiAZ: false,
     });
-    template.resourceCountIs('AWS::SQS::Queue', 2);
   });
 
-  test('rejects insecure source URLs', () => {
+  test('uses one Secrets Manager endpoint ENI for the Single-AZ development database', () => {
+    const endpoints = template.findResources('AWS::EC2::VPCEndpoint', {
+      Properties: { VpcEndpointType: 'Interface' },
+    });
+    const endpoint = Object.values(endpoints)[0];
+
+    expect(endpoint).toBeDefined();
+    expect(endpoint.Properties.SubnetIds).toHaveLength(1);
+  });
+
+  test('does not create the obsolete periodic scheduler', () => {
+    template.resourceCountIs('AWS::Scheduler::Schedule', 0);
+  });
+
+  test('rejects invalid reference time', () => {
     expect(
       () =>
         new DataPipelineStack(new App(), 'InvalidStack', {
           environment: 'test',
-          scheduleMinutes: 60,
-          weatherSourceUrl: 'http://example.com/feed.xml',
+          targetReferenceTime: 'not-a-date',
+          targetLatitude: 37.442762,
+          targetLongitude: 138.790865,
         }),
-    ).toThrow('weatherSourceUrl must use HTTPS');
+    ).toThrow('targetReferenceTime must be an ISO 8601 timestamp');
   });
 });

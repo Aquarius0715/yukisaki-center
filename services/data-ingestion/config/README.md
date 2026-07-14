@@ -1,5 +1,10 @@
-# 設定
+# 気象収集設定
 
-`weather/`のLambdaでは`DATA_BUCKET`、`SOURCE_URL`、`ALLOWED_SOURCE_HOSTS`、`MAX_RESPONSE_BYTES`を環境変数で渡す。秘密値は置かない。
+| 環境変数 | 既定値 | 用途 |
+|---|---|---|
+| `DATA_BUCKET` | なし | S3正本バケット |
+| `TARGET_REFERENCE_TIME` | `2026-01-23T12:00:00+09:00` | 3時間前後の基準時刻 |
+| `TARGET_LATITUDE` | `37.442762` | 石動南町中心点の緯度 |
+| `TARGET_LONGITUDE` | `138.790865` | 石動南町中心点の経度 |
 
-`road/`・`snow_pipe/`・`plow_gps/`は未実装のため設定項目はまだない。実装時にここへ追記する。
+APIキーや秘密値は使用しない。取得先ホストはコード内の許可リストで固定する。

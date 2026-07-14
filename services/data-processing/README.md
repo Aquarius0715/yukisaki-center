@@ -1,25 +1,20 @@
 # データ処理・PostgreSQLロードサービス
 
-S3 `raw/`を検証・正規化し、再生成可能な`normalized/`と`curated/`へ出力する。検証済みの`curated/`だけをPostgreSQLの配信用テーブルへロードする。S3が正本であり、PostgreSQLはS3から再作成できる派生ストアである。
-
-現在の`src/data_processing/handler.py`は気象庁AtomフィードをS3 `normalized/`へ変換するLambdaハンドラである。`src/data_processing/load_curated.py`はJSON LinesをPostgreSQLへUPSERTするコンテナ実行用ローダーであり、RDS/ECS実装時に利用する。
+S3 `raw/open-meteo/weather-window/`を読み、基準時刻の前後3時間を7件のレコードへ正規化して、S3 `normalized/`とAWS RDS PostgreSQLへ冪等保存する。
 
 ```text
-S3 raw/
-  -> handler.py
-  -> S3 normalized/ -> S3 curated/
-  -> load_curated.py
-  -> PostgreSQL serving tables
+S3 raw response.json
+  -> WeatherWindowLoader Lambda
+  -> S3 normalized/open-meteo/weather-window/.../part-00000.jsonl
+  -> RDS PostgreSQL weather_hourly_windows
 ```
 
-ローカルDBの初期スキーマは`infrastructure/postgres/init/001_schema.sql`に置く。`docker compose -f infrastructure/compose/docker-compose.yml up postgres`で起動できる。
-
-ローダーイメージは`Dockerfile`の`loader`ターゲットである。`DATABASE_URL`とS3認証情報を与え、`s3://.../part-00000.jsonl`を引数にしてECS Fargate等から実行する。
+`relative_hour=-3,-2,-1,0`は`data_kind=observed`、`+1,+2,+3`は`data_kind=forecast`である。DB接続情報はSecrets Managerから取得し、RDSはprivate subnetに置く。
 
 ## 構成
 
-- `src/data_processing/`: LambdaハンドラとDBローダー
-- `tests/`: 正規化・URI検証の単体テスト
-- `config/`: ローダー依存関係
-- `docs/`: S3・DBロード契約
-- `AGENTS.md`: このサービスを扱うAI向け指示
+- `src/data_processing/weather/window_loader.py`: 正規化・S3出力・DB UPSERT Lambda
+- `tests/weather/test_window_loader.py`: 7時間窓の契約テスト
+- `config/requirements-loader.txt`: LambdaのPostgreSQLドライバー
+- `docs/contract.md`: テーブル・項目契約
+- `AGENTS.md`: AI向け作業指示

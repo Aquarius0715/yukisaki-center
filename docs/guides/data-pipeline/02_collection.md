@@ -24,7 +24,7 @@ AOIには次を記録する。
 
 | 項目 | 例 |
 |---|---|
-| 所有・提供者 | 気象庁 |
+| 所有・提供者 | Open-Meteo |
 | 取得URL | 実際に使用するURL |
 | 利用規約URL | 規約・帰属表示の根拠 |
 | 機械取得可否 | 確認済み / 要確認 |
@@ -82,43 +82,46 @@ AOIには次を記録する。
 
 ### 4.1 MVPでの扱い
 
-気象庁は防災情報XMLのPULL型提供を案内している。対象電文、更新頻度、XMLコードは[気象データ高度利用ポータル](https://www.data.jma.go.jp/developer/)と情報カタログで確認する。
+固定デモ日は2026年1月23日であり、現在のフィードから当時の予報を取得できない。そのため、[Open-Meteo Historical Weather API](https://open-meteo.com/en/docs/historical-weather-api)で基準時刻3時間前から基準時刻までの実気象、[Historical Forecast API](https://open-meteo.com/en/docs/historical-forecast-api)で1〜3時間後の当時予報を取得する。
 
-一方、Webページ内部で使用される未文書化JSONエンドポイントは変更される可能性がある。観測値として利用する場合は、機械取得・二次利用・更新保証を個別に確認し、`source_adapter`で交換可能にする。確認が終わるまでは固定fixtureまたは明示的な仮データでパイプラインを作る。
+基準時刻は12:00 JST、地点は長岡市石動南町の中心点（37.442762, 138.790865）とする。取得値は観測所の現地実測そのものではなく、APIが返す格子データであることを表示・説明時に明示する。
 
 ### 4.2 Collectorの手順
 
-1. Schedulerから`dataset`、`scheduled_at`を受け取る。Step Functions等から`run_id`が渡されなければCollectorでUUIDを発行する。
+1. 手動実行イベントから`executionId`と任意の`referenceTime`を受け取る。なければ固定値とUUIDを使用する。
 2. 接続・読取タイムアウトを指定して取得する。
 3. HTTPステータス、Content-Type、ETag、Last-Modifiedを記録する。
-4. XML/JSONを変更せずS3 rawへ保存する。
-5. SHA-256が直前と同じでも取得履歴はmanifestへ記録する。Schedulerの再試行は同じ論理実行として判定できる冪等キーも記録する。
+4. 観測・予報のJSONを変更せず一つのS3 rawオブジェクトへ保存する。
+5. SHA-256が直前と同じでも取得履歴はmanifestへ記録する。
 6. 最小限の構文検証を行う。
 7. 成功イベントを後段へ渡す。失敗時はnormalizedを更新しない。
 
 ### 4.3 正規化する最小項目
 
 ```text
-weather_record_id
-station_or_area_code
+weather_window_record_id
+location_id
 latitude
 longitude
-data_timestamp
+reference_time
+valid_time
+relative_hour
+data_kind
 temperature_c
+relative_humidity_percent
 precipitation_mm
 snowfall_cm
-snow_depth_cm
-wind_speed_ms
-wind_direction_deg
-forecast_horizon_minutes
-quality_code
+snow_depth_m
+weather_code
+wind_speed_kmh
+wind_gusts_kmh
 fetched_at
 source
 source_url
 schema_version
 ```
 
-観測、予報、警報・注意報は意味と粒度が異なるため、同じテーブルへ無理に押し込まない。
+観測と予報は`data_kind`と`relative_hour`で明示的に区別する。警報・注意報はこのテーブルへ混在させない。
 
 ## 5. 消雪パイプ仮データ
 
