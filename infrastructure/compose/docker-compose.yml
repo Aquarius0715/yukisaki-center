@@ -4,6 +4,11 @@ services:
       context: ../../services/data-ingestion
       target: test
 
+  road-test:
+    build:
+      context: ../../services/data-ingestion
+      target: road-test
+
   data-processing-test:
     build:
       context: ../../services/data-processing

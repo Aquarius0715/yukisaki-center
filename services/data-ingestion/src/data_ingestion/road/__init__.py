@@ -1,1 +1,1 @@
-"""Road network collector (OpenStreetMap). Not implemented yet."""
+"""OpenStreetMap road network collector."""

@@ -9,6 +9,7 @@ const region = app.node.tryGetContext('region') ?? 'ap-northeast-1';
 new DataPipelineStack(app, `YukisakiDataPipeline-${environment}`, {
   environment,
   scheduleMinutes: Number(app.node.tryGetContext('scheduleMinutes') ?? 60),
+  roadScheduleHours: Number(app.node.tryGetContext('roadScheduleHours') ?? 168),
   weatherSourceUrl:
     app.node.tryGetContext('weatherSourceUrl') ??
     'https://www.data.jma.go.jp/developer/xml/feed/regular.xml',

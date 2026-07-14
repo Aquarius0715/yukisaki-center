@@ -7,7 +7,7 @@
     "aws": "bash scripts/aws-docker.sh",
     "test": "npm run test:infra && npm run test:services",
     "test:infra": "jest --runInBand",
-    "test:services": "docker compose -f ../compose/docker-compose.yml run --build --rm data-ingestion-test && docker compose -f ../compose/docker-compose.yml run --build --rm data-processing-test && docker compose -f ../compose/docker-compose.yml run --build --rm drivability-scoring-test && docker compose -f ../compose/docker-compose.yml run --build --rm route-planning-test && docker compose -f ../compose/docker-compose.yml run --build --rm ai-assistant-test && docker compose -f ../compose/docker-compose.yml run --build --rm api-test && docker compose -f ../compose/docker-compose.yml run --build --rm web-test",
+    "test:services": "docker compose -f ../compose/docker-compose.yml run --build --rm data-ingestion-test && docker compose -f ../compose/docker-compose.yml run --build --rm road-test && docker compose -f ../compose/docker-compose.yml run --build --rm data-processing-test && docker compose -f ../compose/docker-compose.yml run --build --rm drivability-scoring-test && docker compose -f ../compose/docker-compose.yml run --build --rm route-planning-test && docker compose -f ../compose/docker-compose.yml run --build --rm ai-assistant-test && docker compose -f ../compose/docker-compose.yml run --build --rm api-test && docker compose -f ../compose/docker-compose.yml run --build --rm web-test",
     "synth": "cdk synth",
     "diff": "cdk diff",
     "deploy": "cdk deploy"
