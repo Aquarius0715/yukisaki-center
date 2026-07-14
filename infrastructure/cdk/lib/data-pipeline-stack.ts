@@ -12,6 +12,7 @@ import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
 import * as events from 'aws-cdk-lib/aws-events';
 import * as eventTargets from 'aws-cdk-lib/aws-events-targets';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
@@ -36,6 +37,7 @@ export class DataPipelineStack extends Stack {
   public readonly collectorFunction: lambda.DockerImageFunction;
   public readonly loaderFunction: lambda.DockerImageFunction;
   public readonly database: rds.DatabaseInstance;
+  public readonly databaseBastion: ec2.Instance;
   public readonly collectionSchedule: events.Rule;
 
   constructor(scope: Construct, id: string, props: DataPipelineStackProps) {
@@ -89,6 +91,11 @@ export class DataPipelineStack extends Stack {
           subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
           cidrMask: 24,
         },
+        {
+          name: 'public',
+          subnetType: ec2.SubnetType.PUBLIC,
+          cidrMask: 28,
+        },
       ],
     });
     vpc.addGatewayEndpoint('S3Endpoint', {
@@ -130,6 +137,82 @@ export class DataPipelineStack extends Stack {
     Tags.of(this.database).add('Service', 'data-processing');
     Tags.of(this.database).add('Component', 'weather-database');
     Tags.of(this.database).add('Lifecycle', 'runtime');
+
+    const bastionSecurityGroup = new ec2.SecurityGroup(this, 'DatabaseBastionSecurityGroup', {
+      vpc,
+      allowAllOutbound: true,
+      description: 'Outbound-only security group for the SSM PostgreSQL bastion',
+    });
+    Tags.of(bastionSecurityGroup).add('Service', 'data-platform');
+    Tags.of(bastionSecurityGroup).add('Component', 'database-bastion');
+    Tags.of(bastionSecurityGroup).add('Lifecycle', 'on-demand');
+
+    const bastionRole = new iam.Role(this, 'DatabaseBastionRole', {
+      assumedBy: new iam.ServicePrincipal('ec2.amazonaws.com'),
+      description: 'Allows the database bastion to register with Systems Manager',
+      managedPolicies: [
+        iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+      ],
+    });
+    Tags.of(bastionRole).add('Service', 'data-platform');
+    Tags.of(bastionRole).add('Component', 'database-bastion');
+    Tags.of(bastionRole).add('Lifecycle', 'on-demand');
+
+    const bastionPsqlScript = [
+      '#!/usr/bin/env bash',
+      'set -euo pipefail',
+      `AWS_REGION='${this.region}'`,
+      `DATABASE_SECRET_ARN='${this.database.secret!.secretArn}'`,
+      `DATABASE_HOST='${this.database.dbInstanceEndpointAddress}'`,
+      `DATABASE_PORT='${this.database.dbInstanceEndpointPort}'`,
+      "DATABASE_NAME='yukisaki'",
+      'export AWS_PAGER=""',
+      'secret_json="$(aws secretsmanager get-secret-value --secret-id "${DATABASE_SECRET_ARN}" --query SecretString --output text --region "${AWS_REGION}")"',
+      "export PGUSER=\"$(jq -er '.username' <<<\"${secret_json}\")\"",
+      "export PGPASSWORD=\"$(jq -er '.password' <<<\"${secret_json}\")\"",
+      'export PSQL_PAGER="${PSQL_PAGER:-less}"',
+      'export LESS="${LESS:--SFX}"',
+      'exec psql --host "${DATABASE_HOST}" --port "${DATABASE_PORT}" --username "${PGUSER}" --dbname "${DATABASE_NAME}" --set ON_ERROR_STOP=on "$@"',
+    ].join('\n');
+    const bastionUserData = ec2.UserData.forLinux();
+    bastionUserData.addCommands(
+      'dnf install -y jq less postgresql16',
+      `cat > /usr/local/bin/yukisaki-psql <<'YUKISAKI_PSQL'\n${bastionPsqlScript}\nYUKISAKI_PSQL`,
+      'chmod 0755 /usr/local/bin/yukisaki-psql',
+    );
+    this.database.secret!.grantRead(bastionRole);
+
+    this.databaseBastion = new ec2.Instance(this, 'DatabaseAdminBastion', {
+      vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, onePerAz: true },
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
+      machineImage: ec2.MachineImage.latestAmazonLinux2023({
+        cpuType: ec2.AmazonLinuxCpuType.ARM_64,
+      }),
+      securityGroup: bastionSecurityGroup,
+      role: bastionRole,
+      userData: bastionUserData,
+      associatePublicIpAddress: true,
+      requireImdsv2: true,
+      blockDevices: [
+        {
+          deviceName: '/dev/xvda',
+          volume: ec2.BlockDeviceVolume.ebs(8, {
+            encrypted: true,
+            deleteOnTermination: true,
+            volumeType: ec2.EbsDeviceVolumeType.GP3,
+          }),
+        },
+      ],
+    });
+    this.database.connections.allowDefaultPortFrom(
+      bastionSecurityGroup,
+      'Allow PostgreSQL only from the SSM database bastion',
+    );
+    Tags.of(this.databaseBastion).add('Name', `yukisaki-${props.environment}-database-bastion`);
+    Tags.of(this.databaseBastion).add('Service', 'data-platform');
+    Tags.of(this.databaseBastion).add('Component', 'database-bastion');
+    Tags.of(this.databaseBastion).add('Lifecycle', 'on-demand');
 
     this.processingDlq = new sqs.Queue(this, 'ProcessingDeadLetterQueue', {
       encryption: sqs.QueueEncryption.SQS_MANAGED,
@@ -264,6 +347,9 @@ export class DataPipelineStack extends Stack {
     new CfnOutput(this, 'DatabaseEndpoint', { value: this.database.dbInstanceEndpointAddress });
     new CfnOutput(this, 'DatabaseIdentifier', { value: this.database.instanceIdentifier });
     new CfnOutput(this, 'DatabaseSecretArn', { value: this.database.secret!.secretArn });
+    new CfnOutput(this, 'DatabaseBastionInstanceId', {
+      value: this.databaseBastion.instanceId,
+    });
     new CfnOutput(this, 'WeatherScheduleName', { value: this.collectionSchedule.ruleName });
     new CfnOutput(this, 'WeatherScheduleDlqUrl', { value: this.scheduleDlq.queueUrl });
     new CfnOutput(this, 'ProcessingDlqUrl', { value: this.processingDlq.queueUrl });

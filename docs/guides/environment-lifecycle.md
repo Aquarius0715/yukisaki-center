@@ -8,7 +8,7 @@ AWSリソースを次の3種類に分ける。
 |---|---|---|
 | `persistent` | 開発停止中も維持 | S3原本、DLQ、ECR、ログ |
 | `runtime` | 開発・デモ時だけ起動 | RDS、DBへ接続する処理 |
-| `on-demand` | リクエスト時だけ実行 | Collector Lambda、将来のAPI Lambda |
+| `on-demand` | リクエスト時だけ実行 | Collector Lambda、DB確認用SSM踏み台、将来のAPI Lambda |
 
 S3を正本とし、PostgreSQLなどの`runtime`はS3から再構築できる状態を保つ。データを守るため、停止操作でS3を削除しない。
 
@@ -40,12 +40,15 @@ npm run env:start -- --profile yukisaki-dev
 
 CDKのデプロイやデータ投入を行う前にも`env:start`を実行する。停止中にS3の対象プレフィックスへ新しい原本を置くと処理されないため、手動アップロードを行わない。
 
+DB内容だけをpsqlで確認するときは、定期収集を有効化しない`npm run db:start`でRDSと踏み台をまとめて起動する。確認後は`npm run db:stop`で両方を停止する。接続手順は[SSM踏み台からRDSを確認する](database-access.md)を参照する。
+
 ## コスト上の注意
 
 - RDS停止中はインスタンス時間料金が止まるが、gp3ストレージ料金は残る。
 - Secrets Manager Interface Endpointは停止できない。CDKでは2 AZから1 AZへ減らして固定費を半減する。
 - 現在の`env:stop`ではEndpointを残すため、再開は速いが完全なゼロコストにはならない。
 - RDSは7日間停止するとAWSにより自動起動される。長期間利用しない場合は、状態を確認して再停止する。
+- DB確認後は`npm run db:stop`でRDSと踏み台をまとめて停止する。踏み台の停止中も8 GiBのEBS料金は残る。
 - 将来はS3の永続スタックと実行系スタックを分割し、長期休止時に実行系だけ削除できるようにする。
 
 ## 全サービスの停止方針

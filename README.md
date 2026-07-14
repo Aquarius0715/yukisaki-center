@@ -16,6 +16,8 @@ npm run test:infra
 npm run synth
 ```
 
+RDS PostgreSQLをSSM踏み台内の`psql`から確認する手順は[DB接続ガイド](docs/guides/database-access.md)を参照。
+
 詳細は[サービス境界](docs/architecture/service-boundaries.md)と[サービス実装の順序](docs/guides/service-implementation.md)を参照。
 
 サービスの責務と構成は[services/README.md](services/README.md)を参照。

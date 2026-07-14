@@ -25,6 +25,7 @@
 - 2026-07-14に気象・道路収集スタックをAWSへデプロイ済み。対象7件のRDS投入、両EventBridge Ruleの`DISABLED`、実行中道路タスク0件、両Schedule DLQ 0件を確認済み
 - 旧JMA Atom Collector、旧Normalizer、固定fixture Lambda、旧気象用EventBridge SchedulerはAWSから削除済み
 - AWS実行系は開発・デモ時だけ起動し、`npm run env:start|stop|status`で管理する。S3等の正本は停止対象にしない
+- RDSの直接確認は`db:start|stop`でRDSとSSM踏み台をまとめて起動・停止し、Session Managerで入って踏み台内の`yukisaki-psql`から行う。RDSは非公開とし、踏み台には受信ルールを設けない
 
 標高・勾配、除雪車GPS、消雪パイプ、走りやすさ指数、経路探索、AI、API、Web画面は未実装または骨組みのみである。未実装の機能を、すでに動作しているかのように扱わない。
 

@@ -27,6 +27,7 @@ AWSリソースは次のとおり。
 - VPC外の収集Lambda 1個
 - private subnet内の処理・DBロードLambda 1個
 - 非公開・暗号化・Single-AZのRDS PostgreSQL 16（`db.t4g.micro`）
+- Session Manager接続・DB確認用EC2踏み台（Free Tier対象の`t4g.micro`、受信ルールなし、必要時だけ起動）
 - S3 Gateway Endpoint、1 AZのSecrets Manager Interface Endpoint
 - Secrets Manager自動生成DB認証情報
 - デフォルト無効のWeather用EventBridge Rule
@@ -49,6 +50,9 @@ AWSリソースは次のとおり。
 - 2026-07-14に気象・道路収集スタックを再デプロイし、両CloudFormationスタックの`UPDATE_COMPLETE`を確認済み
 - Weather・道路のEventBridge Ruleはいずれも`DISABLED`、実行中の道路ECSタスクは0件
 - Weather Schedule DLQ・Road Schedule DLQはいずれも0件
+- 2026-07-15にFree Tier対象`t4g.micro`のSSM踏み台を再構築し、踏み台内の`yukisaki-psql`から7件を直接SELECTできることを確認済み
+- 旧踏み台とローカルのDBポートフォワーディング／Docker版`psql`環境は削除済み
+- 接続検証後は踏み台を停止済み。RDSは非公開、踏み台Security Groupにも受信ルールはない
 
 ## ローカル検証
 

@@ -44,6 +44,62 @@ describe('DataPipelineStack', () => {
     });
   });
 
+  test('creates an outbound-only ARM SSM bastion for PostgreSQL access', () => {
+    template.resourceCountIs('AWS::EC2::Instance', 1);
+    template.hasResourceProperties('AWS::EC2::Instance', {
+      InstanceType: 't4g.micro',
+      NetworkInterfaces: [
+        {
+          AssociatePublicIpAddress: true,
+          DeviceIndex: '0',
+        },
+      ],
+    });
+    template.hasResourceProperties('AWS::EC2::LaunchTemplate', {
+      LaunchTemplateData: { MetadataOptions: { HttpTokens: 'required' } },
+    });
+    template.hasResourceProperties('AWS::IAM::Role', {
+      ManagedPolicyArns: [
+        {
+          'Fn::Join': [
+            '',
+            [
+              'arn:',
+              { Ref: 'AWS::Partition' },
+              ':iam::aws:policy/AmazonSSMManagedInstanceCore',
+            ],
+          ],
+        },
+      ],
+    });
+    template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
+      Description: 'Allow PostgreSQL only from the SSM database bastion',
+      IpProtocol: 'tcp',
+    });
+    const bastionSecurityGroups = template.findResources('AWS::EC2::SecurityGroup', {
+      Properties: {
+        GroupDescription: 'Outbound-only security group for the SSM PostgreSQL bastion',
+      },
+    });
+    const bastionSecurityGroup = Object.values(bastionSecurityGroups)[0];
+    expect(bastionSecurityGroup.Properties.SecurityGroupIngress).toBeUndefined();
+    const bastionInstances = template.findResources('AWS::EC2::Instance');
+    const bastionInstance = Object.values(bastionInstances)[0];
+    const userData = JSON.stringify(bastionInstance.Properties.UserData);
+    expect(userData).toContain('postgresql16');
+    expect(userData).toContain('yukisaki-psql');
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: {
+        Statement: [
+          {
+            Action: ['secretsmanager:GetSecretValue', 'secretsmanager:DescribeSecret'],
+            Effect: 'Allow',
+          },
+        ],
+      },
+    });
+  });
+
   test('uses one Secrets Manager endpoint ENI for the Single-AZ development database', () => {
     const endpoints = template.findResources('AWS::EC2::VPCEndpoint', {
       Properties: { VpcEndpointType: 'Interface' },
