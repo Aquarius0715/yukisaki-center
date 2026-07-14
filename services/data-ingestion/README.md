@@ -28,4 +28,4 @@
 - `docs/`: S3入出力契約
 - `AGENTS.md`: このサービスを扱うAI向け指示
 
-Docker単体テストは`infrastructure/cdk`で`npm run test:services`を実行する。道路収集コンテナはDockerfileの`road-runtime`ターゲットであり、Fargateタスクにはアクセスキーを渡さず、Task IAM RoleでS3の`raw/osm/road-network/`とmanifestだけへ書き込む。
+Docker単体テストは`infrastructure/cdk`で`npm run test:services`を実行する。道路収集コンテナはDockerfileの`road-runtime`ターゲットであり、独立した`YukisakiRoadCollector-*` Fargateスタックが道路専用S3バケットの`raw/osm/road-network/`とmanifestだけへの書込み権限を持つ。

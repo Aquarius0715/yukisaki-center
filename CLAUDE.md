@@ -17,9 +17,9 @@
 - Atomフィード項目のJSON Lines正規化
 - S3の`normalized/`、`quarantine/`、`manifests/`への出力
 - S3 JSON LinesをPostgreSQLへ冪等ロードするコンテナ用ローダーとローカルDBスキーマ
-- AWS CDKによるS3、Lambda、ECS Fargate道路バッチ、EventBridge Scheduler/Rule、SQS DLQ、CloudWatchの構築
+- AWS CDKによる汎用データパイプラインと、独立した道路収集用ECS Fargateスタックの構築
 
-RDS、標高・勾配、除雪車GPS、消雪パイプ、走りやすさ指数、経路探索、AI、API、Web画面は未実装または骨組みのみである。道路データはOpenStreetMapから取得してS3 rawへ保存するFargateバッチまで実装済みである。未実装の機能を、すでに動作しているかのように扱わない。
+RDS、標高・勾配、除雪車GPS、消雪パイプ、走りやすさ指数、経路探索、AI、API、Web画面は未実装または骨組みのみである。道路データはOpenStreetMapから取得して道路専用S3バケットへ保存する独立Fargateバッチまで実装済みである。未実装の機能を、すでに動作しているかのように扱わない。
 
 ## デモ固定条件
 

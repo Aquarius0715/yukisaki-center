@@ -7,7 +7,6 @@ describe('DataPipelineStack', () => {
   const stack = new DataPipelineStack(app, 'TestStack', {
     environment: 'test',
     scheduleMinutes: 60,
-    roadScheduleHours: 168,
     weatherSourceUrl: 'https://www.data.jma.go.jp/developer/xml/feed/regular.xml',
   });
   const template = Template.fromStack(stack);
@@ -50,24 +49,12 @@ describe('DataPipelineStack', () => {
     template.resourceCountIs('AWS::SQS::Queue', 2);
   });
 
-  test('creates a scheduled Fargate task for road collection', () => {
-    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
-      RequiresCompatibilities: ['FARGATE'],
-      Cpu: '1024',
-      Memory: '4096',
-    });
-    template.hasResourceProperties('AWS::Events::Rule', {
-      ScheduleExpression: 'rate(168 hours)',
-    });
-  });
-
   test('rejects insecure source URLs', () => {
     expect(
       () =>
         new DataPipelineStack(new App(), 'InvalidStack', {
           environment: 'test',
           scheduleMinutes: 60,
-          roadScheduleHours: 168,
           weatherSourceUrl: 'http://example.com/feed.xml',
         }),
     ).toThrow('weatherSourceUrl must use HTTPS');
