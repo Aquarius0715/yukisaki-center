@@ -7,6 +7,7 @@
 ## アーキテクチャ図
 
 - [図一覧](architecture/README.md)
+- [地図・除雪車REST API設計書](architecture/map-api-design.md)
 
 ## 実装ガイド
 
@@ -16,3 +17,4 @@
 - [SSM踏み台からRDSを確認する](guides/database-access.md)
 - [道路名ルールによる消雪パイプ仮データ処理](guides/snow-pipe-pipeline.md)
 - [除雪車GPS仮データ・走りやすさ指数パイプライン](guides/gps-pipeline.md)
+- [フロントエンドから地図・除雪車APIを使う](guides/frontend-map-api.md)

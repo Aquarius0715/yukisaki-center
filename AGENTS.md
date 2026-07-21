@@ -22,16 +22,17 @@
 - curated道路はSQSを介してprivate Lambdaから共通RDS PostgreSQL `yukisaki`の`road_segments`と`snow_pipe_history`へ冪等ロードする。気象と同じDBインスタンス・DBユーザー・Secrets Manager認証情報を使用し、RDS停止中もS3処理を継続してロード要求をキューに保持する
 - GPSシミュレータは1つのECS Fargateタスク内で3台の除雪車を5秒間隔で走行させ、EventBridgeカスタムバスへ`is_simulated: true`の位置イベントを送信する。2つのSQSへfan-outし、S3 `raw/`への不変保存と、道路区間へマッチングした`normalized/`・`curated/snowplow-passages/`を経由する共通RDS投影を分離する
 - 走りやすさ指数はGPSロード後にSQSから起動し、気象、勾配、消雪パイプ、最終除雪時刻を決定的なルールで評価する。S3 `curated/drivability-scores/`を正本とし、共通RDS `drivability_scores`へ投影する
-- AWS CDKでは気象データパイプライン、道路収集、消雪パイプ処理、GPS・指数処理を別スタックとして管理
-- Weather、道路、消雪パイプmanifestはEventBridge Ruleを共通の入口とし、3つのRuleはデプロイ時に`DISABLED`。単一RDS、3つのRule、関連Lambda、道路Fargate、GPS Fargateは`env:start|stop|status`でまとめて管理する
+- REST APIはAPI Gateway HTTP APIとDockerイメージLambdaで実装し、共通RDSの道路・指数・消雪パイプ・最新除雪車位置をGeoJSONで返す。道路は`bbox`で絞り、GPSは別エンドポイントから更新できる
+- AWS CDKでは気象データパイプライン、道路収集、消雪パイプ処理、GPS・指数処理、公開APIを別スタックとして管理
+- Weather、道路、消雪パイプmanifestはEventBridge Ruleを共通の入口とし、3つのRuleはデプロイ時に`DISABLED`。単一RDS、3つのRule、関連Lambda（Map APIを含む）、道路Fargate、GPS Fargateは`env:start|stop|status`でまとめて管理する
 - 全Collectorは共通メタデータ契約で`run_id`、取得日時、対象期間、出典URL、SHA-256をS3 metadata/manifestへ保持し、PostgreSQLへ直接書かない
 - `services/`直下の8サービスはすべてDockerfileを持ち、ローカルテストもDocker Composeから実行する
-- 2026-07-21にコミット`af637bd`の4スタックをAWSへデプロイ済み。気象7件・道路4,944件・消雪パイプ履歴4,944件に加え、GPSモック3台のS3 raw/normalized/curated、共通RDSの最新位置・通過履歴、S3/RDSの走りやすさ指数を確認し、GPS関連DLQ 4つが0件であることを確認した。旧Snow Pipe専用RDS・VPC・Secret・自動バックアップは削除済みで、S3正本は維持している
+- 2026-07-21に気象、道路、消雪パイプ、GPS・指数、公開APIの5スタックをAWSへデプロイ済み。気象7件・道路4,944件・消雪パイプ履歴4,944件に加え、GPSモック3台のS3 raw/normalized/curated、共通RDSの最新位置・通過履歴、S3/RDSの走りやすさ指数を確認した。公開APIでは道路GeoJSON、3台の最新位置、道路IDとの紐付け、CORSを実レスポンスで確認済み。旧Snow Pipe専用RDS・VPC・Secret・自動バックアップは削除済みで、S3正本は維持している
 - 旧JMA Atom Collector、旧Normalizer、固定fixture Lambda、旧気象用EventBridge SchedulerはAWSから削除済み
 - AWS実行系は開発・デモ時だけ起動し、`npm run env:start|stop|status`で管理する。S3等の正本は停止対象にしない
 - RDSの直接確認は`db:start|stop`でRDSとSSM踏み台をまとめて起動・停止し、Session Managerで入って踏み台内の`yukisaki-psql`から行う。RDSは非公開とし、踏み台には受信ルールを設けない
 
-標高・勾配、経路探索、AI、API、Web画面は未実装または骨組みのみである。除雪車GPS、消雪パイプ、走りやすさ指数はデモ用の仮データ・ルールベース処理であり、実設備データではない。未実装の機能を、すでに動作しているかのように扱わない。
+標高・勾配、経路探索、AI、Web画面は未実装または骨組みのみである。除雪車GPS、消雪パイプ、走りやすさ指数はデモ用の仮データ・ルールベース処理であり、実設備データではない。未実装の機能を、すでに動作しているかのように扱わない。
 
 ## デモ固定条件
 
@@ -54,7 +55,7 @@ services/                     アプリケーションサービス
   drivability-scoring/        ルールベースの走りやすさ指数
   route-planning/             経路探索（未実装）
   ai-assistant/               自然言語・比較・危険説明（未実装）
-  api/                        REST API（未実装）
+  api/                        道路・指数・除雪車のREST API
   web/                        Webフロントエンド（未実装）
 
 infrastructure/               AWS・開発基盤

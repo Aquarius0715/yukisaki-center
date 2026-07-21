@@ -8,7 +8,7 @@ AWSリソースを次の3種類に分ける。
 |---|---|---|
 | `persistent` | 開発停止中も維持 | S3原本、EventBridge、SQS、DLQ、ECR、ログ |
 | `runtime` | 開発・デモ時だけ起動 | 共通RDS、GPS Simulator、DBへ接続する処理 |
-| `on-demand` | リクエスト時だけ実行 | Collector Lambda、DB確認用SSM踏み台、将来のAPI Lambda |
+| `on-demand` | リクエスト時だけ実行 | Collector Lambda、DB確認用SSM踏み台、API Gateway経由のAPI Lambda |
 
 S3を正本とし、PostgreSQLなどの`runtime`はS3から再構築できる状態を保つ。データを守るため、停止操作でS3を削除しない。
 
@@ -33,12 +33,12 @@ npm run env:start -- --profile yukisaki-dev
 
 1. Weather、道路、消雪パイプmanifestのEventBridge Ruleを無効化する。
 2. GPS Simulator ECS Serviceを`desiredCount=0`にする。
-3. Weather、Snow Pipe、GPS、指数計算Lambdaの予約同時実行数を0にする。
+3. Weather、Snow Pipe、GPS、指数計算、Map API Lambdaの予約同時実行数を0にする。
 4. 実行中の道路Fargateタスクへ停止を要求する。
 5. 全サービス共通RDSへ停止を要求する。
 6. EventBridge、S3、ECR、Secrets Manager、SQS、DLQ、ログは維持する。
 
-`env:start`は共通RDSを起動して利用可能になるまで待つ。その後に関連Lambdaと3つのEventBridge Ruleを有効化し、GPS Simulatorを1タスク起動する。RDSの起動には数分以上かかる場合があるため、デモ直前ではなく余裕を持って実行する。
+`env:start`は共通RDSを起動して利用可能になるまで待つ。その後に関連Lambda（Map APIを含む）と3つのEventBridge Ruleを有効化し、GPS Simulatorを1タスク起動する。RDSの起動には数分以上かかる場合があるため、デモ直前ではなく余裕を持って実行する。
 
 CDKのデプロイやデータ投入を行う前にも`env:start`を実行する。停止中にS3の対象プレフィックスへ新しい原本を置くと処理されないため、手動アップロードを行わない。
 

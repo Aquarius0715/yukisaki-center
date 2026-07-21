@@ -10,7 +10,7 @@ S3を全データの正本とする。各サービスは、別サービスの実
 | `drivability-scoring/` | 区間ごとの指数・信頼度を算出 | curated、気象、設備、GPS | S3 `curated/drivability-scores/`、PostgreSQL | GPS通過時のルール計算を実装済み |
 | `route-planning/` | 指数をコストとして経路探索 | PostgreSQL/PostGIS | 経路候補 | 設計済み |
 | `ai-assistant/` | 自然言語解析、経路比較、危険説明 | REST APIが返す根拠データ | 構造化条件、説明文 | 設計済み |
-| `api/` | REST API、認可、入力検証 | PostgreSQL、各サービス | JSON / GeoJSON | 設計済み |
+| `api/` | REST API、CORS、入力検証 | PostgreSQLの配信用投影 | 道路・指数・除雪車JSON / GeoJSON | 実装済み（既定停止） |
 | `web/` | 地図・経路・説明の利用者画面 | REST API | ブラウザ画面 | 設計済み |
 
 ## 正本と派生データ

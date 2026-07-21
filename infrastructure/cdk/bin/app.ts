@@ -4,6 +4,7 @@ import { DataPipelineStack } from '../lib/data-pipeline-stack';
 import { RoadCollectorStack } from '../lib/road-collector-stack';
 import { SnowPipePipelineStack } from '../lib/snow-pipe-pipeline-stack';
 import { GpsPipelineStack } from '../lib/gps-pipeline-stack';
+import { ApiStack } from '../lib/api-stack';
 
 const app = new cdk.App();
 const environment = app.node.tryGetContext('environment') ?? 'dev';
@@ -82,4 +83,17 @@ new GpsPipelineStack(app, `YukisakiGpsPipeline-${environment}`, {
     region,
   },
   description: 'Three simulated snowplows streamed through EventBridge, S3, PostgreSQL, and scoring',
+});
+
+new ApiStack(app, `YukisakiApi-${environment}`, {
+  environment,
+  databaseVpc: dataPipelineStack.databaseVpc,
+  database: dataPipelineStack.database,
+  databaseSecret: dataPipelineStack.database.secret!,
+  databaseName: 'yukisaki',
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region,
+  },
+  description: 'Public GeoJSON API for road segments and simulated snowplow positions',
 });
