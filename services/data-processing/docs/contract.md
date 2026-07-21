@@ -33,3 +33,14 @@ curated/road-segments/snapshot_date={date}/run_id={run_id}/road_segments_enriche
 `raw/simulated/snow-pipe/`とこのcurated出力はSnow Pipe専用データバケットに置き、道路入力バケットやCloudTrailログ用バケットには保存しない。
 
 curated保存成功後にSQSへロード要求を送り、private Lambdaが気象と共通のRDS PostgreSQL `yukisaki`へ同じDBユーザー・Secrets Manager認証情報で接続し、単一トランザクションで`road_segments`と`snow_pipe_history`へ冪等UPSERTする。`road_segments_enriched`ビューは最新の設備履歴を道路へ結合する。共通RDS停止中はSQSに要求を保持し、S3正本の生成は継続する。
+
+## 除雪車GPS処理
+
+`ground_truth_segment_id`はシミュレーターの正解、`matched_segment_id`は最近傍LineStringへ前処理した結果として分離する。次のS3出力後にだけDBロード要求を送る。
+
+```text
+normalized/simulated/plow-gps/event_date={date}/hour={hour}/run_id={run_id}/events.jsonl
+curated/snowplow-passages/event_date={date}/hour={hour}/run_id={run_id}/passages.jsonl
+```
+
+PostgreSQLは`snowplow_vehicles`、`snowplow_positions_latest`、`snowplow_segment_passages`を持ち、`data_load_runs`へcuratedキーと件数を記録する。

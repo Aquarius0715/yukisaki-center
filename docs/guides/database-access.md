@@ -2,7 +2,7 @@
 
 ## 構成
 
-気象、道路、消雪パイプは単一のRDS PostgreSQL `yukisaki`と単一のDBユーザー・Secrets Manager認証情報を共有する。RDSはprivate isolated subnetのまま公開しない。受信ポートを持たないEC2踏み台へAWS Systems Manager Session Managerで入り、踏み台内のPostgreSQL 16クライアントから全テーブルを確認する。
+気象、道路、消雪パイプ、除雪車GPS、走りやすさ指数は単一のRDS PostgreSQL `yukisaki`と単一のDBユーザー・Secrets Manager認証情報を共有する。RDSはprivate isolated subnetのまま公開しない。受信ポートを持たないEC2踏み台へAWS Systems Manager Session Managerで入り、踏み台内のPostgreSQL 16クライアントから全テーブルを確認する。
 
 ```text
 ローカルのターミナル
@@ -61,6 +61,9 @@ yukisaki-psql
 \d weather_hourly_windows
 \d road_segments
 \d snow_pipe_history
+\d snowplow_positions_latest
+\d snowplow_segment_passages
+\d drivability_scores
 
 SELECT relative_hour, data_kind, valid_time, temperature_c,
        precipitation_mm, snowfall_cm, snow_depth_m
@@ -78,6 +81,23 @@ SELECT segment_id, road_name, snow_pipe, operation_status,
        effectiveness, snow_pipe_updated_at
 FROM road_segments_enriched
 ORDER BY segment_id
+LIMIT 20;
+
+SELECT vehicle_id, observed_at, matched_segment_id,
+       speed_kmh, latitude, longitude, is_simulated
+FROM snowplow_positions_latest
+ORDER BY vehicle_id;
+
+SELECT vehicle_id, segment_id, observed_at, speed_kmh,
+       match_distance_m, run_id
+FROM snowplow_segment_passages
+ORDER BY observed_at DESC
+LIMIT 20;
+
+SELECT segment_id, data_timestamp, score, confidence,
+       rule_version, is_simulated
+FROM drivability_scores
+ORDER BY data_timestamp DESC, segment_id
 LIMIT 20;
 ```
 

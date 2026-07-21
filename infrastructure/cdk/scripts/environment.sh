@@ -3,7 +3,7 @@ set -euo pipefail
 
 ACTION="${1:-}"
 if [[ -z "${ACTION}" ]]; then
-  echo "Usage: $0 <start|stop|status> [--profile PROFILE] [--region REGION] [--data-stack STACK] [--road-stack STACK] [--snow-stack STACK]" >&2
+  echo "Usage: $0 <start|stop|status> [--profile PROFILE] [--region REGION] [--data-stack STACK] [--road-stack STACK] [--snow-stack STACK] [--gps-stack STACK] [--api-stack STACK]" >&2
   exit 2
 fi
 shift
@@ -13,6 +13,8 @@ REGION="${AWS_REGION:-ap-northeast-1}"
 STACK_NAME="${STACK_NAME:-YukisakiDataPipeline-dev}"
 ROAD_STACK_NAME="${ROAD_STACK_NAME:-YukisakiRoadCollector-dev}"
 SNOW_STACK_NAME="${SNOW_STACK_NAME:-YukisakiSnowPipePipeline-dev}"
+GPS_STACK_NAME="${GPS_STACK_NAME:-YukisakiGpsPipeline-dev}"
+API_STACK_NAME="${API_STACK_NAME:-YukisakiApi-dev}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -34,6 +36,14 @@ while [[ $# -gt 0 ]]; do
       ;;
     --snow-stack)
       SNOW_STACK_NAME="$2"
+      shift 2
+      ;;
+    --gps-stack)
+      GPS_STACK_NAME="$2"
+      shift 2
+      ;;
+    --api-stack)
+      API_STACK_NAME="$2"
       shift 2
       ;;
     *)
@@ -67,11 +77,21 @@ ROAD_SCHEDULE="$(stack_output "${ROAD_STACK_NAME}" RoadScheduleName)"
 ROAD_CLUSTER="$(stack_output "${ROAD_STACK_NAME}" RoadClusterName)"
 SNOW_LOADER_FUNCTION="$(stack_output "${SNOW_STACK_NAME}" RoadDatabaseLoaderFunctionName)"
 SNOW_MANIFEST_RULE="$(stack_output "${SNOW_STACK_NAME}" SnowPipeManifestRuleName)"
+GPS_CLUSTER="$(stack_output "${GPS_STACK_NAME}" GpsSimulatorClusterName)"
+GPS_SERVICE="$(stack_output "${GPS_STACK_NAME}" GpsSimulatorServiceName)"
+GPS_ARCHIVER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsRawArchiverFunctionName)"
+GPS_MATCHER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsMapMatcherFunctionName)"
+GPS_LOADER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsDatabaseLoaderFunctionName)"
+GPS_SCORER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" DrivabilityScorerFunctionName)"
+API_FUNCTION="$(stack_output "${API_STACK_NAME}" ApiFunctionName)"
+API_URL="$(stack_output "${API_STACK_NAME}" ApiUrl)"
 
 for required_output in \
   "${DATABASE_ID}" "${COLLECTOR_FUNCTION}" "${LOADER_FUNCTION}" "${WEATHER_SCHEDULE}" \
   "${ROAD_SCHEDULE}" "${ROAD_CLUSTER}" "${SNOW_LOADER_FUNCTION}" \
-  "${SNOW_MANIFEST_RULE}"; do
+  "${SNOW_MANIFEST_RULE}" "${GPS_CLUSTER}" "${GPS_SERVICE}" \
+  "${GPS_ARCHIVER_FUNCTION}" "${GPS_MATCHER_FUNCTION}" "${GPS_LOADER_FUNCTION}" \
+  "${GPS_SCORER_FUNCTION}" "${API_FUNCTION}" "${API_URL}"; do
   if [[ "${required_output}" == "None" || -z "${required_output}" ]]; then
     echo "Required CloudFormation outputs are missing. Deploy all latest CDK stacks first." >&2
     exit 1
@@ -200,27 +220,59 @@ stop_road_tasks() {
   echo "Stop requested for ${stopped} road Fargate task(s)."
 }
 
+gps_running_task_count() {
+  aws_cli ecs describe-services \
+    --cluster "${GPS_CLUSTER}" --services "${GPS_SERVICE}" \
+    --query 'services[0].runningCount' --output text
+}
+
+gps_desired_task_count() {
+  aws_cli ecs describe-services \
+    --cluster "${GPS_CLUSTER}" --services "${GPS_SERVICE}" \
+    --query 'services[0].desiredCount' --output text
+}
+
+scale_gps_simulator() {
+  aws_cli ecs update-service \
+    --cluster "${GPS_CLUSTER}" --service "${GPS_SERVICE}" \
+    --desired-count "$1" >/dev/null
+}
+
 case "${ACTION}" in
   status)
     echo "dataStack=${STACK_NAME}"
     echo "roadStack=${ROAD_STACK_NAME}"
     echo "snowStack=${SNOW_STACK_NAME}"
+    echo "gpsStack=${GPS_STACK_NAME}"
+    echo "apiStack=${API_STACK_NAME}"
     echo "database=${DATABASE_ID} status=$(database_status "${DATABASE_ID}")"
     echo "collector=${COLLECTOR_FUNCTION} state=$(function_state "${COLLECTOR_FUNCTION}")"
     echo "loader=${LOADER_FUNCTION} state=$(function_state "${LOADER_FUNCTION}")"
     echo "snowLoader=${SNOW_LOADER_FUNCTION} state=$(function_state "${SNOW_LOADER_FUNCTION}")"
+    echo "gpsArchiver=${GPS_ARCHIVER_FUNCTION} state=$(function_state "${GPS_ARCHIVER_FUNCTION}")"
+    echo "gpsMatcher=${GPS_MATCHER_FUNCTION} state=$(function_state "${GPS_MATCHER_FUNCTION}")"
+    echo "gpsLoader=${GPS_LOADER_FUNCTION} state=$(function_state "${GPS_LOADER_FUNCTION}")"
+    echo "drivabilityScorer=${GPS_SCORER_FUNCTION} state=$(function_state "${GPS_SCORER_FUNCTION}")"
+    echo "mapApi=${API_FUNCTION} state=$(function_state "${API_FUNCTION}") url=${API_URL}"
     echo "weatherSchedule=${WEATHER_SCHEDULE} state=$(rule_state "${WEATHER_SCHEDULE}")"
     echo "roadSchedule=${ROAD_SCHEDULE} state=$(rule_state "${ROAD_SCHEDULE}")"
     echo "snowManifestRule=${SNOW_MANIFEST_RULE} state=$(rule_state "${SNOW_MANIFEST_RULE}")"
     echo "roadFargate cluster=${ROAD_CLUSTER} runningTasks=$(road_running_task_count)"
+    echo "gpsSimulator cluster=${GPS_CLUSTER} service=${GPS_SERVICE} desiredTasks=$(gps_desired_task_count) runningTasks=$(gps_running_task_count) vehicles=3"
     ;;
   stop)
     disable_rule "${ROAD_SCHEDULE}"
     disable_rule "${WEATHER_SCHEDULE}"
     disable_rule "${SNOW_MANIFEST_RULE}"
+    scale_gps_simulator 0
     pause_function "${COLLECTOR_FUNCTION}"
     pause_function "${LOADER_FUNCTION}"
     pause_function "${SNOW_LOADER_FUNCTION}"
+    pause_function "${GPS_ARCHIVER_FUNCTION}"
+    pause_function "${GPS_MATCHER_FUNCTION}"
+    pause_function "${GPS_LOADER_FUNCTION}"
+    pause_function "${GPS_SCORER_FUNCTION}"
+    pause_function "${API_FUNCTION}"
     stop_road_tasks
     stop_failed=false
     request_database_stop "${DATABASE_ID}" || stop_failed=true
@@ -235,10 +287,16 @@ case "${ACTION}" in
     resume_function "${COLLECTOR_FUNCTION}"
     resume_function "${LOADER_FUNCTION}"
     resume_function "${SNOW_LOADER_FUNCTION}"
+    resume_function "${GPS_ARCHIVER_FUNCTION}"
+    resume_function "${GPS_MATCHER_FUNCTION}"
+    resume_function "${GPS_LOADER_FUNCTION}"
+    resume_function "${GPS_SCORER_FUNCTION}"
+    resume_function "${API_FUNCTION}"
     enable_rule "${SNOW_MANIFEST_RULE}"
     enable_rule "${WEATHER_SCHEDULE}"
     enable_rule "${ROAD_SCHEDULE}"
-    echo "The unified database is available. Lambda execution and collection rules are enabled."
+    scale_gps_simulator 1
+    echo "The unified database is available. Lambda execution and collection rules are enabled, and the three-vehicle GPS simulator is starting."
     ;;
   *)
     echo "Unknown action: ${ACTION}" >&2

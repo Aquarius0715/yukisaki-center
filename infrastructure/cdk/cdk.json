@@ -11,6 +11,8 @@
     "roadScheduleEnabled": false,
     "roadScheduleHours": 168,
     "snowPipeManifestRuleEnabled": false,
+    "gpsSimulatorEnabled": false,
+    "gpsEmitIntervalSeconds": 5,
     "@aws-cdk/core:defaultCrossStackReferences": "strong"
   }
 }

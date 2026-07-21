@@ -464,7 +464,8 @@ $$
 |---|---|
 | Web配信 | Amazon S3、Amazon CloudFront |
 | API公開 | Amazon API Gateway |
-| API・経路探索 | Amazon ECS Fargate |
+| API | Amazon API Gateway、AWS Lambda（コンテナイメージ） |
+| 経路探索 | Amazon ECS Fargate |
 | 定期データ取得 | Amazon EventBridge、AWS Lambda、Amazon ECS Fargate |
 | 元データ保存 | Amazon S3 |
 | 地理空間DB | Amazon RDS for PostgreSQL、PostGIS、pgRouting |
@@ -479,6 +480,8 @@ $$
 |---|---|---|
 | GET | `/v1/road-segments` | 表示範囲内の道路区間と指数を取得 |
 | GET | `/v1/road-segments/{id}` | 道路区間詳細を取得 |
+| GET | `/v1/snowplows` | 除雪車の最新位置をGeoJSONで取得 |
+| GET | `/v1/map/snapshot` | 初期地図表示用に道路と除雪車を一括取得 |
 | POST | `/v1/routes` | 出発地、目的地、モードから経路を探索 |
 | POST | `/v1/ai/parse-route-request` | 自然言語から地点名と経路条件を抽出 |
 | POST | `/v1/ai/explain-routes` | 確定済みの候補経路を比較説明 |

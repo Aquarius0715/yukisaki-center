@@ -1,0 +1,1 @@
+"""Simulated snowplow GPS producer."""
