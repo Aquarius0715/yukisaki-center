@@ -52,10 +52,10 @@ Road Collector Fargate
        -> S3 curated
        -> SQS
   -> private PostgreSQL Loader Lambda
-  -> Snow Pipe専用RDS PostgreSQL (`yukisaki_map`)
+  -> 共通RDS PostgreSQL (`yukisaki`)
 ```
 
-Snow PipeスタックのCloudTrail data eventは、既存道路スタックや道路S3の通知設定を変更せず、道路バケットの`manifests/data-ingestion/`への書込みだけをEventBridgeへ渡す。道路GeoJSONは道路バケットから読み取り、消雪パイプ仮データ、統合GeoJSON、各manifestはSnow Pipe専用データバケットへ保存する。CloudTrailログ用バケットはデータバケットとは別に管理する。生成・統合LambdaはVPC外、DB LoaderだけをSnow Pipe専用VPCのprivate subnetへ置く。専用RDSは気象RDSと共有しない。RDS停止中はSQSがロード要求を保持するため、S3正本の生成とDB稼働状態を分離できる。
+Snow PipeスタックのCloudTrail data eventは、既存道路スタックや道路S3の通知設定を変更せず、道路バケットの`manifests/data-ingestion/`への書込みだけをEventBridgeへ渡す。道路GeoJSONは道路バケットから読み取り、消雪パイプ仮データ、統合GeoJSON、各manifestはSnow Pipe専用データバケットへ保存する。CloudTrailログ用バケットはデータバケットとは別に管理する。生成・統合LambdaはVPC外、DB Loaderだけを共通DB VPCのprivate subnetへ置く。気象と道路・消雪パイプは単一RDS、単一DBユーザー、単一Secrets Manager認証情報を共有する。RDS停止中はSQSがロード要求を保持するため、S3正本の生成とDB稼働状態を分離できる。
 
 ## デモの固定入力
 

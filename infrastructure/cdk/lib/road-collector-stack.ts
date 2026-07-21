@@ -19,6 +19,8 @@ export interface RoadCollectorStackProps extends StackProps {
 
 /** An isolated OSM road collector. It deliberately has no dependency on DataPipelineStack. */
 export class RoadCollectorStack extends Stack {
+  public readonly dataBucket: s3.Bucket;
+
   constructor(scope: Construct, id: string, props: RoadCollectorStackProps) {
     super(scope, id, props);
     if (!Number.isInteger(props.scheduleHours) || props.scheduleHours < 1) {
@@ -30,7 +32,7 @@ export class RoadCollectorStack extends Stack {
     Tags.of(this).add('Component', 'road-collector');
     Tags.of(this).add('ManagedBy', 'aws-cdk');
 
-    const roadBucket = new s3.Bucket(this, 'RoadDataBucket', {
+    this.dataBucket = new s3.Bucket(this, 'RoadDataBucket', {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       encryption: s3.BucketEncryption.S3_MANAGED,
       enforceSSL: true,
@@ -42,9 +44,9 @@ export class RoadCollectorStack extends Stack {
         abortIncompleteMultipartUploadAfter: Duration.days(7),
       }],
     });
-    Tags.of(roadBucket).add('Service', 'data-platform');
-    Tags.of(roadBucket).add('Component', 'road-collector');
-    Tags.of(roadBucket).add('Lifecycle', 'persistent');
+    Tags.of(this.dataBucket).add('Service', 'data-platform');
+    Tags.of(this.dataBucket).add('Component', 'road-collector');
+    Tags.of(this.dataBucket).add('Lifecycle', 'persistent');
     const schedulerDlq = new sqs.Queue(this, 'RoadSchedulerDeadLetterQueue', {
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       retentionPeriod: Duration.days(14),
@@ -87,7 +89,7 @@ export class RoadCollectorStack extends Stack {
       ),
       logging: ecs.LogDrivers.awsLogs({ logGroup, streamPrefix: 'road' }),
       environment: {
-        DATA_BUCKET: roadBucket.bucketName,
+        DATA_BUCKET: this.dataBucket.bucketName,
         ROAD_S3_DATASET: 'road-network',
         UPLOAD_TO_S3: 'true',
         AWS_REGION: this.region,
@@ -96,8 +98,8 @@ export class RoadCollectorStack extends Stack {
         FALLBACK_RADIUS_M: '1500',
       },
     });
-    roadBucket.grantPut(taskDefinition.taskRole, 'raw/osm/road-network/*');
-    roadBucket.grantPut(taskDefinition.taskRole, 'manifests/data-ingestion/*');
+    this.dataBucket.grantPut(taskDefinition.taskRole, 'raw/osm/road-network/*');
+    this.dataBucket.grantPut(taskDefinition.taskRole, 'manifests/data-ingestion/*');
 
     const collectionSchedule = new events.Rule(this, 'RoadCollectionSchedule', {
       description: 'Runs the OpenStreetMap road collector as an isolated ECS Fargate task',
@@ -129,7 +131,7 @@ export class RoadCollectorStack extends Stack {
       treatMissingData: cloudwatch.TreatMissingData.NOT_BREACHING,
     });
 
-    new CfnOutput(this, 'RoadDataBucketName', { value: roadBucket.bucketName });
+    new CfnOutput(this, 'RoadDataBucketName', { value: this.dataBucket.bucketName });
     new CfnOutput(this, 'RoadClusterName', { value: cluster.clusterName });
     new CfnOutput(this, 'RoadTaskDefinitionArn', { value: taskDefinition.taskDefinitionArn });
     new CfnOutput(this, 'RoadScheduleName', { value: collectionSchedule.ruleName });

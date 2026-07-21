@@ -99,7 +99,7 @@ Collect
 
 `PublishLatest`は品質検査成功後だけ実行する。
 
-道路の消雪パイプ仮データ処理では、S3の道路完了manifestをCloudTrail/EventBridgeで検知し、Standard Step Functionsで生成Lambdaと統合Lambdaを直列実行する。統合済みcuratedを保存した後にSQSへロード要求を送り、DB LoaderだけをSnow Pipe専用VPCのprivate subnetへ配置する。専用RDSは気象RDSと分離し、停止中に自動起動せずSQSへ要求を保持する。
+道路の消雪パイプ仮データ処理では、S3の道路完了manifestをCloudTrail/EventBridgeで検知し、Standard Step Functionsで生成Lambdaと統合Lambdaを直列実行する。統合済みcuratedを保存した後にSQSへロード要求を送り、DB Loaderだけを共通DB VPCのprivate subnetへ配置する。気象と同じRDS・DBユーザー・Secrets Manager認証情報を使用し、RDS停止中はSQSへ要求を保持する。
 
 ### Step 9: VPCとRDS
 

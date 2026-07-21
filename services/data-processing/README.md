@@ -18,7 +18,7 @@ S3 raw response.json
 - `src/data_processing/snow_pipe/pipeline.py`: 道路・消雪パイプ統合、curated保存、SQS経由PostgreSQLロード
 - `tests/snow_pipe/test_pipeline.py`: 統合契約とDB行変換の単体テスト
 
-道路処理は、道路Collectorの完了manifestをCloudTrail/EventBridgeで検知してStep Functionsを開始する。道路バケットからGeoJSONを読み、統合済みGeoJSONをSnow Pipe専用S3の`curated/road-segments/`へ保存してからSQSへロード要求を送る。Snow Pipe専用RDS起動中にprivate Loader Lambdaが`yukisaki_map`の`road_segments`と`snow_pipe_history`へ冪等UPSERTする。気象RDSは使用しない。
+道路処理は、道路Collectorの完了manifestをCloudTrail/EventBridgeで検知してStep Functionsを開始する。道路バケットからGeoJSONを読み、統合済みGeoJSONをSnow Pipe専用S3の`curated/road-segments/`へ保存してからSQSへロード要求を送る。private Loader Lambdaは気象と共通のRDS PostgreSQL `yukisaki`へ同じ認証情報で接続し、`road_segments`と`snow_pipe_history`へ冪等UPSERTする。
 - `config/requirements-loader.txt`: LambdaのPostgreSQLドライバー
 - `docs/contract.md`: テーブル・項目契約
 - `AGENTS.md`: AI向け作業指示

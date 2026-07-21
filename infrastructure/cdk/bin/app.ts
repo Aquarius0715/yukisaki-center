@@ -2,6 +2,7 @@
 import * as cdk from 'aws-cdk-lib';
 import { DataPipelineStack } from '../lib/data-pipeline-stack';
 import { RoadCollectorStack } from '../lib/road-collector-stack';
+import { SnowPipePipelineStack } from '../lib/snow-pipe-pipeline-stack';
 
 const app = new cdk.App();
 const environment = app.node.tryGetContext('environment') ?? 'dev';
@@ -18,7 +19,7 @@ const contextBoolean = (key: string, defaultValue: boolean): boolean => {
   return String(value).trim().toLowerCase() === 'true';
 };
 
-new DataPipelineStack(app, `YukisakiDataPipeline-${environment}`, {
+const dataPipelineStack = new DataPipelineStack(app, `YukisakiDataPipeline-${environment}`, {
   environment,
   scheduleEnabled: contextBoolean('weatherScheduleEnabled', false),
   scheduleHours: Number(app.node.tryGetContext('weatherScheduleHours') ?? 24),
@@ -33,7 +34,7 @@ new DataPipelineStack(app, `YukisakiDataPipeline-${environment}`, {
   description: 'Yukisaki historical weather window to PostgreSQL pipeline',
 });
 
-new RoadCollectorStack(app, `YukisakiRoadCollector-${environment}`, {
+const roadCollectorStack = new RoadCollectorStack(app, `YukisakiRoadCollector-${environment}`, {
   environment,
   scheduleEnabled: contextBoolean('roadScheduleEnabled', false),
   scheduleHours: Number(app.node.tryGetContext('roadScheduleHours') ?? 168),
@@ -42,4 +43,21 @@ new RoadCollectorStack(app, `YukisakiRoadCollector-${environment}`, {
     region,
   },
   description: 'Isolated OpenStreetMap road collection pipeline',
+});
+
+new SnowPipePipelineStack(app, `YukisakiSnowPipePipeline-${environment}`, {
+  environment,
+  targetReferenceTime:
+    app.node.tryGetContext('targetReferenceTime') ?? '2026-01-23T12:00:00+09:00',
+  roadBucket: roadCollectorStack.dataBucket,
+  databaseVpc: dataPipelineStack.databaseVpc,
+  database: dataPipelineStack.database,
+  databaseSecret: dataPipelineStack.database.secret!,
+  databaseName: 'yukisaki',
+  manifestRuleEnabled: contextBoolean('snowPipeManifestRuleEnabled', false),
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region,
+  },
+  description: 'Simulated snow-pipe enrichment loaded into the unified PostgreSQL database',
 });

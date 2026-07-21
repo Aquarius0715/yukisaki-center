@@ -65,13 +65,12 @@ LOADER_FUNCTION="$(stack_output "${STACK_NAME}" LoaderFunctionName)"
 WEATHER_SCHEDULE="$(stack_output "${STACK_NAME}" WeatherScheduleName)"
 ROAD_SCHEDULE="$(stack_output "${ROAD_STACK_NAME}" RoadScheduleName)"
 ROAD_CLUSTER="$(stack_output "${ROAD_STACK_NAME}" RoadClusterName)"
-SNOW_DATABASE_ID="$(stack_output "${SNOW_STACK_NAME}" MapSnowPipeDatabaseIdentifier)"
 SNOW_LOADER_FUNCTION="$(stack_output "${SNOW_STACK_NAME}" RoadDatabaseLoaderFunctionName)"
 SNOW_MANIFEST_RULE="$(stack_output "${SNOW_STACK_NAME}" SnowPipeManifestRuleName)"
 
 for required_output in \
   "${DATABASE_ID}" "${COLLECTOR_FUNCTION}" "${LOADER_FUNCTION}" "${WEATHER_SCHEDULE}" \
-  "${ROAD_SCHEDULE}" "${ROAD_CLUSTER}" "${SNOW_DATABASE_ID}" "${SNOW_LOADER_FUNCTION}" \
+  "${ROAD_SCHEDULE}" "${ROAD_CLUSTER}" "${SNOW_LOADER_FUNCTION}" \
   "${SNOW_MANIFEST_RULE}"; do
   if [[ "${required_output}" == "None" || -z "${required_output}" ]]; then
     echo "Required CloudFormation outputs are missing. Deploy all latest CDK stacks first." >&2
@@ -207,7 +206,6 @@ case "${ACTION}" in
     echo "roadStack=${ROAD_STACK_NAME}"
     echo "snowStack=${SNOW_STACK_NAME}"
     echo "database=${DATABASE_ID} status=$(database_status "${DATABASE_ID}")"
-    echo "snowDatabase=${SNOW_DATABASE_ID} status=$(database_status "${SNOW_DATABASE_ID}")"
     echo "collector=${COLLECTOR_FUNCTION} state=$(function_state "${COLLECTOR_FUNCTION}")"
     echo "loader=${LOADER_FUNCTION} state=$(function_state "${LOADER_FUNCTION}")"
     echo "snowLoader=${SNOW_LOADER_FUNCTION} state=$(function_state "${SNOW_LOADER_FUNCTION}")"
@@ -226,24 +224,21 @@ case "${ACTION}" in
     stop_road_tasks
     stop_failed=false
     request_database_stop "${DATABASE_ID}" || stop_failed=true
-    request_database_stop "${SNOW_DATABASE_ID}" || stop_failed=true
     if [[ "${stop_failed}" == "true" ]]; then
       exit 1
     fi
-    echo "Collection rules are disabled, Lambda execution is paused, and both databases are stopping or stopped."
+    echo "Collection rules are disabled, Lambda execution is paused, and the unified database is stopping or stopped."
     ;;
   start)
     request_database_start "${DATABASE_ID}"
-    request_database_start "${SNOW_DATABASE_ID}"
     wait_for_database "${DATABASE_ID}"
-    wait_for_database "${SNOW_DATABASE_ID}"
     resume_function "${COLLECTOR_FUNCTION}"
     resume_function "${LOADER_FUNCTION}"
     resume_function "${SNOW_LOADER_FUNCTION}"
     enable_rule "${SNOW_MANIFEST_RULE}"
     enable_rule "${WEATHER_SCHEDULE}"
     enable_rule "${ROAD_SCHEDULE}"
-    echo "Both databases are available. Lambda execution and collection rules are enabled."
+    echo "The unified database is available. Lambda execution and collection rules are enabled."
     ;;
   *)
     echo "Unknown action: ${ACTION}" >&2

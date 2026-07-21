@@ -18,6 +18,7 @@ import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as s3 from 'aws-cdk-lib/aws-s3';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as sqs from 'aws-cdk-lib/aws-sqs';
 import * as sfn from 'aws-cdk-lib/aws-stepfunctions';
 import * as tasks from 'aws-cdk-lib/aws-stepfunctions-tasks';
@@ -26,7 +27,11 @@ import { Construct } from 'constructs';
 export interface SnowPipePipelineStackProps extends StackProps {
   readonly environment: string;
   readonly targetReferenceTime: string;
-  readonly roadBucketName: string;
+  readonly roadBucket: s3.IBucket;
+  readonly databaseVpc: ec2.IVpc;
+  readonly database: rds.IDatabaseInstance;
+  readonly databaseSecret: secretsmanager.ISecret;
+  readonly databaseName: string;
   readonly manifestRuleEnabled: boolean;
 }
 
@@ -42,7 +47,6 @@ export class SnowPipePipelineStack extends Stack {
     if (Number.isNaN(new Date(props.targetReferenceTime).valueOf())) {
       throw new Error('targetReferenceTime must be an ISO 8601 timestamp');
     }
-    const roadBucket = s3.Bucket.fromBucketName(this, 'ExistingRoadDataBucket', props.roadBucketName);
     this.dataBucket = new s3.Bucket(this, 'SnowPipeDataBucket', {
       encryption: s3.BucketEncryption.S3_MANAGED,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
@@ -51,43 +55,6 @@ export class SnowPipePipelineStack extends Stack {
       removalPolicy: RemovalPolicy.RETAIN,
       autoDeleteObjects: false,
     });
-    const databaseVpc = new ec2.Vpc(this, 'SnowPipeDatabaseVpc', {
-      maxAzs: 2,
-      natGateways: 0,
-      subnetConfiguration: [{
-        name: 'isolated',
-        subnetType: ec2.SubnetType.PRIVATE_ISOLATED,
-        cidrMask: 24,
-      }],
-    });
-    databaseVpc.addGatewayEndpoint('SnowPipeS3Endpoint', {
-      service: ec2.GatewayVpcEndpointAwsService.S3,
-    });
-    databaseVpc.addInterfaceEndpoint('SnowPipeSecretsManagerEndpoint', {
-      service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
-      privateDnsEnabled: true,
-      subnets: { subnets: [databaseVpc.isolatedSubnets[0]] },
-    });
-    const database = new rds.DatabaseInstance(this, 'MapSnowPipeDatabase', {
-      engine: rds.DatabaseInstanceEngine.postgres({ version: rds.PostgresEngineVersion.VER_16 }),
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
-      vpc: databaseVpc,
-      vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
-      credentials: rds.Credentials.fromGeneratedSecret('map_snow_pipe_admin'),
-      databaseName: 'yukisaki_map',
-      allocatedStorage: 20,
-      maxAllocatedStorage: 100,
-      storageType: rds.StorageType.GP3,
-      storageEncrypted: true,
-      multiAz: false,
-      publiclyAccessible: false,
-      deletionProtection: false,
-      backupRetention: Duration.days(1),
-      deleteAutomatedBackups: true,
-      removalPolicy: RemovalPolicy.SNAPSHOT,
-      cloudwatchLogsExports: ['postgresql'],
-    });
-    database.secret?.applyRemovalPolicy(RemovalPolicy.RETAIN);
     Tags.of(this).add('Project', 'yukisaki-center');
     Tags.of(this).add('Environment', props.environment);
     Tags.of(this).add('Component', 'snow-pipe-pipeline');
@@ -134,8 +101,8 @@ export class SnowPipePipelineStack extends Stack {
         SNOW_DATA_BUCKET_NAME: this.dataBucket.bucketName,
       },
     });
-    roadBucket.grantRead(generator, 'raw/osm/road-network/*');
-    roadBucket.grantRead(generator, 'manifests/data-ingestion/*');
+    props.roadBucket.grantRead(generator, 'raw/osm/road-network/*');
+    props.roadBucket.grantRead(generator, 'manifests/data-ingestion/*');
     this.dataBucket.grantPut(generator, 'raw/simulated/snow-pipe/*');
     this.dataBucket.grantPut(generator, 'manifests/data-ingestion/*');
 
@@ -158,13 +125,13 @@ export class SnowPipePipelineStack extends Stack {
       memorySize: 1024,
       logGroup: mergerLogs,
     });
-    roadBucket.grantRead(merger, 'raw/osm/road-network/*');
+    props.roadBucket.grantRead(merger, 'raw/osm/road-network/*');
     this.dataBucket.grantRead(merger, 'raw/simulated/snow-pipe/*');
     this.dataBucket.grantPut(merger, 'curated/road-segments/*');
     this.dataBucket.grantPut(merger, 'manifests/data-processing/*');
 
     const loaderSecurityGroup = new ec2.SecurityGroup(this, 'RoadDatabaseLoaderSecurityGroup', {
-      vpc: databaseVpc,
+      vpc: props.databaseVpc,
       allowAllOutbound: true,
       description: 'Security group for the curated road and snow-pipe PostgreSQL loader',
     });
@@ -189,19 +156,23 @@ export class SnowPipePipelineStack extends Stack {
       // database is available, allowing SQS to retain load requests meanwhile.
       reservedConcurrentExecutions: 0,
       logGroup: loaderLogs,
-      vpc: databaseVpc,
+      vpc: props.databaseVpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       securityGroups: [loaderSecurityGroup],
       environment: {
-        DATABASE_NAME: 'yukisaki_map',
-        DATABASE_SECRET_ARN: database.secret!.secretArn,
+        DATABASE_NAME: props.databaseName,
+        DATABASE_SECRET_ARN: props.databaseSecret.secretArn,
       },
     });
-    database.connections.allowDefaultPortFrom(
-      loaderSecurityGroup,
-      'Allow PostgreSQL only from the Snow Pipe loader',
-    );
-    database.secret!.grantRead(this.loaderFunction);
+    new ec2.CfnSecurityGroupIngress(this, 'UnifiedDatabaseIngressFromSnowPipeLoader', {
+      groupId: props.database.connections.securityGroups[0].securityGroupId,
+      sourceSecurityGroupId: loaderSecurityGroup.securityGroupId,
+      ipProtocol: 'tcp',
+      fromPort: 5432,
+      toPort: 5432,
+      description: 'Allow PostgreSQL only from the Snow Pipe loader',
+    });
+    props.databaseSecret.grantRead(this.loaderFunction);
     this.dataBucket.grantRead(this.loaderFunction, 'curated/road-segments/*');
     this.loaderFunction.addEventSource(new lambdaEventSources.SqsEventSource(this.loadQueue, {
       batchSize: 1,
@@ -244,7 +215,7 @@ export class SnowPipePipelineStack extends Stack {
       sendToCloudWatchLogs: false,
     });
     manifestTrail.addS3EventSelector([{
-      bucket: roadBucket,
+      bucket: props.roadBucket,
       objectPrefix: 'manifests/data-ingestion/',
     }], { readWriteType: cloudtrail.ReadWriteType.WRITE_ONLY });
 
@@ -258,7 +229,7 @@ export class SnowPipePipelineStack extends Stack {
           eventSource: ['s3.amazonaws.com'],
           eventName: ['PutObject', 'CompleteMultipartUpload', 'CopyObject'],
           requestParameters: {
-            bucketName: [roadBucket.bucketName],
+            bucketName: [props.roadBucket.bucketName],
             key: [{ prefix: 'manifests/data-ingestion/' }],
           },
         },
@@ -297,7 +268,5 @@ export class SnowPipePipelineStack extends Stack {
     new CfnOutput(this, 'RoadDatabaseLoadQueueUrl', { value: this.loadQueue.queueUrl });
     new CfnOutput(this, 'RoadDatabaseLoadDlqUrl', { value: loadDlq.queueUrl });
     new CfnOutput(this, 'SnowPipeWorkflowDlqUrl', { value: workflowDlq.queueUrl });
-    new CfnOutput(this, 'MapSnowPipeDatabaseIdentifier', { value: database.instanceIdentifier });
-    new CfnOutput(this, 'MapSnowPipeDatabaseSecretArn', { value: database.secret!.secretArn });
   }
 }

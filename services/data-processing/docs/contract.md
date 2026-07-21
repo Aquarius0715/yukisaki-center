@@ -32,4 +32,4 @@ curated/road-segments/snapshot_date={date}/run_id={run_id}/road_segments_enriche
 
 `raw/simulated/snow-pipe/`とこのcurated出力はSnow Pipe専用データバケットに置き、道路入力バケットやCloudTrailログ用バケットには保存しない。
 
-curated保存成功後にSQSへロード要求を送り、private LambdaがSnow Pipe専用RDSの`yukisaki_map`へ接続し、単一トランザクションで`road_segments`と`snow_pipe_history`へ冪等UPSERTする。気象RDSとはDBインスタンスを共有しない。`road_segments_enriched`ビューは最新の設備履歴を道路へ結合する。専用RDS停止中はSQSに要求を保持し、S3正本の生成は継続する。
+curated保存成功後にSQSへロード要求を送り、private Lambdaが気象と共通のRDS PostgreSQL `yukisaki`へ同じDBユーザー・Secrets Manager認証情報で接続し、単一トランザクションで`road_segments`と`snow_pipe_history`へ冪等UPSERTする。`road_segments_enriched`ビューは最新の設備履歴を道路へ結合する。共通RDS停止中はSQSに要求を保持し、S3正本の生成は継続する。

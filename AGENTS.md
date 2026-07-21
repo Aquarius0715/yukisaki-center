@@ -19,9 +19,9 @@
 - private subnetのRDS PostgreSQL `weather_hourly_windows`へ冪等UPSERT
 - 道路ネットワークは独立したECS FargateスタックでOpenStreetMapから収集し、道路専用S3バケットの`raw/osm/road-network/`へ保存
 - 道路完了manifestをEventBridgeで検知し、Step FunctionsとLambdaで道路名に基づく消雪パイプ仮データを生成する。生成した`raw/simulated/snow-pipe/`と道路を統合した`curated/road-segments/`は、道路入力バケットとは別のSnow Pipe専用S3バケットへ保存
-- curated道路はSQSを介してprivate Lambdaから消雪パイプ専用RDS `yukisaki_map`の`road_segments`と`snow_pipe_history`へ冪等ロードする。気象RDSとは共有しない。専用RDS停止中もS3処理を継続し、ロード要求をキューに保持する
+- curated道路はSQSを介してprivate Lambdaから共通RDS PostgreSQL `yukisaki`の`road_segments`と`snow_pipe_history`へ冪等ロードする。気象と同じDBインスタンス・DBユーザー・Secrets Manager認証情報を使用し、RDS停止中もS3処理を継続してロード要求をキューに保持する
 - AWS CDKでは気象データパイプライン、道路収集、消雪パイプ処理を別スタックとして管理
-- Weather、道路、消雪パイプmanifestはEventBridge Ruleを共通の入口とし、3つのRuleはデプロイ時に`DISABLED`。気象・消雪パイプの2つのRDS、3つのRule、関連Lambda、道路Fargateは`env:start|stop|status`でまとめて管理する
+- Weather、道路、消雪パイプmanifestはEventBridge Ruleを共通の入口とし、3つのRuleはデプロイ時に`DISABLED`。単一RDS、3つのRule、関連Lambda、道路Fargateは`env:start|stop|status`でまとめて管理する
 - 全Collectorは共通メタデータ契約で`run_id`、取得日時、対象期間、出典URL、SHA-256をS3 metadata/manifestへ保持し、PostgreSQLへ直接書かない
 - `services/`直下の7サービスはすべてDockerfileを持ち、ローカルテストもDocker Composeから実行する
 - 2026-07-21にコミット`25e5f07`の気象・道路・消雪パイプ3スタックをAWSへデプロイ済み。CDK差分0、統合`env:start|stop|status`、実行中道路タスク0件、旧道路S3通知ハンドラー削除、新SSM踏み台停止を確認済み

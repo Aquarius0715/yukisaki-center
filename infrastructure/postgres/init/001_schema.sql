@@ -43,6 +43,7 @@ CREATE INDEX IF NOT EXISTS weather_hourly_windows_lookup_idx
 CREATE TABLE IF NOT EXISTS road_segments (
   segment_id TEXT PRIMARY KEY,
   geometry_geojson JSONB NOT NULL,
+  road_name TEXT,
   road_type TEXT,
   length_m NUMERIC,
   max_slope_percent NUMERIC,
@@ -51,6 +52,35 @@ CREATE TABLE IF NOT EXISTS road_segments (
   snapshot_date DATE NOT NULL,
   is_simulated BOOLEAN NOT NULL DEFAULT false
 );
+
+CREATE TABLE IF NOT EXISTS snow_pipe_history (
+  segment_id TEXT NOT NULL REFERENCES road_segments(segment_id),
+  snow_pipe BOOLEAN NOT NULL,
+  operation_status TEXT NOT NULL CHECK (operation_status IN ('active', 'inactive', 'unknown')),
+  effectiveness NUMERIC NOT NULL CHECK (effectiveness BETWEEN 0 AND 1),
+  valid_from TIMESTAMPTZ NOT NULL,
+  ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  source TEXT NOT NULL,
+  rule_version TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  is_simulated BOOLEAN NOT NULL,
+  PRIMARY KEY (segment_id, valid_from, rule_version)
+);
+
+CREATE OR REPLACE VIEW latest_snow_pipe_status AS
+SELECT DISTINCT ON (segment_id)
+  segment_id, snow_pipe, operation_status, effectiveness, valid_from,
+  source, rule_version, run_id, is_simulated
+FROM snow_pipe_history
+ORDER BY segment_id, valid_from DESC, ingested_at DESC;
+
+CREATE OR REPLACE VIEW road_segments_enriched AS
+SELECT r.*, s.snow_pipe, s.operation_status, s.effectiveness,
+       s.valid_from AS snow_pipe_updated_at, s.source AS snow_pipe_source,
+       s.rule_version AS snow_pipe_rule_version,
+       s.is_simulated AS snow_pipe_is_simulated
+FROM road_segments r
+LEFT JOIN latest_snow_pipe_status s USING (segment_id);
 
 CREATE TABLE IF NOT EXISTS drivability_scores (
   segment_id TEXT NOT NULL REFERENCES road_segments(segment_id),

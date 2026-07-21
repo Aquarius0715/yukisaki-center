@@ -36,6 +36,7 @@ export class DataPipelineStack extends Stack {
   public readonly scheduleDlq: sqs.Queue;
   public readonly collectorFunction: lambda.DockerImageFunction;
   public readonly loaderFunction: lambda.DockerImageFunction;
+  public readonly databaseVpc: ec2.Vpc;
   public readonly database: rds.DatabaseInstance;
   public readonly databaseBastion: ec2.Instance;
   public readonly collectionSchedule: events.Rule;
@@ -82,7 +83,7 @@ export class DataPipelineStack extends Stack {
     Tags.of(this.dataBucket).add('Component', 'weather-data');
     Tags.of(this.dataBucket).add('Lifecycle', 'persistent');
 
-    const vpc = new ec2.Vpc(this, 'DatabaseVpc', {
+    this.databaseVpc = new ec2.Vpc(this, 'DatabaseVpc', {
       maxAzs: 2,
       natGateways: 0,
       subnetConfiguration: [
@@ -98,15 +99,15 @@ export class DataPipelineStack extends Stack {
         },
       ],
     });
-    vpc.addGatewayEndpoint('S3Endpoint', {
+    this.databaseVpc.addGatewayEndpoint('S3Endpoint', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
     });
-    const secretsManagerEndpoint = vpc.addInterfaceEndpoint('SecretsManagerEndpoint', {
+    const secretsManagerEndpoint = this.databaseVpc.addInterfaceEndpoint('SecretsManagerEndpoint', {
       service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
       privateDnsEnabled: true,
       // The MVP database is Single-AZ. One endpoint ENI keeps private access while
       // avoiding a second fixed hourly charge during development.
-      subnets: { subnets: [vpc.isolatedSubnets[0]] },
+      subnets: { subnets: [this.databaseVpc.isolatedSubnets[0]] },
     });
     Tags.of(secretsManagerEndpoint).add('Service', 'data-processing');
     Tags.of(secretsManagerEndpoint).add('Component', 'weather-loader');
@@ -117,7 +118,7 @@ export class DataPipelineStack extends Stack {
         version: rds.PostgresEngineVersion.VER_16,
       }),
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
-      vpc,
+      vpc: this.databaseVpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       credentials: rds.Credentials.fromGeneratedSecret('yukisaki_admin'),
       databaseName: 'yukisaki',
@@ -139,7 +140,7 @@ export class DataPipelineStack extends Stack {
     Tags.of(this.database).add('Lifecycle', 'runtime');
 
     const bastionSecurityGroup = new ec2.SecurityGroup(this, 'DatabaseBastionSecurityGroup', {
-      vpc,
+      vpc: this.databaseVpc,
       allowAllOutbound: true,
       description: 'Outbound-only security group for the SSM PostgreSQL bastion',
     });
@@ -183,7 +184,7 @@ export class DataPipelineStack extends Stack {
     this.database.secret!.grantRead(bastionRole);
 
     this.databaseBastion = new ec2.Instance(this, 'DatabaseAdminBastion', {
-      vpc,
+      vpc: this.databaseVpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC, onePerAz: true },
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
       machineImage: ec2.MachineImage.latestAmazonLinux2023({
@@ -269,7 +270,7 @@ export class DataPipelineStack extends Stack {
     Tags.of(this.collectorFunction).add('Lifecycle', 'on-demand');
 
     const loaderSecurityGroup = new ec2.SecurityGroup(this, 'WeatherLoaderSecurityGroup', {
-      vpc,
+      vpc: this.databaseVpc,
       allowAllOutbound: true,
       description: 'Security group for the S3 to PostgreSQL weather loader',
     });
@@ -296,7 +297,7 @@ export class DataPipelineStack extends Stack {
       timeout: Duration.minutes(2),
       memorySize: 512,
       logGroup: loaderLogGroup,
-      vpc,
+      vpc: this.databaseVpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       securityGroups: [loaderSecurityGroup],
       environment: {

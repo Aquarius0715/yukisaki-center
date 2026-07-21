@@ -55,7 +55,7 @@ AWSリソースは次のとおり。
 - 接続検証後は踏み台を停止済み。RDSは非公開、踏み台Security Groupにも受信ルールはない
 - 2026-07-21にコミット`25e5f07`を気象・道路・消雪パイプの3スタックへデプロイし、全スタック`UPDATE_COMPLETE`とCDK差分0を確認済み
 - 旧道路S3通知カスタムリソース、通知用Lambda・IAM、旧道路ECSタスク定義、旧踏み台EC2はCloudFormationで削除済み。気象S3通知用のCloudFormation管理Lambdaは現行構成に必要なため維持する
-- 統合`env:start`で2つのRDS、3つのEventBridge Rule、関連Lambdaを起動でき、道路Fargate実行中タスク0件、新SSM踏み台`i-0682deedea1359ca0`の停止を確認済み
+- `env:start|stop|status`でRDS、3つのEventBridge Rule、関連Lambda、道路Fargateを一括管理し、SSM踏み台はDB確認時だけ起動する
 
 ## ローカル検証
 

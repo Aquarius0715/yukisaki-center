@@ -1,8 +1,8 @@
-# SSM踏み台からRDS PostgreSQLを確認する
+# SSM踏み台から共通RDS PostgreSQLを確認する
 
 ## 構成
 
-RDSはprivate isolated subnetのまま公開しない。受信ポートを持たないEC2踏み台へAWS Systems Manager Session Managerで入り、踏み台内のPostgreSQL 16クライアントからRDSへ接続する。
+気象、道路、消雪パイプは単一のRDS PostgreSQL `yukisaki`と単一のDBユーザー・Secrets Manager認証情報を共有する。RDSはprivate isolated subnetのまま公開しない。受信ポートを持たないEC2踏み台へAWS Systems Manager Session Managerで入り、踏み台内のPostgreSQL 16クライアントから全テーブルを確認する。
 
 ```text
 ローカルのターミナル
@@ -59,6 +59,8 @@ yukisaki-psql
 \conninfo
 \dt
 \d weather_hourly_windows
+\d road_segments
+\d snow_pipe_history
 
 SELECT relative_hour, data_kind, valid_time, temperature_c,
        precipitation_mm, snowfall_cm, snow_depth_m
@@ -68,6 +70,15 @@ ORDER BY relative_hour;
 SELECT run_id, dataset, source_key, loaded_at, record_count
 FROM data_load_runs
 ORDER BY loaded_at DESC;
+
+SELECT count(*) AS road_segments FROM road_segments;
+SELECT count(*) AS snow_pipe_history FROM snow_pipe_history;
+
+SELECT segment_id, road_name, snow_pipe, operation_status,
+       effectiveness, snow_pipe_updated_at
+FROM road_segments_enriched
+ORDER BY segment_id
+LIMIT 20;
 ```
 
 長い結果が`less`で開いた場合は`q`で結果表示を閉じる。`psql`自体は`\q`で終了する。
