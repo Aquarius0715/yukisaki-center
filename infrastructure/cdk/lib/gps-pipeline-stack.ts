@@ -11,7 +11,8 @@ import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
-import * as kinesis from 'aws-cdk-lib/aws-kinesis';
+import * as events from 'aws-cdk-lib/aws-events';
+import * as eventTargets from 'aws-cdk-lib/aws-events-targets';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
 import * as lambdaEventSources from 'aws-cdk-lib/aws-lambda-event-sources';
 import * as logs from 'aws-cdk-lib/aws-logs';
@@ -38,7 +39,7 @@ export interface GpsPipelineStackProps extends StackProps {
 
 /** Real-time simulated snowplow GPS, S3 truth, PostgreSQL projection, and deterministic scoring. */
 export class GpsPipelineStack extends Stack {
-  public readonly stream: kinesis.Stream;
+  public readonly eventBus: events.EventBus;
   public readonly cluster: ecs.Cluster;
   public readonly simulatorService: ecs.FargateService;
   public readonly archiverFunction: lambda.DockerImageFunction;
@@ -59,14 +60,9 @@ export class GpsPipelineStack extends Stack {
     Tags.of(this).add('Component', 'plow-gps-pipeline');
     Tags.of(this).add('ManagedBy', 'aws-cdk');
 
-    this.stream = new kinesis.Stream(this, 'GpsEventStream', {
-      streamMode: kinesis.StreamMode.PROVISIONED,
-      shardCount: 1,
-      encryption: kinesis.StreamEncryption.MANAGED,
-      retentionPeriod: Duration.hours(24),
-    });
-    Tags.of(this.stream).add('Lifecycle', 'persistent');
-    Tags.of(this.stream).add('Service', 'data-platform');
+    this.eventBus = new events.EventBus(this, 'GpsEventBus');
+    Tags.of(this.eventBus).add('Lifecycle', 'persistent');
+    Tags.of(this.eventBus).add('Service', 'data-platform');
 
     this.cluster = new ecs.Cluster(this, 'GpsSimulatorCluster', {
       vpc: props.databaseVpc,
@@ -92,7 +88,7 @@ export class GpsPipelineStack extends Stack {
       logging: ecs.LogDrivers.awsLogs({ logGroup: simulatorLogs, streamPrefix: 'gps' }),
       environment: {
         ROAD_BUCKET_NAME: props.roadCuratedBucket.bucketName,
-        GPS_STREAM_NAME: this.stream.streamName,
+        GPS_EVENT_BUS_NAME: this.eventBus.eventBusName,
         VEHICLE_COUNT: '3',
         EMIT_INTERVAL_SECONDS: String(props.emitIntervalSeconds),
         SCENARIO_START_TIME: props.targetReferenceTime,
@@ -102,7 +98,7 @@ export class GpsPipelineStack extends Stack {
       },
     });
     props.roadCuratedBucket.grantRead(simulatorTask.taskRole, 'curated/road-segments/*');
-    this.stream.grantWrite(simulatorTask.taskRole);
+    this.eventBus.grantPutEventsTo(simulatorTask.taskRole);
     this.simulatorService = new ecs.FargateService(this, 'GpsSimulatorService', {
       cluster: this.cluster,
       taskDefinition: simulatorTask,
@@ -116,9 +112,12 @@ export class GpsPipelineStack extends Stack {
     Tags.of(this.simulatorService).add('Lifecycle', 'runtime');
     Tags.of(this.simulatorService).add('Service', 'gps-simulator');
 
-    const streamFailureDlq = this.deadLetterQueue('GpsStreamFailureDeadLetterQueue');
+    const rawIngressDlq = this.deadLetterQueue('GpsRawIngressDeadLetterQueue');
+    const processingIngressDlq = this.deadLetterQueue('GpsProcessingIngressDeadLetterQueue');
     const loadDlq = this.deadLetterQueue('GpsDatabaseLoadDeadLetterQueue');
     const scoringDlq = this.deadLetterQueue('GpsScoringDeadLetterQueue');
+    const rawIngressQueue = this.processingQueue('GpsRawIngressQueue', rawIngressDlq);
+    const processingIngressQueue = this.processingQueue('GpsProcessingIngressQueue', processingIngressDlq);
     const loadQueue = new sqs.Queue(this, 'GpsDatabaseLoadQueue', {
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       enforceSSL: true,
@@ -133,13 +132,36 @@ export class GpsPipelineStack extends Stack {
       visibilityTimeout: Duration.minutes(6),
       deadLetterQueue: { queue: scoringDlq, maxReceiveCount: 5 },
     });
+    const gpsEventPattern: events.EventPattern = {
+      source: ['com.yukisaki.gps-simulator'],
+      detailType: ['Snowplow GPS Position'],
+    };
+    new events.Rule(this, 'GpsRawArchiveRule', {
+      eventBus: this.eventBus,
+      eventPattern: gpsEventPattern,
+      targets: [new eventTargets.SqsQueue(rawIngressQueue, {
+        deadLetterQueue: rawIngressDlq,
+        retryAttempts: 3,
+      })],
+    });
+    new events.Rule(this, 'GpsProcessingRule', {
+      eventBus: this.eventBus,
+      eventPattern: gpsEventPattern,
+      targets: [new eventTargets.SqsQueue(processingIngressQueue, {
+        deadLetterQueue: processingIngressDlq,
+        retryAttempts: 3,
+      })],
+    });
 
     this.archiverFunction = this.imageFunction('GpsRawArchiver', {
       servicePath: '../../../services/data-ingestion', target: 'runtime',
       command: 'data_ingestion.plow_gps.archiver.handler',
       description: 'Archives validated simulated snowplow GPS events into immutable S3 raw JSON Lines',
       memorySize: 512,
-      environment: { DATA_BUCKET: props.dataBucket.bucketName, GPS_STREAM_NAME: this.stream.streamName },
+      environment: {
+        DATA_BUCKET: props.dataBucket.bucketName,
+        GPS_EVENT_BUS_NAME: this.eventBus.eventBusName,
+      },
     });
     props.dataBucket.grantPut(this.archiverFunction, 'raw/simulated/plow-gps/*');
     props.dataBucket.grantPut(this.archiverFunction, 'manifests/data-ingestion/*');
@@ -164,16 +186,14 @@ export class GpsPipelineStack extends Stack {
     loadQueue.grantSendMessages(this.processorFunction);
     scoringQueue.grantSendMessages(this.processorFunction);
 
-    for (const fn of [this.archiverFunction, this.processorFunction]) {
-      fn.addEventSource(new lambdaEventSources.KinesisEventSource(this.stream, {
-        startingPosition: lambda.StartingPosition.LATEST,
-        batchSize: 100,
-        maxBatchingWindow: Duration.seconds(10),
-        retryAttempts: 3,
-        bisectBatchOnError: true,
-        onFailure: new lambdaEventSources.SqsDlq(streamFailureDlq),
-      }));
-    }
+    this.archiverFunction.addEventSource(new lambdaEventSources.SqsEventSource(rawIngressQueue, {
+      batchSize: 30,
+      maxBatchingWindow: Duration.seconds(10),
+    }));
+    this.processorFunction.addEventSource(new lambdaEventSources.SqsEventSource(processingIngressQueue, {
+      batchSize: 30,
+      maxBatchingWindow: Duration.seconds(10),
+    }));
 
     const databaseConsumersSecurityGroup = new ec2.SecurityGroup(this, 'GpsDatabaseConsumersSecurityGroup', {
       vpc: props.databaseVpc,
@@ -227,7 +247,8 @@ export class GpsPipelineStack extends Stack {
     }));
 
     for (const [id, queue] of [
-      ['GpsStreamFailureDlqAlarm', streamFailureDlq],
+      ['GpsRawIngressDlqAlarm', rawIngressDlq],
+      ['GpsProcessingIngressDlqAlarm', processingIngressDlq],
       ['GpsDatabaseLoadDlqAlarm', loadDlq],
       ['GpsScoringDlqAlarm', scoringDlq],
     ] as const) {
@@ -240,7 +261,7 @@ export class GpsPipelineStack extends Stack {
       });
     }
 
-    new CfnOutput(this, 'GpsStreamName', { value: this.stream.streamName });
+    new CfnOutput(this, 'GpsEventBusName', { value: this.eventBus.eventBusName });
     new CfnOutput(this, 'GpsSimulatorClusterName', { value: this.cluster.clusterName });
     new CfnOutput(this, 'GpsSimulatorServiceName', { value: this.simulatorService.serviceName });
     new CfnOutput(this, 'GpsRawArchiverFunctionName', { value: this.archiverFunction.functionName });
@@ -251,7 +272,8 @@ export class GpsPipelineStack extends Stack {
     new CfnOutput(this, 'GpsDatabaseLoadDlqUrl', { value: loadDlq.queueUrl });
     new CfnOutput(this, 'GpsScoringQueueUrl', { value: scoringQueue.queueUrl });
     new CfnOutput(this, 'GpsScoringDlqUrl', { value: scoringDlq.queueUrl });
-    new CfnOutput(this, 'GpsStreamFailureDlqUrl', { value: streamFailureDlq.queueUrl });
+    new CfnOutput(this, 'GpsRawIngressDlqUrl', { value: rawIngressDlq.queueUrl });
+    new CfnOutput(this, 'GpsProcessingIngressDlqUrl', { value: processingIngressDlq.queueUrl });
   }
 
   private deadLetterQueue(id: string): sqs.Queue {
@@ -259,6 +281,16 @@ export class GpsPipelineStack extends Stack {
       encryption: sqs.QueueEncryption.SQS_MANAGED,
       enforceSSL: true,
       retentionPeriod: Duration.days(14),
+    });
+  }
+
+  private processingQueue(id: string, dlq: sqs.IQueue): sqs.Queue {
+    return new sqs.Queue(this, id, {
+      encryption: sqs.QueueEncryption.SQS_MANAGED,
+      enforceSSL: true,
+      retentionPeriod: Duration.days(14),
+      visibilityTimeout: Duration.minutes(6),
+      deadLetterQueue: { queue: dlq, maxReceiveCount: 5 },
     });
   }
 

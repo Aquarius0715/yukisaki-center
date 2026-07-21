@@ -1,6 +1,6 @@
 # GPSイベント契約
 
-KinesisのPartition Keyは`vehicle_id`とする。
+EventBridgeの`source`は`com.yukisaki.gps-simulator`、`detail-type`は`Snowplow GPS Position`とする。
 
 ```json
 {

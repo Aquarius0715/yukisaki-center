@@ -1,8 +1,7 @@
-"""Validate Kinesis GPS events and preserve immutable JSON Lines in S3 raw."""
+"""Validate queued EventBridge GPS events and preserve immutable JSON Lines in S3 raw."""
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
@@ -47,22 +46,22 @@ def validate_event(event: dict[str, Any]) -> None:
             raise ValueError(f"{field} must include a timezone")
 
 
-def decode_kinesis_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def decode_eventbridge_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     events = []
     for record in records:
         try:
-            payload = base64.b64decode(record["kinesis"]["data"]).decode().strip()
-            event = json.loads(payload)
-        except (KeyError, UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise ValueError("invalid Kinesis GPS record") from error
+            envelope = json.loads(record["body"])
+            event = envelope["detail"]
+        except (KeyError, TypeError, json.JSONDecodeError) as error:
+            raise ValueError("invalid queued EventBridge GPS record") from error
         validate_event(event)
         events.append(event)
     if not events:
-        raise ValueError("Kinesis batch contains no GPS events")
+        raise ValueError("SQS batch contains no GPS events")
     return events
 
 
-def archive_events(events: list[dict[str, Any]], *, bucket: str, stream_name: str) -> dict[str, Any]:
+def archive_events(events: list[dict[str, Any]], *, bucket: str, event_bus_name: str) -> dict[str, Any]:
     for event in events:
         validate_event(event)
     events = sorted(events, key=lambda item: (item["observed_at"], item["vehicle_id"], item["event_id"]))
@@ -84,7 +83,7 @@ def archive_events(events: list[dict[str, Any]], *, bucket: str, stream_name: st
         run_id=archive_run_id,
         dataset="simulated-plow-gps",
         source="yukisaki-gps-simulator",
-        source_urls=[f"kinesis://{stream_name}"],
+        source_urls=[f"eventbridge://{event_bus_name}"],
         fetched_at=fetched_at,
         target_start_at=first.isoformat(),
         target_end_at=last.isoformat(),
@@ -112,9 +111,9 @@ def archive_events(events: list[dict[str, Any]], *, bucket: str, stream_name: st
 
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
-    events = decode_kinesis_records(event.get("Records", []))
+    events = decode_eventbridge_records(event.get("Records", []))
     return archive_events(
         events,
         bucket=os.environ["DATA_BUCKET"],
-        stream_name=os.environ["GPS_STREAM_NAME"],
+        event_bus_name=os.environ["GPS_EVENT_BUS_NAME"],
     )

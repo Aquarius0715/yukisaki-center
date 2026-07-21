@@ -1,9 +1,8 @@
-import base64
 import json
 import unittest
 from unittest.mock import Mock, patch
 
-from data_ingestion.plow_gps.archiver import archive_events, decode_kinesis_records
+from data_ingestion.plow_gps.archiver import archive_events, decode_eventbridge_records
 
 
 def gps_event(vehicle_id="snowplow-01"):
@@ -17,16 +16,16 @@ def gps_event(vehicle_id="snowplow-01"):
 
 
 class ArchiverTest(unittest.TestCase):
-    def test_decodes_and_validates_kinesis_record(self):
-        data = base64.b64encode(json.dumps(gps_event()).encode()).decode()
-        events = decode_kinesis_records([{"kinesis": {"data": data}}])
+    def test_decodes_and_validates_eventbridge_record(self):
+        body = json.dumps({"source": "com.yukisaki.gps-simulator", "detail": gps_event()})
+        events = decode_eventbridge_records([{"body": body}])
         self.assertEqual(events[0]["vehicle_id"], "snowplow-01")
 
     @patch("data_ingestion.plow_gps.archiver.s3_client")
     def test_archives_raw_and_manifest(self, client_factory):
         client = Mock()
         client_factory.return_value = client
-        result = archive_events([gps_event()], bucket="gps-bucket", stream_name="gps-stream")
+        result = archive_events([gps_event()], bucket="gps-bucket", event_bus_name="gps-bus")
         self.assertEqual(result["recordCount"], 1)
         self.assertEqual(client.put_object.call_count, 2)
         self.assertTrue(client.put_object.call_args_list[0].kwargs["Key"].startswith("raw/simulated/plow-gps/"))
@@ -34,9 +33,9 @@ class ArchiverTest(unittest.TestCase):
     def test_rejects_non_simulated_event(self):
         event = gps_event()
         event["is_simulated"] = False
-        data = base64.b64encode(json.dumps(event).encode()).decode()
+        body = json.dumps({"source": "com.yukisaki.gps-simulator", "detail": event})
         with self.assertRaisesRegex(ValueError, "is_simulated"):
-            decode_kinesis_records([{"kinesis": {"data": data}}])
+            decode_eventbridge_records([{"body": body}])
 
 
 if __name__ == "__main__":

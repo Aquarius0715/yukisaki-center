@@ -40,10 +40,8 @@ describe('GpsPipelineStack', () => {
   const template = Template.fromStack(stack);
 
   test('provisions a disabled three-vehicle real-time pipeline', () => {
-    template.hasResourceProperties('AWS::Kinesis::Stream', {
-      ShardCount: 1,
-      StreamEncryption: { EncryptionType: 'KMS', KeyId: 'alias/aws/kinesis' },
-    });
+    template.resourceCountIs('AWS::Events::EventBus', 1);
+    template.resourceCountIs('AWS::Events::Rule', 2);
     template.hasResourceProperties('AWS::ECS::Service', { DesiredCount: 0 });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
       Cpu: '256', Memory: '512', RuntimePlatform: Match.objectLike({ CpuArchitecture: 'ARM64' }),
@@ -51,7 +49,7 @@ describe('GpsPipelineStack', () => {
     template.resourcePropertiesCountIs('AWS::Lambda::Function', {
       PackageType: 'Image', ReservedConcurrentExecutions: 0,
     }, 4);
-    template.resourceCountIs('AWS::SQS::Queue', 5);
+    template.resourceCountIs('AWS::SQS::Queue', 8);
     template.resourceCountIs('AWS::RDS::DBInstance', 0);
   });
 

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import hashlib
 import json
 import logging
@@ -136,16 +135,16 @@ def _latest_road_index() -> list[tuple[str, list[tuple[float, float]]]]:
     return _ROAD_INDEX
 
 
-def decode_kinesis_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def decode_eventbridge_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     events = []
     for record in records:
-        payload = base64.b64decode(record["kinesis"]["data"]).decode().strip()
-        value = json.loads(payload)
+        envelope = json.loads(record["body"])
+        value = envelope["detail"]
         if value.get("is_simulated") is not True or not value.get("event_id"):
             raise ValueError("GPS input is not a valid simulated event")
         events.append(value)
     if not events:
-        raise ValueError("Kinesis batch contains no GPS events")
+        raise ValueError("SQS batch contains no GPS events")
     return events
 
 
@@ -182,7 +181,7 @@ def process_events(
     manifest = {
         "metadata_schema_version": "1.0.0", "run_id": processing_run_id,
         "pipeline": "plow-gps-map-matching", "dataset": "snowplow-passages",
-        "source": "yukisaki-gps-simulator", "source_urls": sorted({f"kinesis://{e['run_id']}" for e in matched}),
+        "source": "yukisaki-gps-simulator", "source_urls": sorted({f"eventbridge://{e['run_id']}" for e in matched}),
         "fetched_at": datetime.now(timezone.utc).isoformat(), "target_start_at": first.isoformat(),
         "target_end_at": last.isoformat(), "checksum_sha256": checksum, "status": "succeeded",
         "output_keys": [f"s3://{bucket}/{normalized_key}", f"s3://{bucket}/{curated_key}"],
@@ -328,7 +327,7 @@ def load_message(message: dict[str, Any]) -> dict[str, Any]:
 
 def processor_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
     message = process_events(
-        decode_kinesis_records(event.get("Records", [])),
+        decode_eventbridge_records(event.get("Records", [])),
         bucket=os.environ["DATA_BUCKET"], road_index=_latest_road_index(),
     )
     body = json.dumps(message, ensure_ascii=False, sort_keys=True)

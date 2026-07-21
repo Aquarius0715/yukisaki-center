@@ -4,9 +4,9 @@ S3を全データの正本とする。各サービスは、別サービスの実
 
 | サービス | 責務 | 入力 | 出力 | 状態 |
 |---|---|---|---|---|
-| `gps-simulator/` | 3台の仮想除雪車を道路上で継続走行 | S3 curated道路 | Kinesis GPSイベント | 実装済み（既定停止） |
-| `data-ingestion/` | 外部・仮データを収集して原本保存 | EventBridge、公開API、道路manifest、Kinesis | S3 `raw/` | 気象、道路、消雪パイプ、GPSを実装済み |
-| `data-processing/` | 検証・正規化・curated化・DBロード | S3、Kinesis | S3 `normalized/` / `curated/`、PostgreSQL | 気象、道路、消雪パイプ、GPSを実装済み |
+| `gps-simulator/` | 3台の仮想除雪車を道路上で継続走行 | S3 curated道路 | EventBridge GPSイベント | 実装済み（既定停止） |
+| `data-ingestion/` | 外部・仮データを収集して原本保存 | EventBridge、SQS、公開API、道路manifest | S3 `raw/` | 気象、道路、消雪パイプ、GPSを実装済み |
+| `data-processing/` | 検証・正規化・curated化・DBロード | S3、SQS | S3 `normalized/` / `curated/`、PostgreSQL | 気象、道路、消雪パイプ、GPSを実装済み |
 | `drivability-scoring/` | 区間ごとの指数・信頼度を算出 | curated、気象、設備、GPS | S3 `curated/drivability-scores/`、PostgreSQL | GPS通過時のルール計算を実装済み |
 | `route-planning/` | 指数をコストとして経路探索 | PostgreSQL/PostGIS | 経路候補 | 設計済み |
 | `ai-assistant/` | 自然言語解析、経路比較、危険説明 | REST APIが返す根拠データ | 構造化条件、説明文 | 設計済み |

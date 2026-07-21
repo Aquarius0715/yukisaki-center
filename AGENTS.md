@@ -20,7 +20,7 @@
 - 道路ネットワークは独立したECS FargateスタックでOpenStreetMapから収集し、道路専用S3バケットの`raw/osm/road-network/`へ保存
 - 道路完了manifestをEventBridgeで検知し、Step FunctionsとLambdaで道路名に基づく消雪パイプ仮データを生成する。生成した`raw/simulated/snow-pipe/`と道路を統合した`curated/road-segments/`は、道路入力バケットとは別のSnow Pipe専用S3バケットへ保存
 - curated道路はSQSを介してprivate Lambdaから共通RDS PostgreSQL `yukisaki`の`road_segments`と`snow_pipe_history`へ冪等ロードする。気象と同じDBインスタンス・DBユーザー・Secrets Manager認証情報を使用し、RDS停止中もS3処理を継続してロード要求をキューに保持する
-- GPSシミュレータは1つのECS Fargateタスク内で3台の除雪車を5秒間隔で走行させ、Kinesisへ`is_simulated: true`の位置イベントを送信する。受信データはS3 `raw/`へ不変保存し、道路区間へマッチングした`normalized/`と`curated/snowplow-passages/`を経由して共通RDSへ投影する
+- GPSシミュレータは1つのECS Fargateタスク内で3台の除雪車を5秒間隔で走行させ、EventBridgeカスタムバスへ`is_simulated: true`の位置イベントを送信する。2つのSQSへfan-outし、S3 `raw/`への不変保存と、道路区間へマッチングした`normalized/`・`curated/snowplow-passages/`を経由する共通RDS投影を分離する
 - 走りやすさ指数はGPSロード後にSQSから起動し、気象、勾配、消雪パイプ、最終除雪時刻を決定的なルールで評価する。S3 `curated/drivability-scores/`を正本とし、共通RDS `drivability_scores`へ投影する
 - AWS CDKでは気象データパイプライン、道路収集、消雪パイプ処理、GPS・指数処理を別スタックとして管理
 - Weather、道路、消雪パイプmanifestはEventBridge Ruleを共通の入口とし、3つのRuleはデプロイ時に`DISABLED`。単一RDS、3つのRule、関連Lambda、道路Fargate、GPS Fargateは`env:start|stop|status`でまとめて管理する

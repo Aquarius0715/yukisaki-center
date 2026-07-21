@@ -1,4 +1,4 @@
-"""Continuously emit three simulated snowplow positions to Kinesis."""
+"""Continuously emit three simulated snowplow positions to EventBridge."""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def run_forever() -> None:
     import boto3
 
     road_bucket = os.environ["ROAD_BUCKET_NAME"]
-    stream_name = os.environ["GPS_STREAM_NAME"]
+    event_bus_name = os.environ["GPS_EVENT_BUS_NAME"]
     vehicle_count = int(os.environ.get("VEHICLE_COUNT", "3"))
     interval_seconds = float(os.environ.get("EMIT_INTERVAL_SECONDS", "5"))
     speed_kmh = float(os.environ.get("SPEED_KMH", "18"))
@@ -66,7 +66,7 @@ def run_forever() -> None:
     if scenario_start.tzinfo is None or vehicle_count != 3 or interval_seconds <= 0:
         raise ValueError("scenario time, vehicle count, or interval is invalid")
     s3 = boto3.client("s3")
-    kinesis = boto3.client("kinesis")
+    eventbridge = boto3.client("events")
     routes = build_routes(_latest_road_object(s3, road_bucket), center=center, vehicle_count=vehicle_count)
     run_id = f"gps-sim-{uuid.uuid4()}"
     started = time.monotonic()
@@ -75,7 +75,7 @@ def run_forever() -> None:
     while True:
         elapsed = time.monotonic() - started
         observed_at = scenario_start + timedelta(seconds=elapsed)
-        records = []
+        entries = []
         for index, route in enumerate(routes):
             initial_offset = route_lengths[index] * index / vehicle_count
             distance = initial_offset + elapsed * speed_kmh / 3.6
@@ -86,14 +86,17 @@ def run_forever() -> None:
                 position=sample_route(route, distance),
                 speed_kmh=speed_kmh,
             )
-            records.append({
-                "Data": (json.dumps(event, ensure_ascii=False, sort_keys=True) + "\n").encode(),
-                "PartitionKey": event["vehicle_id"],
+            entries.append({
+                "Source": "com.yukisaki.gps-simulator",
+                "DetailType": "Snowplow GPS Position",
+                "Detail": json.dumps(event, ensure_ascii=False, sort_keys=True),
+                "EventBusName": event_bus_name,
+                "Time": datetime.now(timezone.utc),
             })
-        response = kinesis.put_records(StreamName=stream_name, Records=records)
-        if response.get("FailedRecordCount"):
-            raise RuntimeError(f"Kinesis rejected {response['FailedRecordCount']} GPS events")
-        LOGGER.info("Emitted %d GPS events at %s", len(records), observed_at.isoformat())
+        response = eventbridge.put_events(Entries=entries)
+        if response.get("FailedEntryCount"):
+            raise RuntimeError(f"EventBridge rejected {response['FailedEntryCount']} GPS events")
+        LOGGER.info("Emitted %d GPS events at %s", len(entries), observed_at.isoformat())
         time.sleep(interval_seconds)
 
 

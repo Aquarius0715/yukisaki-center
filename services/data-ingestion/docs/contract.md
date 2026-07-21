@@ -63,4 +63,4 @@ raw/simulated/snow-pipe/scenario_date={date}/run_id={run_id}/snow_pipe.jsonl
 
 ## 除雪車GPS仮データ
 
-Kinesisイベントを検証し、`vehicle_id`、対象時刻、実受信時刻、緯度経度、速度、方位、作業種別、`ground_truth_segment_id`をJSON Linesで不変保存する。常に`source=yukisaki-gps-simulator`、`is_simulated=true`であり、収集サービスからDBへ書かない。
+EventBridgeからSQSへ配信されたイベントを検証し、`vehicle_id`、対象時刻、実受信時刻、緯度経度、速度、方位、作業種別、`ground_truth_segment_id`をJSON Linesで不変保存する。常に`source=yukisaki-gps-simulator`、`is_simulated=true`であり、収集サービスからDBへ書かない。
