@@ -268,6 +268,9 @@ def load_message(message: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("curated GPS record count does not match load message")
     with connect_database() as connection:
         with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_advisory_xact_lock(hashtext('yukisaki-snowplow-gps-loader'))"
+            )
             cursor.execute(SCHEMA_SQL)
             for record in records:
                 cursor.execute(

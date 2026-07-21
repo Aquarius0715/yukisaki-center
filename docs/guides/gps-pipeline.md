@@ -51,6 +51,8 @@ npm run env:stop -- --profile yukisaki-dev
 
 `env:start`は共通RDSが利用可能になってからLambdaを再開し、GPS Simulatorを`desiredCount=1`にする。`env:stop`はSimulatorを0、Lambdaを0、RDSを停止する。EventBridge、S3、SQS、DLQ、ログはデータ契約・再試行のため維持する。
 
+GPS DB LoaderはPostgreSQLへの書き込み順を安定させるため、各トランザクションの冒頭で専用のadvisory lockを取得して直列処理する。Lambda全体の同時実行枠は占有しない。
+
 ## 確認SQL
 
 ```sql
