@@ -27,6 +27,7 @@ export interface SnowPipePipelineStackProps extends StackProps {
   readonly environment: string;
   readonly targetReferenceTime: string;
   readonly roadBucketName: string;
+  readonly manifestRuleEnabled: boolean;
 }
 
 /** Event-driven simulated snow-pipe enrichment and rebuildable PostgreSQL projection. */
@@ -249,7 +250,7 @@ export class SnowPipePipelineStack extends Stack {
 
     const manifestRule = new events.Rule(this, 'RoadManifestCreatedRule', {
       description: 'Starts snow-pipe enrichment after a complete road manifest is written',
-      enabled: true,
+      enabled: props.manifestRuleEnabled,
       eventPattern: {
         source: ['aws.s3'],
         detailType: ['AWS API Call via CloudTrail'],

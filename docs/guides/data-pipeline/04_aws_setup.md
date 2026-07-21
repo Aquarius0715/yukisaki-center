@@ -67,7 +67,7 @@ Weatherと道路の収集入口をEventBridge Ruleへ統一する。デプロイ
 - SQS DLQを設定する。
 - payloadへ`dataset`とスケジュール版を含める。`run_id`はオーケストレーターで発行するか、未指定ならCollectorで発行する。
 
-開発・デモ開始時は`npm run env:start`、終了時は`npm run env:stop`で両Ruleをまとめて切り替える。
+開発・デモ開始時は`npm run env:start`、終了時は`npm run env:stop`でWeather、道路、消雪パイプmanifestの3つのRuleと関連実行系をまとめて切り替える。
 
 ### Step 7: ECRとFargateバッチ
 

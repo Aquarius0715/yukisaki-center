@@ -7,6 +7,7 @@ describe('SnowPipePipelineStack', () => {
   const stack = new SnowPipePipelineStack(app, 'SnowPipeTestStack', {
     environment: 'test', targetReferenceTime: '2026-01-23T12:00:00+09:00',
     roadBucketName: 'road-bucket',
+    manifestRuleEnabled: false,
   });
   const template = Template.fromStack(stack);
 
@@ -28,10 +29,10 @@ describe('SnowPipePipelineStack', () => {
     template.hasResourceProperties('AWS::RDS::DBInstance', { DBName: 'yukisaki_map' });
   });
 
-  test('starts only for CloudTrail road manifest write events', () => {
+  test('is disabled by default and matches only CloudTrail road manifest write events', () => {
     template.resourceCountIs('AWS::CloudTrail::Trail', 1);
     template.hasResourceProperties('AWS::Events::Rule', {
-      State: 'ENABLED',
+      State: 'DISABLED',
       EventPattern: Match.objectLike({
         source: ['aws.s3'],
         'detail-type': ['AWS API Call via CloudTrail'],

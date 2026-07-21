@@ -45,7 +45,7 @@ manifests/data-processing/{processing_run_id}.json
 
 ## RDS停止時
 
-生成・統合LambdaはVPC外で常時実行可能とし、S3 curatedを先に完成させる。Snow Pipe専用RDS停止中はロード要求を`RoadDatabaseLoadQueue`へ保持する。RDSが利用可能になった後で`RoadDatabaseLoader`の予約済み同時実行数0を解除し、キューを処理する。規定回数失敗した要求はDLQへ移動する。気象RDSは使用しない。
+生成・統合LambdaはVPC外に置き、EventBridge Ruleが有効なときだけ新しいワークフローを開始する。Snow Pipe専用RDS停止中はロード要求を`RoadDatabaseLoadQueue`へ保持する。`npm run env:start`でRDSを起動し、`RoadDatabaseLoader`の予約済み同時実行数0を解除してキューを処理する。`npm run env:stop`ではRule、Loader、専用RDSをまとめて停止する。規定回数失敗した要求はDLQへ移動する。気象RDSは使用しない。
 
 ## ローカル検証
 
@@ -66,7 +66,7 @@ docker compose -f ../compose/docker-compose.yml run --build --rm road-test
 
 ## デプロイ
 
-AWSへ反映する前に`cdk diff`で既存S3とRDSが置換されないこと、道路収集Scheduleが`DISABLED`のままであることを確認する。
+AWSへ反映する前に`cdk diff`で既存S3とRDSが置換されないこと、消雪パイプmanifest Ruleが`DISABLED`で作成されることを確認する。
 
 ```bash
 cd infrastructure/cdk
@@ -74,4 +74,4 @@ npm run snow:diff -- --profile yukisaki-dev
 npm run snow:deploy -- --profile yukisaki-dev --require-approval never
 ```
 
-専用コマンドは`YukisakiSnowPipePipeline-dev`だけを合成・更新し、気象・道路スタックをデプロイしない。初回は既存道路manifestをStep Functionsへ渡し、S3 raw/curated、SQS、DLQ、専用RDS件数を順に確認する。確認後はLoaderの予約済み同時実行数を0へ戻し、専用RDSを停止する。
+専用コマンドは`YukisakiSnowPipePipeline-dev`だけを合成・更新し、気象・道路スタックをデプロイしない。デプロイ直後はRule、Loaderとも停止状態である。`npm run env:start`後に道路収集を実行し、S3 raw/curated、SQS、DLQ、専用RDS件数を順に確認する。確認後は`npm run env:stop`で全実行系を停止する。

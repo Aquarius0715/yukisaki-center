@@ -88,7 +88,7 @@ def merge_feature_collection(
     for record in snow_records:
         validate_snow_pipe_record(record)
         if record["source_road_run_id"] != expected_road_run_id:
-            raise ValueError("snow-pipe record refers to a different road run")e
+            raise ValueError("snow-pipe record refers to a different road run")
         segment_id = record["segment_id"]
         if segment_id in snow_by_segment:
             raise ValueError(f"duplicate snow-pipe segment_id: {segment_id}")

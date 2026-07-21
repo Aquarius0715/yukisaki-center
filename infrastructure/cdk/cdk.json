@@ -10,6 +10,7 @@
     "weatherScheduleHours": 24,
     "roadScheduleEnabled": false,
     "roadScheduleHours": 168,
+    "snowPipeManifestRuleEnabled": false,
     "snowPipeRoadBucketName": "yukisakiroadcollector-dev-roaddatabucket7b751e8d-ih9uryqlbgri",
     "@aws-cdk/core:defaultCrossStackReferences": "strong"
   }
