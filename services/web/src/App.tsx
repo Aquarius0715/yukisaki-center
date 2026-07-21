@@ -7,7 +7,7 @@ import { useYukisakiData } from './hooks/useYukisakiData'
 
 type Screen = 'splash' | 'home' | 'routes' | 'navigation'
 type Sheet = 'layers' | 'road' | 'plow' | undefined
-const defaultLayers: LayerVisibility = { drivability: true, snowmelt: true, plowing: true, plows: true, tracks: true, slopes: false, narrow: true, snowEffects: true }
+const defaultLayers: LayerVisibility = { drivability: true, snowmelt: true, plowing: true, plows: true, tracks: true, slopes: false, snowEffects: true }
 
 function SnowplowArt({ compact = false }: { compact?: boolean }) {
   return <svg className={compact ? 'plow-art compact' : 'plow-art'} viewBox="0 0 180 100" role="img" aria-label="除雪車">
@@ -39,26 +39,26 @@ function BottomSheet({ title, onClose, children }: { title: string; onClose: () 
 function Score({ value }: { value: number }) { return <span className={`score ${value >= 80 ? 'good' : value >= 60 ? 'fair' : 'care'}`}><b>{value}</b><small>/100</small></span> }
 
 function LayerSheet({ layers, setLayers, close }: { layers: LayerVisibility; setLayers: (layers: LayerVisibility) => void; close: () => void }) {
-  const items: [keyof LayerVisibility,string,string][] = [['drivability','走りやすさ','道路の色・線種'],['snowmelt','消雪パイプ','稼働中は青い流線'],['plowing','除雪実績','道路面とタイヤ跡'],['plows','除雪車の現在地','作業車アイコン'],['tracks','除雪車の走行軌跡','走行済みの道路'],['slopes','坂道','注意区間'],['narrow','狭い道路','注意区間'],['snowEffects','雪のビジュアル演出','実測積雪量ではありません']]
+  const items: [keyof LayerVisibility,string,string][] = [['drivability','走りやすさ指数','低い道路は赤、高い道路は青'],['snowmelt','消雪パイプ','道路脇の水色ライン'],['plowing','除雪実績','道路面とタイヤ跡'],['plows','除雪車の現在地','5秒かけて次の位置へ移動'],['tracks','除雪車の走行軌跡','走行済みの道路'],['slopes','坂道','注意区間'],['snowEffects','雪のビジュアル演出','実測積雪量ではありません']]
   return <BottomSheet title="地図レイヤー" onClose={close}><div className="sheet-content layer-list">{items.map(([key,label,note]) => <label key={key}><span><b>{label}</b><small>{note}</small></span><input type="checkbox" checked={layers[key]} onChange={() => setLayers({ ...layers, [key]: !layers[key] })}/><i/></label>)}</div></BottomSheet>
 }
 
 function RoadSheet({ road, condition, close }: { road: RoadSegmentFeature; condition: ReturnType<typeof useYukisakiData>['conditions'][number] | undefined; close: () => void }) {
   const p = road.properties
   const breakdown = condition?.scoreBreakdown
-  const scoreRows = breakdown ? [['基本点',breakdown.base],['消雪パイプ',breakdown.snowmeltPipe],['稼働状態',breakdown.snowmeltPipeOperation],['除雪実績',breakdown.recentPlowing],['道路種別',breakdown.roadClass],['道幅',breakdown.roadWidth],['坂道',breakdown.slope],['情報の新しさ',breakdown.dataFreshness]] as const : []
+  const scoreRows: Array<readonly [string, number | boolean | string | null]> = condition?.scoreFactorDetails?.map((factor) => [factor.label, factor.value] as const) ?? (breakdown ? [['基本点',breakdown.base],['消雪パイプ',breakdown.snowmeltPipe],['稼働状態',breakdown.snowmeltPipeOperation],['除雪実績',breakdown.recentPlowing],['道路種別',breakdown.roadClass],['道幅',breakdown.roadWidth],['坂道',breakdown.slope],['情報の新しさ',breakdown.dataFreshness]] as const : [])
   return <BottomSheet title="道路区間の詳細" onClose={close}><div className="sheet-content">
     <div className="road-title"><div><small>{p.highway ?? '道路'}</small><h3>{p.road_name || p.name || '名称のない道路'}</h3><code>{p.segment_id}</code></div>{condition && <Score value={condition.drivabilityScore}/>}</div>
     <div className="fact-grid"><span>道幅<b>{condition?.roadWidthM ? `${condition.roadWidthM} m` : '情報なし'}</b></span><span>一方通行<b>{p.oneway === true || p.oneway === 'yes' ? 'はい' : 'いいえ'}</b></span><span>消雪パイプ<b>{condition?.hasSnowmeltPipe ? condition.snowmeltPipeOperating ? '作動中' : 'あり・停止中' : '設置情報なし'}</b></span><span>最終除雪車通過<b>{condition?.lastPlowedAt ? new Date(condition.lastPlowedAt).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : '走行実績を確認できません'}</b></span></div>
-    <h4>スコアの根拠</h4><div className="breakdown">{scoreRows.map(([label,value]) => <div key={label}><span>{label}</span><b className={value < 0 ? 'minus' : ''}>{value > 0 ? '+' : ''}{value}</b></div>)}</div>
+    <h4>APIが返したスコアの根拠</h4><div className="breakdown">{scoreRows.map(([label,value]) => { const numeric = typeof value === 'number' ? value : null; return <div key={label}><span>{label}</span><b className={numeric !== null && numeric < 0 ? 'minus' : ''}>{numeric !== null && numeric > 0 ? '+' : ''}{String(value)}</b></div> })}</div>
     {[...(condition?.reasons ?? []),...(condition?.warnings ?? [])].length > 0 && <div className="reason-list">{condition?.reasons.map((reason) => <span key={reason}>✓ {reason}</span>)}{condition?.warnings.map((warning) => <span className="warn" key={warning}>△ {warning}</span>)}</div>}
-    <p className="data-note">更新: {appConfig.demo.label}・モックAPIの仮データ</p>
+    <p className="data-note">更新: {condition?.updatedAt ? new Date(condition.updatedAt).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : '時刻情報なし'}・{condition?.isSimulated ? 'デモ用の仮データ' : 'APIデータ'}</p>
   </div></BottomSheet>
 }
 
 function PlowSheet({ plow, close }: { plow: Snowplow; close: () => void }) {
   return <BottomSheet title="除雪車の詳細" onClose={close}><div className="sheet-content"><div className="plow-heading"><div className="plow-icon"><SnowplowArt compact/></div><div><h3>{plow.name}</h3><span className="working-dot"/> {plow.status === 'working' ? '現在作業中' : plow.status === 'moving' ? '移動中' : '停止中'}</div></div>
-    <div className="fact-grid"><span>速度<b>{plow.speedKmh} km/h</b></span><span>進行方向<b>{plow.heading}°</b></span><span>本日の除雪距離<b>{plow.todayDistanceKm} km</b></span><span>走行済み軌跡<b>{plow.track.coordinates.length} 地点</b></span></div><div className="reason-list"><span>✓ 走行済み軌跡を地図に表示</span><span>{plow.plannedRoute ? '→ 除雪予定ルートあり' : '予定ルート情報なし'}</span></div><p className="data-note">位置・軌跡はデモ用の仮データです</p>
+    <div className="fact-grid"><span>速度<b>{plow.speedKmh} km/h</b></span><span>進行方向<b>{plow.heading}°</b></span><span>本日の除雪距離<b>{plow.todayDistanceKm === null ? 'API提供なし' : `${plow.todayDistanceKm} km`}</b></span><span>走行済み軌跡<b>{plow.track ? `${plow.track.coordinates.length} 地点` : 'API提供なし'}</b></span></div><div className="reason-list"><span>{plow.matchedSegmentId ? `✓ 道路 ${plow.matchedSegmentId} にマッチ` : '道路との紐付け情報なし'}</span><span>{plow.plannedRoute ? '→ 除雪予定ルートあり' : '予定ルート情報なし'}</span></div><p className="data-note">更新: {plow.lastUpdatedAt ? new Date(plow.lastUpdatedAt).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : '時刻情報なし'}・{plow.isSimulated ? 'デモ用GPS' : 'APIデータ'}</p>
   </div></BottomSheet>
 }
 
@@ -75,16 +75,17 @@ function AppContent() {
   const [road,setRoad] = useState<RoadSegmentFeature>(); const [plow,setPlow] = useState<Snowplow>(); const [destination,setDestination] = useState<Destination>()
   const [routes,setRoutes] = useState<RecommendedRoute[]>([]); const [activeRoute,setActiveRoute] = useState('recommended'); const [routeLoading,setRouteLoading] = useState(false)
   const data = useYukisakiData(); const condition = useMemo(() => data.conditions.find((item) => item.segmentId === road?.properties.segment_id), [data.conditions,road])
-  const averageScore = data.conditions.length ? Math.round(data.conditions.reduce((sum,item) => sum + item.drivabilityScore,0) / data.conditions.length) : 0
+  const scoredConditions = data.conditions.filter((item) => item.hasDrivabilityScore !== false)
+  const averageScore = scoredConditions.length ? Math.round(scoredConditions.reduce((sum,item) => sum + item.drivabilityScore,0) / scoredConditions.length) : 0
   const selectDestination = (item: Destination) => { setDestination(item); if (!data.roads) return; setRouteLoading(true); yukisakiApi.recommendRoutes({ origin: appConfig.demo.position, destination: item, preference: 'recommended' }).then((response) => { setRoutes(response.routes); setActiveRoute('recommended'); setScreen('routes') }).finally(() => setRouteLoading(false)) }
 
   if (screen === 'splash') return <Splash onDone={() => setScreen('home')}/>
   if (data.loading || !data.roads) return <div className="loading" role="status" aria-live="polite"><div className="spinner"/><b>道路データを読み込んでいます</b><small>長岡市石動南町・デモデータ</small></div>
   if (data.error) return <div className="loading" role="alert"><b>{data.error}</b><button className="primary" onClick={data.retry}>再試行</button></div>
   return <div className="app-screen"><Header weather={data.weather}/>
-    <YukisakiMap roads={data.roads} conditions={data.conditions} snowplows={data.snowplows} layers={layers} destination={destination} routes={screen === 'routes' || screen === 'navigation' ? routes : undefined} activeRouteId={activeRoute} onRoadSelect={(item) => { setRoad(item); setSheet('road') }} onPlowSelect={(item) => { setPlow(item); setSheet('plow') }} onMapDestination={selectDestination}/>
+    <YukisakiMap roads={data.roads} conditions={data.conditions} snowplows={data.snowplows} layers={layers} destination={destination} routes={screen === 'routes' || screen === 'navigation' ? routes : undefined} activeRouteId={activeRoute} onRoadSelect={(item) => { setRoad(item); setSheet('road') }} onPlowSelect={(item) => { setPlow(item); setSheet('plow') }} onMapDestination={selectDestination} animateSnowplows/>
     {layers.snowEffects && <div className="map-snow" aria-hidden="true"/>}
-    {screen === 'home' && <><Search onChoose={selectDestination}/><div className="map-actions"><button onClick={() => setSheet('layers')} aria-label="地図レイヤーを選択">◇</button><button aria-label="現在地へ移動">◎</button></div><div className="legend"><b>走りやすさ</b><span><i className="l-good"/>80–100</span><span><i className="l-fair"/>60–79</span><span><i className="l-care"/>注意</span></div><section className="home-card"><div><small>現在地周辺の走りやすさ</small><h2>{appConfig.demo.area}</h2><p>消雪パイプ・除雪車通過実績・道路属性を表示</p></div><Score value={averageScore}/><footer><span>更新 {appConfig.demo.label}</span><b>デモ用の仮データ</b></footer><button className="primary" onClick={() => document.querySelector<HTMLInputElement>('.search input')?.focus()}>目的地を設定</button></section></>}
+    {screen === 'home' && <><Search onChoose={selectDestination}/><div className="map-actions"><button onClick={() => setSheet('layers')} aria-label="地図レイヤーを選択">◇</button><button aria-label="現在地へ移動">◎</button></div><div className="legend"><b>走りやすさ指数</b><span className="score-gradient"/><small><em>0</em><em>50</em><em>100</em></small><span className="legend-unknown"><i/>未算出</span></div>{data.updateStopped && <div className="api-warning" role="alert"><b>更新停止</b><span>最後に取得したデータを表示しています</span></div>}{data.meta?.truncated && <div className="api-warning truncated" role="status"><b>表示範囲を縮小してください</b><span>道路データが上限に達しました</span></div>}<section className="home-card"><div><small>現在地周辺の走りやすさ</small><h2>{appConfig.demo.area}</h2><p>消雪パイプ・除雪車通過実績・道路属性を表示</p></div><Score value={averageScore}/><footer><span>更新 {data.meta?.dataTimestamp ? new Date(data.meta.dataTimestamp).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : appConfig.demo.label}</span><b>{data.meta?.source === 'api' ? 'API・デモデータ' : 'API未接続・モック'}</b></footer><button className="primary" onClick={() => document.querySelector<HTMLInputElement>('.search input')?.focus()}>目的地を設定</button></section></>}
     {screen === 'routes' && <RoutePanel routes={routes} active={activeRoute} setActive={setActiveRoute} back={() => setScreen('home')} start={() => setScreen('navigation')}/>} 
     {screen === 'navigation' && <NavigationPanel route={routes.find((item) => item.id === activeRoute)} back={() => setScreen('home')}/>} 
     {routeLoading && <div className="route-loading" role="status"><div className="spinner"/>ルート候補を準備しています</div>}

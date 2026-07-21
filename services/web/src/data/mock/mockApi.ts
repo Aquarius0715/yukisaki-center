@@ -60,9 +60,9 @@ const destinations: Destination[] = [
 ]
 
 const plows: Snowplow[] = [
-  { id: 'plow-1', name: '除雪車 01', status: 'working', latitude: 37.4437, longitude: 138.7908, heading: 0, speedKmh: 18, lastUpdatedAt: generatedAt, todayDistanceKm: 12.4, track: { type: 'LineString', coordinates: [[138.7908,37.4402],[138.7908,37.4437]] }, plannedRoute: { type: 'LineString', coordinates: [[138.7908,37.4437],[138.7908,37.4470]] } },
-  { id: 'plow-2', name: '除雪車 02', status: 'moving', latitude: 37.4454, longitude: 138.7934, heading: 90, speedKmh: 12, lastUpdatedAt: generatedAt, todayDistanceKm: 8.7, track: { type: 'LineString', coordinates: [[138.7870,37.4454],[138.7934,37.4454]] }, plannedRoute: { type: 'LineString', coordinates: [[138.7934,37.4454],[138.7960,37.4454]] } },
-  { id: 'plow-3', name: '除雪車 03', status: 'stopped', latitude: 37.4418, longitude: 138.7950, heading: 180, speedKmh: 0, lastUpdatedAt: generatedAt, todayDistanceKm: 6.1, track: { type: 'LineString', coordinates: [[138.7950,37.4454],[138.7950,37.4418]] } },
+  { id: 'plow-1', name: '除雪車 01', status: 'working', latitude: 37.4437, longitude: 138.7908, heading: 0, speedKmh: 18, lastUpdatedAt: generatedAt, todayDistanceKm: 12.4, track: { type: 'LineString', coordinates: [[138.7908,37.4402],[138.7908,37.4437]] }, plannedRoute: { type: 'LineString', coordinates: [[138.7908,37.4437],[138.7908,37.4470]] }, isSimulated: true },
+  { id: 'plow-2', name: '除雪車 02', status: 'moving', latitude: 37.4454, longitude: 138.7934, heading: 90, speedKmh: 12, lastUpdatedAt: generatedAt, todayDistanceKm: 8.7, track: { type: 'LineString', coordinates: [[138.7870,37.4454],[138.7934,37.4454]] }, plannedRoute: { type: 'LineString', coordinates: [[138.7934,37.4454],[138.7960,37.4454]] }, isSimulated: true },
+  { id: 'plow-3', name: '除雪車 03', status: 'stopped', latitude: 37.4418, longitude: 138.7950, heading: 180, speedKmh: 0, lastUpdatedAt: generatedAt, todayDistanceKm: 6.1, track: { type: 'LineString', coordinates: [[138.7950,37.4454],[138.7950,37.4418]] }, isSimulated: true },
 ]
 
 function routeGeometry(destination: Destination, variant: number) {
@@ -73,6 +73,16 @@ function routeGeometry(destination: Destination, variant: number) {
 }
 
 export class MockYukisakiApi implements YukisakiApi {
+  async getMapSnapshot() {
+    const roads = await this.getRoadSegments()
+    const conditions = await this.getRoadConditions()
+    return {
+      roads,
+      conditions,
+      snowplows: await this.getSnowplows(),
+      meta: { schemaVersion: '1.0', dataTimestamp: generatedAt, confidence: 0.8, isSimulated: true, truncated: false, source: 'mock' as const },
+    }
+  }
   getRoadSegments() { return loadRoads() }
   async getRoadConditions(segmentIds?: string[]) {
     const roads = await loadRoads()

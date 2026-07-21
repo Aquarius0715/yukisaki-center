@@ -1,40 +1,31 @@
-# Yukisaki Web API契約
+# Webから利用する地図API契約
 
-WebはREST APIだけを利用し、S3やPostgreSQLへ直接接続しない。日時はISO 8601、座標はWGS84（経度・緯度）とする。実装型の正本は `src/api/contracts.ts`。
+外部契約の正本はリポジトリの `docs/architecture/map-api-design.md` と `services/api/docs/contract.md`。Web実装型は `src/api/contracts.ts`、外部GeoJSONから画面内部型への変換は `src/api/mapApiAdapter.ts` に置く。Webは指数・危険理由を再計算しない。
 
-## エンドポイント
+## Map API
 
-| Method | Path | 概要 |
+| Method | Path | Webでの用途 |
 |---|---|---|
-| GET | `/health` | 稼働確認 |
-| GET | `/road-segments?bbox=minLon,minLat,maxLon,maxLat` | GeoJSON道路区間 |
-| POST | `/road-conditions/query` | `{ "segmentIds": ["id"] }` に対応する計算済み道路状態 |
-| GET | `/snowmelt-pipes?bbox=...` | 消雪パイプ状態 |
-| GET | `/snowplows?bbox=...` | 除雪車・軌跡 |
-| GET | `/weather?lat=...&lon=...` | 参考天気 |
-| GET | `/destinations?q=...` | 目的地候補 |
-| POST | `/routes/recommend` | 3種類の計算済み経路候補 |
+| GET | `/healthz` | LambdaのLiveness確認 |
+| GET | `/v1/map/snapshot?bbox=west,south,east,north&limit=5000` | 初回の道路・除雪車一括取得 |
+| GET | `/v1/road-segments?bbox=...&limit=5000` | 将来の表示範囲変更時の道路再取得 |
+| GET | `/v1/road-segments/{id}` | 道路区間1件 |
+| GET | `/v1/snowplows` | 初回後、5秒間隔の最新位置取得 |
 
-道路状態は `segmentId`, `hasSnowmeltPipe`, `snowmeltPipeOperating`, `lastPlowedAt`, `plowVehicleId`, `roadWidthM`, `slopePercent`, `drivabilityScore`, `status`, `scoreBreakdown`, `reasons`, `warnings`, `updatedAt`, `isSimulated` を返す。指数や危険理由はサーバー側で決定し、Webは再計算しない。
+初回snapshotは `schema_version`, `data_timestamp`, `confidence`, `is_simulated`, `demo`, `roads`, `snowplows` を返す。道路はLineStringまたはMultiLineStringで、`segment_id`, `drivability_score`, `score_factors`, `snow_pipe`, `snow_pipe_operation_status`, `last_plowed_at`, `data_timestamp`, `is_simulated` を画面へ反映する。
 
-経路リクエストは次の形式。
+除雪車はPoint GeoJSONで、`vehicle_id`をマーカーキー、`matched_segment_id`を道路との関連キー、`heading_degrees`をアイコンの向きに使う。新しい位置は`observed_at`が現在値以上の場合だけ反映する。
 
-```json
-{
-  "origin": { "latitude": 37.442762, "longitude": 138.790865 },
-  "destination": { "latitude": 37.4454, "longitude": 138.795 },
-  "preference": "recommended"
-}
-```
+`truncated: true`は道路上限到達、`is_simulated: true`はデモデータとして画面に明示する。503または429では最後の正常値を保持し、「更新停止」を表示して値を推定しない。
 
-レスポンスは `routes`, `generatedAt`, `isSimulated` を含む。各routeは `id`, `label`, `durationMinutes`, `distanceKm`, `drivabilityScore`, `plowedRatio`, `snowmeltPipeRatio`, `noPlowRecordSegmentCount`, `hasNarrowRoad`, `hasSteepSlope`, GeoJSON `geometry`, `warnings`, `reasons` を持つ。
+## Map API対象外
+
+経路探索、目的地検索、天気、走行軌跡・本日走行距離は現在のMap APIに含まれない。Webデモではこれらだけをモックとして維持し、API由来情報と区別する。
 
 ## エラー
 
-非2xxでは次を返す。内部例外・認証情報はメッセージへ含めない。
-
 ```json
-{ "error": { "code": "ROAD_DATA_UNAVAILABLE", "message": "道路データを取得できませんでした", "requestId": "..." } }
+{ "error": { "code": "service_unavailable", "message": "safe public message" } }
 ```
 
-API Gatewayでは配信元CloudFrontドメインだけを `Access-Control-Allow-Origin` に許可し、必要なmethod/headerへ限定する。
+400は入力不正、404は対象なし、405はGET以外、503はRDS停止または一時障害。内部例外、DB接続情報、Secret ARNは表示しない。

@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { appConfig } from '../../api/config'
 import type { Destination, RecommendedRoute, RoadCondition, RoadSegmentFeature, RoadSegmentFeatureCollection, Snowplow } from '../../api/contracts'
 
-export type LayerVisibility = { drivability: boolean; snowmelt: boolean; plowing: boolean; plows: boolean; tracks: boolean; slopes: boolean; narrow: boolean; snowEffects: boolean }
+export type LayerVisibility = { drivability: boolean; snowmelt: boolean; plowing: boolean; plows: boolean; tracks: boolean; slopes: boolean; snowEffects: boolean }
 type Props = {
   roads: RoadSegmentFeatureCollection
   conditions: RoadCondition[]
@@ -16,27 +16,52 @@ type Props = {
   onRoadSelect: (feature: RoadSegmentFeature) => void
   onPlowSelect: (plow: Snowplow) => void
   onMapDestination: (destination: Destination) => void
+  animateSnowplows: boolean
 }
 
 function boundsOf(roads: RoadSegmentFeatureCollection): maplibregl.LngLatBounds {
   const bounds = new maplibregl.LngLatBounds()
-  roads.features.forEach((feature) => feature.geometry.coordinates.forEach((coordinate) => bounds.extend(coordinate as [number, number])))
+  roads.features.forEach((feature) => {
+    const lines = feature.geometry.type === 'LineString' ? [feature.geometry.coordinates] : feature.geometry.coordinates
+    lines.forEach((line) => line.forEach((coordinate) => bounds.extend(coordinate as [number, number])))
+  })
   return bounds
 }
 
-function plowFeatures(plows: Snowplow[], progress: number) {
-  return plows.map((plow) => {
-    const points = plow.track.coordinates
-    const from = points[0] ?? [plow.longitude, plow.latitude]
-    const to = points[points.length - 1] ?? from
-    return { type: 'Feature' as const, properties: { id: plow.id, heading: plow.heading }, geometry: { type: 'Point' as const, coordinates: [from[0] + (to[0] - from[0]) * progress, from[1] + (to[1] - from[1]) * progress] } }
-  })
+type PlowCoordinate = [number, number]
+type PlowMotion = { from: PlowCoordinate; to: PlowCoordinate; startedAt: number }
+const PLOW_INTERPOLATION_MS = 5_000
+
+function motionPosition(motion: PlowMotion, now: number, animate: boolean): PlowCoordinate {
+  if (!animate) return motion.to
+  const linearProgress = Math.min(1, Math.max(0, (now - motion.startedAt) / PLOW_INTERPOLATION_MS))
+  const progress = linearProgress * linearProgress * (3 - 2 * linearProgress)
+  return [
+    motion.from[0] + (motion.to[0] - motion.from[0]) * progress,
+    motion.from[1] + (motion.to[1] - motion.from[1]) * progress,
+  ]
 }
 
-export function YukisakiMap({ roads, conditions, snowplows, layers, destination, routes, activeRouteId, onRoadSelect, onPlowSelect, onMapDestination }: Props) {
+function plowPointCollection(plows: Snowplow[], motions: Map<string, PlowMotion>, now: number, animate: boolean) {
+  return {
+    type: 'FeatureCollection' as const,
+    features: plows.map((plow) => ({
+      type: 'Feature' as const,
+      properties: { id: plow.id, heading: plow.heading },
+      geometry: { type: 'Point' as const, coordinates: motionPosition(motions.get(plow.id) ?? { from: [plow.longitude, plow.latitude], to: [plow.longitude, plow.latitude], startedAt: now }, now, animate) },
+    })),
+  }
+}
+
+export function YukisakiMap({ roads, conditions, snowplows, layers, destination, routes, activeRouteId, onRoadSelect, onPlowSelect, onMapDestination, animateSnowplows }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<MapLibreMap | undefined>(undefined)
   const selectedRoadRef = useRef<string | undefined>(undefined)
+  const snowplowsRef = useRef(snowplows)
+  const plowMotionsRef = useRef(new Map<string, PlowMotion>())
+  const animateSnowplowsRef = useRef(animateSnowplows)
+  snowplowsRef.current = snowplows
+  animateSnowplowsRef.current = animateSnowplows
   const conditionsById = useMemo(() => new Map(conditions.map((item) => [item.segmentId, item])), [conditions])
   const enrichedRoads = useMemo(() => ({ ...roads, features: roads.features.map((feature) => ({ ...feature, properties: { ...feature.properties, ...(conditionsById.get(feature.properties.segment_id) ?? {}), selected: false } })) }), [roads, conditionsById])
 
@@ -49,20 +74,19 @@ export function YukisakiMap({ roads, conditions, snowplows, layers, destination,
     })
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right')
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right')
-    let animationTimer: number | undefined
+    let animationFrame: number | undefined
+    let lastPipePhase = -1
     map.on('load', () => {
       map.addSource('roads', { type: 'geojson', data: enrichedRoads, promoteId: 'segment_id' })
       map.addLayer({ id: 'snow-banks', type: 'line', source: 'roads', paint: { 'line-color': '#ffffff', 'line-opacity': .88, 'line-width': ['interpolate',['linear'],['zoom'],12,8,17,22], 'line-blur': 1.3 } })
-      map.addLayer({ id: 'road-surface', type: 'line', source: 'roads', paint: { 'line-color': ['match',['get','status'],'snowmelt','#44a9df','recently_plowed','#3f5368','plowed','#64788c','stale_plow_data','#aabcca','no_plow_record','#d8e7f1','warning','#e37a38','#879db2'], 'line-width': ['case',['boolean',['feature-state','selected'],false],11,['interpolate',['linear'],['zoom'],12,2.5,17,8]], 'line-opacity': .96 } })
-      map.addLayer({ id: 'stale-snow', type: 'line', source: 'roads', filter: ['in',['get','status'],['literal',['stale_plow_data','no_plow_record']]], paint: { 'line-color': '#f8fcff', 'line-opacity': .52, 'line-width': ['interpolate',['linear'],['zoom'],12,2,17,6], 'line-dasharray': [1,1.6] } })
-      map.addLayer({ id: 'pipe-idle', type: 'line', source: 'roads', filter: ['all',['==',['get','hasSnowmeltPipe'],true],['==',['get','snowmeltPipeOperating'],false]], paint: { 'line-color': '#8ccdf0', 'line-width': 3, 'line-dasharray': [2,2] } })
-      map.addLayer({ id: 'pipe-water', type: 'line', source: 'roads', filter: ['==',['get','snowmeltPipeOperating'],true], paint: { 'line-color': '#b9efff', 'line-width': 2.5, 'line-dasharray': [1.2,1.6] } })
-      map.addLayer({ id: 'tire-tracks', type: 'line', source: 'roads', filter: ['in',['get','status'],['literal',['recently_plowed','plowed']]], paint: { 'line-color': '#142839', 'line-opacity': .45, 'line-width': 1.2, 'line-gap-width': 2 } })
-      map.addLayer({ id: 'narrow-warning', type: 'line', source: 'roads', filter: ['<',['to-number',['get','roadWidthM']],4.2], paint: { 'line-color': '#f38a3b', 'line-width': 2.5, 'line-dasharray': [2,1.5] } })
+      map.addLayer({ id: 'road-surface', type: 'line', source: 'roads', paint: { 'line-color': ['case',['boolean',['get','hasDrivabilityScore'],true],['interpolate',['linear'],['to-number',['get','drivabilityScore']],0,'#d73027',50,'#f6c945',75,'#6aaed6',100,'#176fc0'],'#9cabb8'], 'line-width': ['interpolate',['linear'],['zoom'],12,['case',['boolean',['feature-state','selected'],false],11,2.5],17,['case',['boolean',['feature-state','selected'],false],11,8]], 'line-opacity': .96 } })
+      map.addLayer({ id: 'pipe-idle', type: 'line', source: 'roads', filter: ['==',['get','hasSnowmeltPipe'],true], paint: { 'line-color': '#00a8df', 'line-opacity': .96, 'line-width': ['interpolate',['linear'],['zoom'],12,2.5,17,5], 'line-offset': ['interpolate',['linear'],['zoom'],12,3,17,8], 'line-dasharray': [2,1.25] } })
+      map.addLayer({ id: 'pipe-water', type: 'line', source: 'roads', filter: ['==',['get','snowmeltPipeOperating'],true], paint: { 'line-color': '#d9f8ff', 'line-opacity': 1, 'line-width': ['interpolate',['linear'],['zoom'],12,1.5,17,3], 'line-offset': ['interpolate',['linear'],['zoom'],12,3,17,8], 'line-dasharray': [1,1.3] } })
+      map.addLayer({ id: 'tire-tracks', type: 'line', source: 'roads', filter: ['in',['get','status'],['literal',['recently_plowed','plowed']]], paint: { 'line-color': '#142839', 'line-opacity': .22, 'line-width': .8, 'line-gap-width': 2 } })
       map.addLayer({ id: 'slope-warning', type: 'line', source: 'roads', filter: ['>=',['to-number',['get','slopePercent']],7], paint: { 'line-color': '#dc4838', 'line-width': 3, 'line-dasharray': [1,1] } })
-      map.addSource('plow-tracks', { type: 'geojson', data: { type: 'FeatureCollection', features: snowplows.map((plow) => ({ type: 'Feature', properties: { id: plow.id }, geometry: plow.track })) } })
+      map.addSource('plow-tracks', { type: 'geojson', data: { type: 'FeatureCollection', features: snowplows.filter((plow) => plow.track).map((plow) => ({ type: 'Feature', properties: { id: plow.id }, geometry: plow.track! })) } })
       map.addLayer({ id: 'plow-tracks', type: 'line', source: 'plow-tracks', paint: { 'line-color': '#344a5e', 'line-width': 5, 'line-opacity': .8 } })
-      map.addSource('plows', { type: 'geojson', data: { type: 'FeatureCollection', features: snowplows.map((plow) => ({ type: 'Feature', properties: { id: plow.id, heading: plow.heading }, geometry: { type: 'Point', coordinates: [plow.longitude, plow.latitude] } })) } })
+      map.addSource('plows', { type: 'geojson', data: plowPointCollection(snowplowsRef.current, plowMotionsRef.current, performance.now(), false) })
       map.addLayer({ id: 'plows-halo', type: 'circle', source: 'plows', paint: { 'circle-radius': 16, 'circle-color': '#fff', 'circle-stroke-color': '#f59e0b', 'circle-stroke-width': 3 } })
       map.addLayer({ id: 'plows', type: 'symbol', source: 'plows', layout: { 'text-field': '🚛', 'text-size': 21, 'text-allow-overlap': true, 'text-rotate': ['get','heading'] } })
       map.addSource('current-location', { type: 'geojson', data: { type: 'Point', coordinates: [appConfig.demo.position.longitude, appConfig.demo.position.latitude] } })
@@ -79,35 +103,59 @@ export function YukisakiMap({ roads, conditions, snowplows, layers, destination,
         const original = roads.features.find((item) => item.properties.segment_id === id)
         if (original) onRoadSelect(original)
       })
-      map.on('click', 'plows', (event) => { const id = event.features?.[0]?.properties?.id as string | undefined; const plow = snowplows.find((item) => item.id === id); if (plow) onPlowSelect(plow) })
+      map.on('click', 'plows', (event) => { const id = event.features?.[0]?.properties?.id as string | undefined; const plow = snowplowsRef.current.find((item) => item.id === id); if (plow) onPlowSelect(plow) })
       ;['road-surface','plows'].forEach((layer) => { map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer' }); map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = '' }) })
       map.on('contextmenu', (event) => onMapDestination({ id: 'map-point', name: '地図で指定した地点', address: 'デモ道路内の指定地点', latitude: event.lngLat.lat, longitude: event.lngLat.lng }))
       navigator.geolocation?.getCurrentPosition((position) => {
         const candidate: [number,number] = [position.coords.longitude, position.coords.latitude]
         if (boundsOf(roads).contains(candidate)) (map.getSource('current-location') as GeoJSONSource).setData({ type: 'Point', coordinates: candidate })
       }, () => undefined, { timeout: 5_000, maximumAge: 60_000 })
-      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
-        let tick = 0
-        animationTimer = window.setInterval(() => {
-          tick = (tick + 1) % 100
-          ;(map.getSource('plows') as GeoJSONSource).setData({ type: 'FeatureCollection', features: plowFeatures(snowplows, tick / 100) })
-          map.setPaintProperty('pipe-water', 'line-dasharray', tick % 2 === 0 ? [1.2,1.6] : [1.6,1.2])
-        }, 240)
+      const renderMotion = (now: number) => {
+        const motionEnabled = animateSnowplowsRef.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        ;(map.getSource('plows') as GeoJSONSource).setData(plowPointCollection(snowplowsRef.current, plowMotionsRef.current, now, motionEnabled))
+        const pipePhase = Math.floor(now / 500) % 2
+        if (pipePhase !== lastPipePhase) {
+          lastPipePhase = pipePhase
+          map.setPaintProperty('pipe-water', 'line-dasharray', pipePhase === 0 ? [1,1.3] : [1.3,1])
+        }
+        animationFrame = window.requestAnimationFrame(renderMotion)
       }
+      animationFrame = window.requestAnimationFrame(renderMotion)
     })
     mapRef.current = map
-    return () => { if (animationTimer) window.clearInterval(animationTimer); map.remove(); mapRef.current = undefined }
+    return () => { if (animationFrame) window.cancelAnimationFrame(animationFrame); map.remove(); mapRef.current = undefined }
   }, [])
 
   useEffect(() => { const source = mapRef.current?.getSource('roads') as GeoJSONSource | undefined; source?.setData(enrichedRoads) }, [enrichedRoads])
   useEffect(() => {
+    const now = performance.now()
+    const activeIds = new Set(snowplows.map((plow) => plow.id))
+    snowplows.forEach((plow) => {
+      const previous = plowMotionsRef.current.get(plow.id)
+      const from = previous
+        ? motionPosition(previous, now, animateSnowplowsRef.current)
+        : [plow.longitude, plow.latitude] as PlowCoordinate
+      plowMotionsRef.current.set(plow.id, {
+        from,
+        to: [plow.longitude, plow.latitude],
+        startedAt: now,
+      })
+    })
+    plowMotionsRef.current.forEach((_motion, id) => { if (!activeIds.has(id)) plowMotionsRef.current.delete(id) })
+
+    const map = mapRef.current
+    if (!map?.isStyleLoaded()) return
+    const trackSource = map.getSource('plow-tracks') as GeoJSONSource | undefined
+    trackSource?.setData({ type: 'FeatureCollection', features: snowplows.filter((plow) => plow.track).map((plow) => ({ type: 'Feature', properties: { id: plow.id }, geometry: plow.track! })) })
+  }, [snowplows])
+  useEffect(() => {
     const map = mapRef.current
     if (!map?.isStyleLoaded()) return
     const visibility = (id: string, shown: boolean) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', shown ? 'visible' : 'none') }
-    visibility('road-surface', layers.drivability); visibility('snow-banks', layers.snowEffects); visibility('stale-snow', layers.snowEffects)
+    visibility('road-surface', layers.drivability); visibility('snow-banks', layers.snowEffects)
     visibility('pipe-idle', layers.snowmelt); visibility('pipe-water', layers.snowmelt); visibility('tire-tracks', layers.plowing)
     visibility('plows', layers.plows); visibility('plows-halo', layers.plows); visibility('plow-tracks', layers.tracks)
-    visibility('slope-warning', layers.slopes); visibility('narrow-warning', layers.narrow)
+    visibility('slope-warning', layers.slopes)
   }, [layers])
 
   useEffect(() => {

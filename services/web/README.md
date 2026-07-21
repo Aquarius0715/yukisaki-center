@@ -40,6 +40,8 @@ corepack pnpm preview
 
 ## データモード
 
-`.env.example` を `.env.local` へコピーして設定します。通常は `VITE_DATA_MODE=mock`、実API接続時は `api` に変更します。デモ条件は2026年1月23日・新潟県長岡市石動南町です。現在の道路GeoJSON、道路状態、消雪パイプ、除雪車、経路、天気はデモ用の仮データです。
+`.env.example` を `.env.local` へコピーして設定します。`VITE_DATA_MODE=api` と `VITE_YUKISAKI_API_URL` で公開Map APIへ接続します。初回は `/v1/map/snapshot`、除雪車は `/v1/snowplows` を5秒間隔で取得します。API停止時に `VITE_ENABLE_MOCK_FALLBACK=true` ならモック表示へ切り替わります。
+
+デモ条件は2026年1月23日・新潟県長岡市石動南町です。道路付加情報、指数、消雪パイプ、GPSはAPIでも `is_simulated` を明示したデモデータです。現在のMap API対象外である経路候補、目的地検索、天気、走行軌跡はWebモックを使用します。
 
 API仕様は [docs/API_CONTRACT.md](docs/API_CONTRACT.md)、S3・CloudFront配備は [docs/AWS_DEPLOY.md](docs/AWS_DEPLOY.md) を参照してください。AWSへの配備は明示的に実行した場合だけ行われます。

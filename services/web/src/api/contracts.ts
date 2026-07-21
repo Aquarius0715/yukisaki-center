@@ -1,4 +1,4 @@
-import type { Feature, FeatureCollection, LineString } from 'geojson'
+import type { Feature, FeatureCollection, LineString, MultiLineString, Point } from 'geojson'
 
 export type Position = { latitude: number; longitude: number }
 export type MapBounds = { minLongitude: number; minLatitude: number; maxLongitude: number; maxLatitude: number }
@@ -39,10 +39,14 @@ export type RoadSegmentProperties = {
   start_lat: number
   end_lon: number
   end_lat: number
+  confidence?: number
+  data_timestamp?: string | null
+  is_simulated?: boolean
 }
 
-export type RoadSegmentFeature = Feature<LineString, RoadSegmentProperties>
-export type RoadSegmentFeatureCollection = FeatureCollection<LineString, RoadSegmentProperties>
+export type RoadGeometry = LineString | MultiLineString
+export type RoadSegmentFeature = Feature<RoadGeometry, RoadSegmentProperties>
+export type RoadSegmentFeatureCollection = FeatureCollection<RoadGeometry, RoadSegmentProperties>
 export type RoadConditionStatus = 'snowmelt' | 'recently_plowed' | 'plowed' | 'stale_plow_data' | 'no_plow_record' | 'warning'
 
 export type RoadCondition = {
@@ -54,8 +58,11 @@ export type RoadCondition = {
   roadWidthM: number | null
   slopePercent: number | null
   drivabilityScore: number
+  hasDrivabilityScore?: boolean
   status: RoadConditionStatus
   scoreBreakdown: ScoreBreakdown
+  scoreFactors?: Record<string, number | boolean | string | null>
+  scoreFactorDetails?: Array<{ label: string; value: number | boolean | string | null }>
   reasons: string[]
   warnings: string[]
   updatedAt: string
@@ -72,9 +79,12 @@ export type Snowplow = {
   heading: number
   speedKmh: number
   lastUpdatedAt: string
-  todayDistanceKm: number
-  track: LineString
+  todayDistanceKm: number | null
+  track?: LineString
   plannedRoute?: LineString
+  matchedSegmentId?: string | null
+  confidence?: number
+  isSimulated: boolean
 }
 export type WeatherData = { temperatureC: number; condition: string; observedAt: string; isSimulated: boolean }
 export type Destination = Position & { id: string; name: string; address: string }
@@ -97,7 +107,86 @@ export type RecommendedRoute = {
 }
 export type RouteRecommendationResponse = { routes: RecommendedRoute[]; generatedAt: string; isSimulated: boolean }
 
+export type MapDataMeta = {
+  schemaVersion: string
+  dataTimestamp: string | null
+  confidence: number
+  isSimulated: boolean
+  truncated: boolean
+  source: 'api' | 'mock'
+}
+
+export type MapSnapshot = {
+  roads: RoadSegmentFeatureCollection
+  conditions: RoadCondition[]
+  snowplows: Snowplow[]
+  meta: MapDataMeta
+}
+
+export type ApiRoadProperties = {
+  segment_id: string
+  road_name: string | null
+  road_type: string | null
+  length_m: number | null
+  max_slope_percent: number | null
+  snow_pipe: boolean | null
+  snow_pipe_operation_status: 'active' | 'inactive' | 'unknown' | null
+  snow_pipe_effectiveness: number | null
+  drivability_score: number | null
+  confidence: number
+  score_factors: Record<string, number | boolean | string | null> | null
+  score_rule_version: string | null
+  last_plowed_at: string | null
+  last_plowed_by: string | null
+  data_timestamp: string | null
+  source: string | null
+  is_simulated: boolean
+}
+
+export type ApiRoadCollection = FeatureCollection<RoadGeometry, ApiRoadProperties> & {
+  bbox: [number, number, number, number]
+  count: number
+  truncated: boolean
+  data_timestamp: string | null
+  confidence: number
+  is_simulated: boolean
+}
+
+export type ApiSnowplowProperties = {
+  vehicle_id: string
+  display_name: string | null
+  observed_at: string | null
+  speed_kmh: number | null
+  heading_degrees: number | null
+  accuracy_m: number | null
+  operation: string | null
+  matched_segment_id: string | null
+  match_distance_m: number | null
+  run_id: string | null
+  data_timestamp: string | null
+  confidence: number
+  is_simulated: boolean
+}
+
+export type ApiSnowplowCollection = FeatureCollection<Point, ApiSnowplowProperties> & {
+  count: number
+  data_timestamp: string | null
+  confidence: number
+  is_simulated: boolean
+}
+
+export type ApiMapSnapshot = {
+  schema_version: '1.0'
+  data_timestamp: string | null
+  confidence: number
+  is_simulated: boolean
+  demo: { target_area: string; target_date: string }
+  roads: ApiRoadCollection
+  snowplows: ApiSnowplowCollection
+}
+
 export interface YukisakiApi {
+  getMapSnapshot(bounds?: MapBounds): Promise<MapSnapshot>
   getRoadSegments(bounds?: MapBounds): Promise<RoadSegmentFeatureCollection>
   getRoadConditions(segmentIds?: string[]): Promise<RoadCondition[]>
   getSnowmeltPipes(bounds?: MapBounds): Promise<SnowmeltPipeStatus[]>
@@ -113,6 +202,6 @@ export function isRoadFeatureCollection(value: unknown): value is RoadSegmentFea
   return candidate.type === 'FeatureCollection' && Array.isArray(candidate.features) && candidate.features.every((feature) => {
     if (!feature || typeof feature !== 'object') return false
     const item = feature as { geometry?: { type?: unknown }; properties?: { segment_id?: unknown } }
-    return item.geometry?.type === 'LineString' && typeof item.properties?.segment_id === 'string'
+    return (item.geometry?.type === 'LineString' || item.geometry?.type === 'MultiLineString') && typeof item.properties?.segment_id === 'string'
   })
 }

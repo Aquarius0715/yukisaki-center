@@ -11,7 +11,7 @@ pnpm typecheck
 pnpm build
 ```
 
-成果物は `dist/`。`VITE_PUBLIC_BASE_PATH=/demo/` のように設定すればサブパス配信にも対応する。APIモードはビルド時に `VITE_DATA_MODE=api` と `VITE_API_BASE_URL=https://...execute-api.ap-northeast-1.amazonaws.com` を設定する。タイルは `VITE_MAP_TILE_URL` で変更できる。機密情報を `VITE_` 変数へ入れない。
+成果物は `dist/`。`VITE_PUBLIC_BASE_PATH=/demo/` のように設定すればサブパス配信にも対応する。APIモードはビルド時に `VITE_DATA_MODE=api` と `VITE_YUKISAKI_API_URL=https://...execute-api.ap-northeast-1.amazonaws.com` を設定する。タイルは `VITE_MAP_TILE_URL` で変更できる。機密情報を `VITE_` 変数へ入れない。
 
 ## 配備
 
