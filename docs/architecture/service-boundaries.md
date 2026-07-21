@@ -5,10 +5,10 @@
 気象、道路、標高、消雪設備、除雪車GPSの全てについて、最初にS3 `raw/`へ原本を保存する。S3の`raw/`、`normalized/`、`curated/`が履歴と再処理の正本である。PostgreSQLはAPI・地図・経路探索を高速化するための再作成可能な配信用投影であり、正本ではない。
 
 ```text
-公開データ / fixture
+公開データ / fixture / GPS Simulator
        |
        v
- data-ingestion ----> S3 raw
+ Kinesis -> data-ingestion ----> S3 raw
                          |
                          v
                  data-processing
@@ -31,6 +31,7 @@
 
 | 送信元 | 受信先 | 契約 |
 |---|---|---|
+| gps-simulator | data-ingestion / data-processing | Kinesis GPSイベント。`vehicle_id`でpartition |
 | data-ingestion | data-processing | S3 `raw/`オブジェクト、メタデータ、`run_id` |
 | data-processing | PostgreSQL | `curated/`の検証済みスナップショット。ロード元S3キーを記録する |
 | drivability-scoring | PostgreSQL / API | `segment_id`、時刻、score、confidence、根拠、rule version |
@@ -56,6 +57,10 @@ Road Collector Fargate
 ```
 
 Snow PipeスタックのCloudTrail data eventは、既存道路スタックや道路S3の通知設定を変更せず、道路バケットの`manifests/data-ingestion/`への書込みだけをEventBridgeへ渡す。道路GeoJSONは道路バケットから読み取り、消雪パイプ仮データ、統合GeoJSON、各manifestはSnow Pipe専用データバケットへ保存する。CloudTrailログ用バケットはデータバケットとは別に管理する。生成・統合LambdaはVPC外、DB Loaderだけを共通DB VPCのprivate subnetへ置く。気象と道路・消雪パイプは単一RDS、単一DBユーザー、単一Secrets Manager認証情報を共有する。RDS停止中はSQSがロード要求を保持するため、S3正本の生成とDB稼働状態を分離できる。
+
+## 除雪車GPSと指数計算
+
+GPS Simulatorは別サービスのECS Fargate Serviceとして1タスク内で3台を走らせる。KinesisをRaw ArchiverとMap Matcherが独立購読し、raw保存とリアルタイム前処理を分離する。Map MatcherはS3 curated道路へ最近傍マッチングし、S3へ保存してからGPS DB LoaderとDrivability ScorerへSQSで通知する。指数計算はGPSロード完了をDBの`data_load_runs`で確認し、S3 `curated/drivability-scores/`へ保存した後に共通RDSへ投影する。
 
 ## デモの固定入力
 

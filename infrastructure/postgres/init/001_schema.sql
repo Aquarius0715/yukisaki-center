@@ -82,6 +82,50 @@ SELECT r.*, s.snow_pipe, s.operation_status, s.effectiveness,
 FROM road_segments r
 LEFT JOIN latest_snow_pipe_status s USING (segment_id);
 
+CREATE TABLE IF NOT EXISTS snowplow_vehicles (
+  vehicle_id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  source TEXT NOT NULL,
+  is_simulated BOOLEAN NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS snowplow_positions_latest (
+  vehicle_id TEXT PRIMARY KEY REFERENCES snowplow_vehicles(vehicle_id),
+  observed_at TIMESTAMPTZ NOT NULL,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  speed_kmh NUMERIC NOT NULL,
+  heading_degrees NUMERIC NOT NULL,
+  accuracy_m NUMERIC NOT NULL,
+  operation TEXT NOT NULL,
+  matched_segment_id TEXT NOT NULL REFERENCES road_segments(segment_id),
+  match_distance_m NUMERIC NOT NULL,
+  run_id TEXT NOT NULL,
+  is_simulated BOOLEAN NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS snowplow_segment_passages (
+  event_id TEXT PRIMARY KEY,
+  vehicle_id TEXT NOT NULL REFERENCES snowplow_vehicles(vehicle_id),
+  segment_id TEXT NOT NULL REFERENCES road_segments(segment_id),
+  observed_at TIMESTAMPTZ NOT NULL,
+  operation TEXT NOT NULL,
+  speed_kmh NUMERIC NOT NULL,
+  latitude DOUBLE PRECISION NOT NULL,
+  longitude DOUBLE PRECISION NOT NULL,
+  match_distance_m NUMERIC NOT NULL,
+  ground_truth_segment_id TEXT,
+  ground_truth_match BOOLEAN,
+  source TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  is_simulated BOOLEAN NOT NULL,
+  ingested_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS snowplow_passages_segment_time_idx
+  ON snowplow_segment_passages (segment_id, observed_at DESC);
+
 CREATE TABLE IF NOT EXISTS drivability_scores (
   segment_id TEXT NOT NULL REFERENCES road_segments(segment_id),
   data_timestamp TIMESTAMPTZ NOT NULL,

@@ -3,6 +3,7 @@ import * as cdk from 'aws-cdk-lib';
 import { DataPipelineStack } from '../lib/data-pipeline-stack';
 import { RoadCollectorStack } from '../lib/road-collector-stack';
 import { SnowPipePipelineStack } from '../lib/snow-pipe-pipeline-stack';
+import { GpsPipelineStack } from '../lib/gps-pipeline-stack';
 
 const app = new cdk.App();
 const environment = app.node.tryGetContext('environment') ?? 'dev';
@@ -45,7 +46,7 @@ const roadCollectorStack = new RoadCollectorStack(app, `YukisakiRoadCollector-${
   description: 'Isolated OpenStreetMap road collection pipeline',
 });
 
-new SnowPipePipelineStack(app, `YukisakiSnowPipePipeline-${environment}`, {
+const snowPipePipelineStack = new SnowPipePipelineStack(app, `YukisakiSnowPipePipeline-${environment}`, {
   environment,
   targetReferenceTime:
     app.node.tryGetContext('targetReferenceTime') ?? '2026-01-23T12:00:00+09:00',
@@ -60,4 +61,25 @@ new SnowPipePipelineStack(app, `YukisakiSnowPipePipeline-${environment}`, {
     region,
   },
   description: 'Simulated snow-pipe enrichment loaded into the unified PostgreSQL database',
+});
+
+new GpsPipelineStack(app, `YukisakiGpsPipeline-${environment}`, {
+  environment,
+  targetReferenceTime:
+    app.node.tryGetContext('targetReferenceTime') ?? '2026-01-23T12:00:00+09:00',
+  targetLatitude: Number(app.node.tryGetContext('targetLatitude') ?? 37.442762),
+  targetLongitude: Number(app.node.tryGetContext('targetLongitude') ?? 138.790865),
+  simulatorEnabled: contextBoolean('gpsSimulatorEnabled', false),
+  emitIntervalSeconds: Number(app.node.tryGetContext('gpsEmitIntervalSeconds') ?? 5),
+  dataBucket: dataPipelineStack.dataBucket,
+  roadCuratedBucket: snowPipePipelineStack.dataBucket,
+  databaseVpc: dataPipelineStack.databaseVpc,
+  database: dataPipelineStack.database,
+  databaseSecret: dataPipelineStack.database.secret!,
+  databaseName: 'yukisaki',
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region,
+  },
+  description: 'Three simulated snowplows streamed through Kinesis, S3, PostgreSQL, and scoring',
 });

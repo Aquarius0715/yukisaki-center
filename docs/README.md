@@ -15,3 +15,4 @@
 - [開発・デモ環境の起動と停止](guides/environment-lifecycle.md)
 - [SSM踏み台からRDSを確認する](guides/database-access.md)
 - [道路名ルールによる消雪パイプ仮データ処理](guides/snow-pipe-pipeline.md)
+- [除雪車GPS仮データ・走りやすさ指数パイプライン](guides/gps-pipeline.md)

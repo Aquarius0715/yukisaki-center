@@ -6,6 +6,6 @@
 
 全Collectorは`common/metadata.py`を使い、`run_id`、`fetched_at`、`target_start_at`、`target_end_at`、`source`、`source_urls`、`checksum_sha256`、`is_simulated`を同じ名前でmetadataとmanifestへ保持する。EventBridge Ruleはデプロイ時に無効とし、開発・デモ時だけ運用コマンドで有効化する。
 
-`src/data_ingestion/`はデータ源ごとに`weather/`（Open-Meteo、Lambdaとして実装済み）、`road/`（OpenStreetMap道路ネットワーク、ECS Fargateバッチとして実装済み）、`snow_pipe/`（道路名ルールによる消雪パイプ仮データ、Lambdaとして実装済み）、`plow_gps/`（除雪車GPS仮データ、未実装）へ分離する。新しい収集元は既存サブパッケージへ混在させない。
+`src/data_ingestion/`はデータ源ごとに`weather/`（Open-Meteo、Lambda）、`road/`（OpenStreetMap道路ネットワーク、ECS Fargateバッチ）、`snow_pipe/`（道路名ルールによる消雪パイプ仮データ、Lambda）、`plow_gps/`（Kinesisから除雪車GPS仮データをS3 rawへ保存するLambda）へ分離する。新しい収集元は既存サブパッケージへ混在させない。
 
-道路タスクはTask IAM Roleを使い、アクセスキーやAWS CLIプロファイルをコンテナへ渡さない。`snow_pipe/`と`plow_gps/`は本MVPでは常にfixtureからの仮データであり、出力に`is_simulated: true`を保持する。
+道路タスクとGPSシミュレータはTask IAM Roleを使い、アクセスキーやAWS CLIプロファイルをコンテナへ渡さない。GPSの生成責務は`services/gps-simulator/`に置き、このサービスは受信イベントを改変せずS3 rawへ保存する。`snow_pipe/`と`plow_gps/`は本MVPでは仮データであり、出力に`is_simulated: true`を保持する。

@@ -29,6 +29,7 @@
 ```text
 raw/open-meteo/weather-window/event_date={date}/run_id={run_id}/...
 raw/osm/road-network/ingest_date={date}/run_id={run_id}/...
+raw/simulated/plow-gps/event_date={date}/hour={hour}/run_id={run_id}/events.jsonl
 manifests/data-ingestion/{run_id}.json
 ```
 
@@ -59,3 +60,7 @@ raw/simulated/snow-pipe/scenario_date={date}/run_id={run_id}/snow_pipe.jsonl
 ```
 
 この出力と対応するmetadata/manifestは道路入力バケットではなく、Snow Pipe専用データバケットへ保存する。
+
+## 除雪車GPS仮データ
+
+Kinesisイベントを検証し、`vehicle_id`、対象時刻、実受信時刻、緯度経度、速度、方位、作業種別、`ground_truth_segment_id`をJSON Linesで不変保存する。常に`source=yukisaki-gps-simulator`、`is_simulated=true`であり、収集サービスからDBへ書かない。

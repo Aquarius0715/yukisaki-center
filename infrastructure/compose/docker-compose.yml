@@ -1,4 +1,9 @@
 services:
+  gps-simulator-test:
+    build:
+      context: ../../services/gps-simulator
+      target: test
+
   data-ingestion-test:
     build:
       context: ../../services/data-ingestion
