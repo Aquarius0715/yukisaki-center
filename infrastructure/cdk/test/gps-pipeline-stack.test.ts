@@ -55,7 +55,10 @@ describe('GpsPipelineStack', () => {
 
   test('loads and scores against the shared database name', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
-      Environment: { Variables: Match.objectLike({ DATABASE_NAME: 'yukisaki' }) },
+      Environment: { Variables: Match.objectLike({
+        DATABASE_NAME: 'yukisaki',
+        TARGET_REFERENCE_TIME: '2026-01-23T12:00:00+09:00',
+      }) },
     });
   });
 });

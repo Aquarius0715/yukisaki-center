@@ -3,7 +3,7 @@ set -euo pipefail
 
 ACTION="${1:-}"
 if [[ -z "${ACTION}" ]]; then
-  echo "Usage: $0 <start|stop|status> [--profile PROFILE] [--region REGION] [--data-stack STACK] [--road-stack STACK] [--snow-stack STACK] [--gps-stack STACK] [--api-stack STACK]" >&2
+  echo "Usage: $0 <start|stop|status> [--profile PROFILE] [--region REGION] [--data-stack STACK] [--road-stack STACK] [--snow-stack STACK] [--gps-stack STACK] [--api-stack STACK] [--ai-stack STACK]" >&2
   exit 2
 fi
 shift
@@ -15,6 +15,7 @@ ROAD_STACK_NAME="${ROAD_STACK_NAME:-YukisakiRoadCollector-dev}"
 SNOW_STACK_NAME="${SNOW_STACK_NAME:-YukisakiSnowPipePipeline-dev}"
 GPS_STACK_NAME="${GPS_STACK_NAME:-YukisakiGpsPipeline-dev}"
 API_STACK_NAME="${API_STACK_NAME:-YukisakiApi-dev}"
+AI_STACK_NAME="${AI_STACK_NAME:-YukisakiAiAssistant-dev}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -44,6 +45,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --api-stack)
       API_STACK_NAME="$2"
+      shift 2
+      ;;
+    --ai-stack)
+      AI_STACK_NAME="$2"
       shift 2
       ;;
     *)
@@ -85,13 +90,15 @@ GPS_LOADER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsDatabaseLoaderFunctio
 GPS_SCORER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" DrivabilityScorerFunctionName)"
 API_FUNCTION="$(stack_output "${API_STACK_NAME}" ApiFunctionName)"
 API_URL="$(stack_output "${API_STACK_NAME}" ApiUrl)"
+AI_FUNCTION="$(stack_output "${AI_STACK_NAME}" AiAssistantFunctionName)"
+BEDROCK_MODEL_ID="$(stack_output "${AI_STACK_NAME}" BedrockModelId)"
 
 for required_output in \
   "${DATABASE_ID}" "${COLLECTOR_FUNCTION}" "${LOADER_FUNCTION}" "${WEATHER_SCHEDULE}" \
   "${ROAD_SCHEDULE}" "${ROAD_CLUSTER}" "${SNOW_LOADER_FUNCTION}" \
   "${SNOW_MANIFEST_RULE}" "${GPS_CLUSTER}" "${GPS_SERVICE}" \
   "${GPS_ARCHIVER_FUNCTION}" "${GPS_MATCHER_FUNCTION}" "${GPS_LOADER_FUNCTION}" \
-  "${GPS_SCORER_FUNCTION}" "${API_FUNCTION}" "${API_URL}"; do
+  "${GPS_SCORER_FUNCTION}" "${API_FUNCTION}" "${API_URL}" "${AI_FUNCTION}" "${BEDROCK_MODEL_ID}"; do
   if [[ "${required_output}" == "None" || -z "${required_output}" ]]; then
     echo "Required CloudFormation outputs are missing. Deploy all latest CDK stacks first." >&2
     exit 1
@@ -245,6 +252,7 @@ case "${ACTION}" in
     echo "snowStack=${SNOW_STACK_NAME}"
     echo "gpsStack=${GPS_STACK_NAME}"
     echo "apiStack=${API_STACK_NAME}"
+    echo "aiStack=${AI_STACK_NAME}"
     echo "database=${DATABASE_ID} status=$(database_status "${DATABASE_ID}")"
     echo "collector=${COLLECTOR_FUNCTION} state=$(function_state "${COLLECTOR_FUNCTION}")"
     echo "loader=${LOADER_FUNCTION} state=$(function_state "${LOADER_FUNCTION}")"
@@ -254,6 +262,7 @@ case "${ACTION}" in
     echo "gpsLoader=${GPS_LOADER_FUNCTION} state=$(function_state "${GPS_LOADER_FUNCTION}")"
     echo "drivabilityScorer=${GPS_SCORER_FUNCTION} state=$(function_state "${GPS_SCORER_FUNCTION}")"
     echo "mapApi=${API_FUNCTION} state=$(function_state "${API_FUNCTION}") url=${API_URL}"
+    echo "aiAssistant=${AI_FUNCTION} state=$(function_state "${AI_FUNCTION}") model=${BEDROCK_MODEL_ID}"
     echo "weatherSchedule=${WEATHER_SCHEDULE} state=$(rule_state "${WEATHER_SCHEDULE}")"
     echo "roadSchedule=${ROAD_SCHEDULE} state=$(rule_state "${ROAD_SCHEDULE}")"
     echo "snowManifestRule=${SNOW_MANIFEST_RULE} state=$(rule_state "${SNOW_MANIFEST_RULE}")"
@@ -273,6 +282,7 @@ case "${ACTION}" in
     pause_function "${GPS_LOADER_FUNCTION}"
     pause_function "${GPS_SCORER_FUNCTION}"
     pause_function "${API_FUNCTION}"
+    pause_function "${AI_FUNCTION}"
     stop_road_tasks
     stop_failed=false
     request_database_stop "${DATABASE_ID}" || stop_failed=true
@@ -292,6 +302,7 @@ case "${ACTION}" in
     resume_function "${GPS_LOADER_FUNCTION}"
     resume_function "${GPS_SCORER_FUNCTION}"
     resume_function "${API_FUNCTION}"
+    resume_function "${AI_FUNCTION}"
     enable_rule "${SNOW_MANIFEST_RULE}"
     enable_rule "${WEATHER_SCHEDULE}"
     enable_rule "${ROAD_SCHEDULE}"

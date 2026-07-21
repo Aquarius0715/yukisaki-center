@@ -13,6 +13,7 @@
     "snowPipeManifestRuleEnabled": false,
     "gpsSimulatorEnabled": false,
     "gpsEmitIntervalSeconds": 5,
+    "bedrockModelId": "jp.anthropic.claude-sonnet-4-5-20250929-v1:0",
     "@aws-cdk/core:defaultCrossStackReferences": "strong"
   }
 }

@@ -8,6 +8,7 @@
     "env:start": "bash scripts/environment.sh start",
     "env:stop": "bash scripts/environment.sh stop",
     "env:status": "bash scripts/environment.sh status",
+    "score:all": "bash scripts/score-all-roads.sh",
     "db:start": "bash scripts/database-access.sh start",
     "db:stop": "bash scripts/database-access.sh stop",
     "db:status": "bash scripts/database-access.sh status",

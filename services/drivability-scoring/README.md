@@ -6,6 +6,8 @@
 - 配信用投影: PostgreSQL `drivability_scores`
 - 必須の根拠: `segment_id`、`data_timestamp`、適用ルール、入力値、`rule_version`、`is_simulated`
 
+デモ開始時は対象範囲の全道路へ初期スナップショットを作成する。その後はGPS通過バッチが触れた道路区間だけを再計算し、最新値をAPIへ反映する。どちらもS3保存後にPostgreSQLへ冪等UPSERTする。
+
 2026年1月23日・長岡市石動南町のデモでは、固定fixtureだけを使用する。LLMは指数を変更せず、確定済みの根拠を説明するだけに用いる。
 
-`src/drivability_scoring/`には決定的なデモ用ルールエンジン、`tests/`には減点規則のテストを置く。運用ルールは`config/`、入出力契約は`docs/`、AI向け作業規約は`AGENTS.md`で管理する。
+全道路初期計算の実行方法は[GPSパイプラインガイド](../../docs/guides/gps-pipeline.md)、入出力は[契約](docs/contract.md)を参照する。

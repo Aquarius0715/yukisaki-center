@@ -8,6 +8,8 @@
 
 - [図一覧](architecture/README.md)
 - [地図・除雪車REST API設計書](architecture/map-api-design.md)
+- [雪道経路探索サービス設計書](architecture/route-planning-design.md)
+- [Bedrock AIアシスタント設計書](architecture/ai-assistant-design.md)
 
 ## 実装ガイド
 
@@ -18,3 +20,4 @@
 - [道路名ルールによる消雪パイプ仮データ処理](guides/snow-pipe-pipeline.md)
 - [除雪車GPS仮データ・走りやすさ指数パイプライン](guides/gps-pipeline.md)
 - [フロントエンドから地図・除雪車APIを使う](guides/frontend-map-api.md)
+- [Bedrock AIアシスタント](guides/bedrock-ai-assistant.md)

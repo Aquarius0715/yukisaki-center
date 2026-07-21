@@ -7,3 +7,4 @@
 - [道路名ルールによる消雪パイプ仮データ処理](snow-pipe-pipeline.md)
 - [除雪車GPSモックと走りやすさ指数パイプライン](gps-pipeline.md)
 - [フロントエンドから地図・除雪車APIを使う](frontend-map-api.md)
+- [Bedrock AIアシスタント](bedrock-ai-assistant.md)
