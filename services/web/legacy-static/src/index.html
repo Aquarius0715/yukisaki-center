@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Yukisaki Navigation App</title>
+    <meta name="description" content="参照デザインに近い雪道ナビゲーション UI" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="snow-bg" aria-hidden="true">
+      <span></span><span></span><span></span><span></span><span></span>
+      <span></span><span></span><span></span><span></span><span></span>
+    </div>
+
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Yukisaki Navigation App UI</p>
+          <h1>雪道ナビゲーション</h1>
+        </div>
+        <div class="topbar__badges">
+          <span class="pill">デモ日 2026/01/23</span>
+          <span class="pill">長岡市石動南町</span>
+        </div>
+      </header>
+
+      <section class="hero-card">
+        <div class="hero-card__copy">
+          <p class="hero-card__label">総合リスク指数</p>
+          <div class="hero-card__score-row">
+            <div class="score-circle" id="risk-score">--</div>
+            <div class="score-pill" id="risk-label">--</div>
+          </div>
+          <p class="hero-card__text" id="risk-summary">モックデータを読み込み中です。</p>
+        </div>
+        <div class="hero-card__meta">
+          <div class="meta-line"><span class="meta-key">データ時刻</span><span id="data-timestamp">--</span></div>
+          <div class="meta-line"><span class="meta-key">API</span><span id="api-status">確認中</span></div>
+          <div class="meta-line"><span class="meta-key">表示</span><span id="mock-note">モックデータ</span></div>
+        </div>
+      </section>
+
+      <section class="content-grid">
+        <article class="card map-card">
+          <div class="section-head">
+            <h2>周辺状況マップ</h2>
+            <span class="section-tag">参照デザイン準拠</span>
+          </div>
+          <div class="screen-switcher" role="tablist" aria-label="マップ表示切替">
+            <button class="switch-btn active" data-screen="home">ホーム</button>
+            <button class="switch-btn" data-screen="route">ルート</button>
+            <button class="switch-btn" data-screen="nav">ナビ</button>
+          </div>
+
+          <svg class="map-svg" viewBox="0 0 360 240" role="img" aria-label="雪道ナビの地図">
+            <rect x="0" y="0" width="360" height="240" rx="24" fill="#E8F2FB" />
+            <rect x="20" y="20" width="70" height="50" rx="10" fill="#C8D4E2" />
+            <rect x="100" y="20" width="84" height="32" rx="10" fill="#D9E6F0" />
+            <rect x="196" y="20" width="92" height="56" rx="10" fill="#CFE0EA" />
+            <rect x="20" y="86" width="112" height="40" rx="10" fill="#C8D4E2" />
+            <rect x="148" y="84" width="84" height="40" rx="10" fill="#C8D4E2" />
+            <rect x="248" y="84" width="72" height="38" rx="10" fill="#C8D4E2" />
+            <rect x="76" y="0" width="16" height="240" fill="#D0DAE8" />
+            <rect x="0" y="90" width="360" height="16" fill="#D0DAE8" />
+            <rect x="92" y="106" width="268" height="12" fill="#D0DAE8" />
+            <rect x="146" y="0" width="12" height="240" fill="#D0DAE8" />
+            <rect x="230" y="0" width="8" height="240" fill="#D8E4EE" />
+            <rect x="90" y="0" width="2" height="240" fill="#FFFFFF" opacity="0.75" />
+            <rect x="144" y="0" width="2" height="240" fill="#FFFFFF" opacity="0.75" />
+            <rect x="0" y="90" width="360" height="2" fill="#FFFFFF" opacity="0.75" />
+            <rect x="0" y="118" width="360" height="2" fill="#FFFFFF" opacity="0.75" />
+            <rect x="80" y="0" width="14" height="240" fill="#3E3E3E" />
+            <rect x="0" y="94" width="360" height="8" fill="#68B8EA" opacity="0.35" />
+            <rect x="0" y="96" width="360" height="4" fill="#3C90C8" opacity="0.28" />
+            <line x1="0" y1="98" x2="360" y2="98" stroke="#68B8EA" stroke-width="2" stroke-dasharray="8 6" opacity="0.72" />
+            <rect x="92" y="118" width="220" height="8" fill="#9CBDD8" opacity="0.85" />
+            <rect x="146" y="126" width="8" height="90" fill="#9CBDD8" opacity="0.85" />
+            <rect x="92" y="180" width="220" height="8" fill="#D0E4F3" />
+
+            <g class="map-overlay home-overlay is-active">
+              <circle cx="60" cy="178" r="10" fill="#2A68B0" />
+              <circle cx="60" cy="178" r="16" fill="#2A68B0" opacity="0.16" />
+              <circle cx="60" cy="178" r="22" fill="#2A68B0" opacity="0.08" />
+            </g>
+            <g class="map-overlay route-overlay">
+              <path d="M60 178 L90 178 L90 125 L150 125 L150 100 L240 100 L240 58" stroke="#E05028" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.9" />
+              <path d="M60 178 L90 178 L90 150 L160 150 L160 125 L220 125 L220 100 L240 100 L240 58" stroke="#1A6BC4" stroke-width="4" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.58" stroke-dasharray="6 4" />
+              <circle cx="60" cy="178" r="10" fill="#1A3A6B" />
+              <circle cx="240" cy="58" r="10" fill="#CF4A1A" />
+            </g>
+            <g class="map-overlay nav-overlay">
+              <path d="M60 178 L100 178 L100 150 L170 150 L170 116 L220 116 L220 80" stroke="#2A68B0" stroke-width="8" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.9" />
+              <circle cx="170" cy="150" r="8" fill="#2A68B0" />
+              <path d="M166 150 L170 146 L174 150 M170 146 L170 156" stroke="#FFFFFF" stroke-width="2" fill="none" stroke-linecap="round" />
+              <circle cx="100" cy="150" r="6" fill="#2A68B0" />
+            </g>
+            <g class="snow-plow" transform="translate(140 122)">
+              <rect x="6" y="5" width="26" height="13" rx="4" fill="#F5A726" />
+              <rect x="20" y="1" width="14" height="12" rx="3" fill="#E89218" />
+              <rect x="21" y="2" width="11" height="8" rx="2" fill="#C4E2F8" opacity="0.9" />
+              <path d="M0 4 L8 7 L8 16 L0 19 Z" fill="#B8C8D4" />
+              <circle cx="12" cy="19" r="4" fill="#181818" />
+              <circle cx="26" cy="19" r="4" fill="#181818" />
+              <rect x="22" y="0" width="4" height="3" rx="1.5" fill="#E83020" />
+              <polygon points="32,10 38,10 35,6" fill="#CF4A1A" />
+            </g>
+            <g transform="translate(48,74)">
+              <text font-size="8" fill="#3C90C8">💧</text>
+            </g>
+            <g transform="translate(164,74)">
+              <text font-size="8" fill="#3C90C8">💧</text>
+            </g>
+            <g transform="translate(270,74)">
+              <text font-size="8" fill="#3C90C8">💧</text>
+            </g>
+          </svg>
+        </article>
+
+        <article class="card info-card">
+          <div class="section-head">
+            <h2>推奨ルート</h2>
+            <span class="section-tag">モックデータ</span>
+          </div>
+          <div id="routes"></div>
+        </article>
+      </section>
+
+      <section class="card sheet-card">
+        <div class="section-head">
+          <h2>危険理由</h2>
+          <span class="section-tag" id="mock-note">モックデータ表示</span>
+        </div>
+        <div class="segments" id="segments"></div>
+      </section>
+    </main>
+
+    <script src="app.js"></script>
+  </body>
+</html>

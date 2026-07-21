@@ -1,1 +1,7 @@
+.git
+.venv
+node_modules
+dist
+legacy-static
+Yukisaki Navigation App UI
 .DS_Store
