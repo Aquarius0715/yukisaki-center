@@ -79,4 +79,4 @@ npm run deploy -- YukisakiDataPipeline-dev YukisakiRoadCollector-dev \
 
 3スタックは同じCDKアプリで合成し、Snow Pipeスタックは気象スタックのRDS・VPC・Secretと道路スタックのS3バケットを参照する。デプロイ直後はRule、Loaderとも停止状態である。`npm run env:start`後に道路収集を実行し、S3 raw/curated、SQS、DLQ、共通RDS件数を順に確認する。確認後は`npm run env:stop`で全実行系を停止する。
 
-旧消雪パイプ専用RDSの内容はS3 curated正本から共通RDSへ冪等再ロードする。再ロード後に件数を確認してから、旧RDS・VPC・Secret・最終スナップショットを削除する。
+2026-07-21にS3 curated正本から共通RDSへ4,944件を冪等再ロードし、旧消雪パイプ専用RDS・VPC・Secret・自動バックアップを削除済み。Snow Pipe用S3バケットは正本のため維持する。
