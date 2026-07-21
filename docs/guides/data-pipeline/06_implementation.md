@@ -53,6 +53,9 @@ AWSリソースは次のとおり。
 - 2026-07-15にFree Tier対象`t4g.micro`のSSM踏み台を再構築し、踏み台内の`yukisaki-psql`から7件を直接SELECTできることを確認済み
 - 旧踏み台とローカルのDBポートフォワーディング／Docker版`psql`環境は削除済み
 - 接続検証後は踏み台を停止済み。RDSは非公開、踏み台Security Groupにも受信ルールはない
+- 2026-07-21にコミット`25e5f07`を気象・道路・消雪パイプの3スタックへデプロイし、全スタック`UPDATE_COMPLETE`とCDK差分0を確認済み
+- 旧道路S3通知カスタムリソース、通知用Lambda・IAM、旧道路ECSタスク定義、旧踏み台EC2はCloudFormationで削除済み。気象S3通知用のCloudFormation管理Lambdaは現行構成に必要なため維持する
+- 統合`env:start`で2つのRDS、3つのEventBridge Rule、関連Lambdaを起動でき、道路Fargate実行中タスク0件、新SSM踏み台`i-0682deedea1359ca0`の停止を確認済み
 
 ## ローカル検証
 

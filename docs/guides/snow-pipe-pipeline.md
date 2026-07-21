@@ -75,3 +75,5 @@ npm run snow:deploy -- --profile yukisaki-dev --require-approval never
 ```
 
 専用コマンドは`YukisakiSnowPipePipeline-dev`だけを合成・更新し、気象・道路スタックをデプロイしない。デプロイ直後はRule、Loaderとも停止状態である。`npm run env:start`後に道路収集を実行し、S3 raw/curated、SQS、DLQ、専用RDS件数を順に確認する。確認後は`npm run env:stop`で全実行系を停止する。
+
+2026-07-21にコミット`25e5f07`をデプロイし、スタックの`UPDATE_COMPLETE`、CDK差分0、専用RDS・Loader・manifest Ruleの統合起動を確認済みである。
