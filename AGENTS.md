@@ -26,7 +26,7 @@
 - Weather、道路、消雪パイプmanifestはEventBridge Ruleを共通の入口とし、3つのRuleはデプロイ時に`DISABLED`。単一RDS、3つのRule、関連Lambda、道路Fargate、GPS Fargateは`env:start|stop|status`でまとめて管理する
 - 全Collectorは共通メタデータ契約で`run_id`、取得日時、対象期間、出典URL、SHA-256をS3 metadata/manifestへ保持し、PostgreSQLへ直接書かない
 - `services/`直下の8サービスはすべてDockerfileを持ち、ローカルテストもDocker Composeから実行する
-- 2026-07-21にコミット`84a3914`の3スタックをAWSへデプロイし、気象7件・道路4,944件・消雪パイプ履歴4,944件を共通RDSで確認済み。旧Snow Pipe専用RDS・VPC・Secret・自動バックアップは削除し、S3正本は維持している
+- 2026-07-21にコミット`af637bd`の4スタックをAWSへデプロイ済み。気象7件・道路4,944件・消雪パイプ履歴4,944件に加え、GPSモック3台のS3 raw/normalized/curated、共通RDSの最新位置・通過履歴、S3/RDSの走りやすさ指数を確認し、GPS関連DLQ 4つが0件であることを確認した。旧Snow Pipe専用RDS・VPC・Secret・自動バックアップは削除済みで、S3正本は維持している
 - 旧JMA Atom Collector、旧Normalizer、固定fixture Lambda、旧気象用EventBridge SchedulerはAWSから削除済み
 - AWS実行系は開発・デモ時だけ起動し、`npm run env:start|stop|status`で管理する。S3等の正本は停止対象にしない
 - RDSの直接確認は`db:start|stop`でRDSとSSM踏み台をまとめて起動・停止し、Session Managerで入って踏み台内の`yukisaki-psql`から行う。RDSは非公開とし、踏み台には受信ルールを設けない
