@@ -1,0 +1,1 @@
+"""Snow-pipe generator tests."""

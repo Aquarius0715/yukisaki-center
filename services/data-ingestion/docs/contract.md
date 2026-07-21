@@ -49,3 +49,13 @@ manifests/data-ingestion/{run_id}.json
 取得したAPI応答を加工せず`response.json`の`sources.observation.response`と`sources.forecast.response`へ保存する。取得URL、取得時刻、基準時刻、地点、`run_id`、SHA-256を併記する。実APIのため`is_simulated`は`false`とする。
 
 この予報は現在から見た未来予報ではなく、対象日付に対応する過去予報アーカイブである。
+
+## 消雪パイプ仮データ
+
+道路Collectorが最後に保存する`manifests/data-ingestion/{run_id}.json`を入力とし、道路GeoJSONの`road_name`（なければ`name`）が空でない区間を`true`とする。これは設備実態を示すものではなく、必ず`source=simulated-road-name-rule`、`rule_version=road-name-v1`、`is_simulated=true`を保持する。出力は次へ不変保存する。
+
+```text
+raw/simulated/snow-pipe/scenario_date={date}/run_id={run_id}/snow_pipe.jsonl
+```
+
+この出力と対応するmetadata/manifestは道路入力バケットではなく、Snow Pipe専用データバケットへ保存する。

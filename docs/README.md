@@ -14,3 +14,4 @@
 - [データ収集・前処理の実装・デプロイ](guides/data-pipeline/06_implementation.md)
 - [開発・デモ環境の起動と停止](guides/environment-lifecycle.md)
 - [SSM踏み台からRDSを確認する](guides/database-access.md)
+- [道路名ルールによる消雪パイプ仮データ処理](guides/snow-pipe-pipeline.md)

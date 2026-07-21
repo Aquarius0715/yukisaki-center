@@ -4,8 +4,8 @@ S3を全データの正本とする。各サービスは、別サービスの実
 
 | サービス | 責務 | 入力 | 出力 | 状態 |
 |---|---|---|---|---|
-| `data-ingestion/` | 外部データを収集して原本保存 | EventBridge、公開API | S3 `raw/` | Open-Meteo LambdaとOSM Fargateを実装済み（Ruleは既定停止） |
-| `data-processing/` | 検証・正規化・curated化・DBロード | S3 `raw/` / `normalized/` | S3 `normalized/` / `curated/`、PostgreSQL | 気象7件の正規化・RDS投入を実装済み |
+| `data-ingestion/` | 外部・仮データを収集して原本保存 | EventBridge、公開API、道路manifest | S3 `raw/` | Open-Meteo、OSM、消雪パイプ仮データを実装済み |
+| `data-processing/` | 検証・正規化・curated化・DBロード | S3 `raw/` / `normalized/` | S3 `normalized/` / `curated/`、PostgreSQL | 気象7件と道路・消雪パイプ統合を実装済み |
 | `drivability-scoring/` | 区間ごとの指数・信頼度を算出 | curated、気象、設備、GPS | S3 `curated/scores/`、PostgreSQL | 設計済み |
 | `route-planning/` | 指数をコストとして経路探索 | PostgreSQL/PostGIS | 経路候補 | 設計済み |
 | `ai-assistant/` | 自然言語解析、経路比較、危険説明 | REST APIが返す根拠データ | 構造化条件、説明文 | 設計済み |

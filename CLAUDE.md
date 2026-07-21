@@ -18,7 +18,9 @@
 - API原本・メタデータをS3 `raw/`へ保存し、7件のJSON Linesを`normalized/`へ保存
 - private subnetのRDS PostgreSQL `weather_hourly_windows`へ冪等UPSERT
 - 道路ネットワークは独立したECS FargateスタックでOpenStreetMapから収集し、道路専用S3バケットの`raw/osm/road-network/`へ保存
-- AWS CDKでは気象データパイプラインと道路収集を別スタックとして管理
+- 道路完了manifestをEventBridgeで検知し、Step FunctionsとLambdaで道路名に基づく消雪パイプ仮データを生成する。生成した`raw/simulated/snow-pipe/`と道路を統合した`curated/road-segments/`は、道路入力バケットとは別のSnow Pipe専用S3バケットへ保存
+- curated道路はSQSを介してprivate Lambdaから消雪パイプ専用RDS `yukisaki_map`の`road_segments`と`snow_pipe_history`へ冪等ロードする。気象RDSとは共有しない。専用RDS停止中もS3処理を継続し、ロード要求をキューに保持する
+- AWS CDKでは気象データパイプライン、道路収集、消雪パイプ処理を別スタックとして管理
 - Weatherと道路はEventBridge Ruleを共通の入口とし、両Ruleはデプロイ時に`DISABLED`。`env:start|stop|status`でまとめて管理する
 - 全Collectorは共通メタデータ契約で`run_id`、取得日時、対象期間、出典URL、SHA-256をS3 metadata/manifestへ保持し、PostgreSQLへ直接書かない
 - `services/`直下の7サービスはすべてDockerfileを持ち、ローカルテストもDocker Composeから実行する
@@ -27,7 +29,7 @@
 - AWS実行系は開発・デモ時だけ起動し、`npm run env:start|stop|status`で管理する。S3等の正本は停止対象にしない
 - RDSの直接確認は`db:start|stop`でRDSとSSM踏み台をまとめて起動・停止し、Session Managerで入って踏み台内の`yukisaki-psql`から行う。RDSは非公開とし、踏み台には受信ルールを設けない
 
-標高・勾配、除雪車GPS、消雪パイプ、走りやすさ指数、経路探索、AI、API、Web画面は未実装または骨組みのみである。未実装の機能を、すでに動作しているかのように扱わない。
+標高・勾配、除雪車GPS、走りやすさ指数、経路探索、AI、API、Web画面は未実装または骨組みのみである。消雪パイプは道路名を根拠にした仮データ処理だけが実装済みで、実設備データではない。未実装の機能を、すでに動作しているかのように扱わない。
 
 ## デモ固定条件
 

@@ -21,3 +21,15 @@
 - 出典URL、取得時刻、`run_id`、`schema_version`、`is_simulated`
 
 主キーは地点・基準時刻・有効時刻・種別から生成したSHA-256である。`data_load_runs`にロード元S3キーと件数を記録し、DBをS3から再構築可能にする。
+
+## 道路・消雪パイプ処理
+
+道路GeoJSONと`raw/simulated/snow-pipe/`を`segment_id`で完全結合し、次へ統合済みGeoJSONを保存する。片側だけに存在するID、重複ID、チェックサム不一致、`is_simulated != true`は全体を失敗させる。
+
+```text
+curated/road-segments/snapshot_date={date}/run_id={run_id}/road_segments_enriched.geojson
+```
+
+`raw/simulated/snow-pipe/`とこのcurated出力はSnow Pipe専用データバケットに置き、道路入力バケットやCloudTrailログ用バケットには保存しない。
+
+curated保存成功後にSQSへロード要求を送り、private LambdaがSnow Pipe専用RDSの`yukisaki_map`へ接続し、単一トランザクションで`road_segments`と`snow_pipe_history`へ冪等UPSERTする。気象RDSとはDBインスタンスを共有しない。`road_segments_enriched`ビューは最新の設備履歴を道路へ結合する。専用RDS停止中はSQSに要求を保持し、S3正本の生成は継続する。
