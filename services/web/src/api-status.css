@@ -1,0 +1,22 @@
+.api-warning {
+  position: absolute;
+  z-index: 14;
+  left: 14px;
+  right: 14px;
+  bottom: 205px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid #efb08c;
+  border-radius: 12px;
+  background: rgba(255, 245, 237, 0.96);
+  color: #a44424;
+  padding: 8px 11px;
+  box-shadow: 0 4px 16px rgba(80, 38, 15, 0.16);
+  font-size: 10px;
+}
+
+.api-warning b { font-size: 11px; }
+.api-warning.truncated { border-color: #9dc7e8; background: rgba(239, 248, 255, 0.96); color: #205e91; }
+.api-warning.truncated + .home-card { box-shadow: 0 -4px 30px rgba(21, 53, 83, 0.18); }

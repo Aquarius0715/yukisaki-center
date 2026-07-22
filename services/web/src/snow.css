@@ -1,0 +1,13 @@
+.map-snow {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.2;
+  background-image: radial-gradient(circle, #fff 0 1px, transparent 1.5px), radial-gradient(circle, #fff 0 1.5px, transparent 2px);
+  background-size: 31px 37px, 47px 53px;
+  background-position: 3px 5px, 17px 23px;
+  animation: snow-drift 9s linear infinite;
+}
+@keyframes snow-drift { to { background-position: 34px 79px, 64px 129px; } }
+@media (prefers-reduced-motion: reduce) { .map-snow { animation: none; } }

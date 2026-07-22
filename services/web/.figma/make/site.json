@@ -1,0 +1,12 @@
+{
+  "title": "Yukisaki | 雪の先に、走りやすい道を。",
+  "language": "ja",
+  "description": "Provides snow-covered road navigation by integrating real-time snowmelt pipe data and snowplow routes to suggest safest, easiest paths in snowy regions.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}

@@ -1,9 +1,16 @@
-FROM alpine:3.21 AS test
+FROM node:22-alpine AS build
 WORKDIR /app
-COPY src ./
-COPY tests/test_assets.sh /test_assets.sh
-RUN sh /test_assets.sh /app
+
+RUN corepack enable
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
+
+COPY index.html tsconfig.json vite.config.ts ./
+COPY .figma ./.figma
+COPY public ./public
+COPY src ./src
+RUN pnpm typecheck && pnpm build
 
 FROM nginx:1.27-alpine AS runtime
-COPY src /usr/share/nginx/html
+COPY --from=build /app/dist /usr/share/nginx/html
 EXPOSE 80
