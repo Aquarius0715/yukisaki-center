@@ -14,7 +14,7 @@
 
 初回snapshotは `schema_version`, `data_timestamp`, `confidence`, `is_simulated`, `demo`, `roads`, `snowplows` を返す。道路はLineStringまたはMultiLineStringで、`segment_id`, `drivability_score`, `score_factors`, `snow_pipe`, `snow_pipe_operation_status`, `last_plowed_at`, `data_timestamp`, `is_simulated` を画面へ反映する。
 
-初回snapshotだけはコールドスタートとJSON解析を考慮して30秒の通信上限を使用する。Apple MapKit JSへは詳細な根拠オブジェクトを複製せず、描画に必要な指数、消雪パイプ状態、除雪状態、勾配だけを渡す。詳細の根拠はReact側に保持する。
+初期表示では道路APIを75件単位で取得し、除雪車APIと並列実行する。MapKitへは現在の表示範囲の1ページだけを描画し、`next_cursor`のページをブラウザへ自動蓄積しない。地図移動時は古いリクエストを中断し、新しい表示範囲の道路へ差し替える。Apple MapKit JSへは表示中のレイヤーだけを生成し、詳細な根拠オブジェクトを複製しない。除雪車のアニメーションは毎秒5回以下で座標を更新し、補間完了後は描画ループを停止する。詳細の根拠はReact側に保持する。
 
 除雪車はPoint GeoJSONで、`vehicle_id`をマーカーキー、`matched_segment_id`を道路との関連キー、`heading_degrees`をアイコンの向きに使う。新しい位置は実受信時刻を表す`data_timestamp`で判定し、未提供の場合だけ`observed_at`へフォールバックする。これにより、固定デモ時刻へ戻るシミュレーター再起動後も直ちに新しい位置へ更新する。
 

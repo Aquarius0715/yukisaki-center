@@ -19,6 +19,7 @@ class RequestError(ValueError):
 class MapQuery:
     bbox: tuple[float, float, float, float]
     limit: int
+    cursor: str | None
 
     @classmethod
     def parse(cls, params: dict[str, str] | None) -> "MapQuery":
@@ -39,7 +40,10 @@ class MapQuery:
             raise RequestError("limit must be an integer") from error
         if not 1 <= limit <= MAX_FEATURES:
             raise RequestError(f"limit must be between 1 and {MAX_FEATURES}")
-        return cls(bbox=(west, south, east, north), limit=limit)
+        cursor = params.get("cursor") or None
+        if cursor is not None and (len(cursor) > 200 or any(ord(char) < 32 for char in cursor)):
+            raise RequestError("cursor is invalid")
+        return cls(bbox=(west, south, east, north), limit=limit, cursor=cursor)
 
 
 def _iso(value: Any) -> str | None:
@@ -124,15 +128,21 @@ class MapService:
         self.repository = repository
 
     def roads(self, query: MapQuery) -> dict[str, Any]:
-        matched = self.repository.road_segments(query.bbox, query.limit)
+        matched = self.repository.road_segments(query.bbox, query.limit, query.cursor)
         features = [_road_feature(row) for row in matched[: query.limit]]
         timestamps = [item["properties"]["data_timestamp"] for item in features if item["properties"]["data_timestamp"]]
+        next_cursor = (
+            features[-1]["properties"]["segment_id"]
+            if len(matched) > query.limit and features
+            else None
+        )
         return {
             "type": "FeatureCollection",
             "features": features,
             "bbox": list(query.bbox),
             "count": len(features),
-            "truncated": len(matched) > query.limit,
+            "truncated": next_cursor is not None,
+            "next_cursor": next_cursor,
             "data_timestamp": max(timestamps, default=None),
             "confidence": min((item["properties"]["confidence"] for item in features), default=0.0),
             "is_simulated": any(item["properties"]["is_simulated"] for item in features),

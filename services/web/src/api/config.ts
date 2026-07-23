@@ -9,5 +9,6 @@ export const appConfig = {
     area: '新潟県長岡市',
     position: { latitude: 37.443334, longitude: 138.88375 },
     bounds: { minLongitude: 138.643056, minLatitude: 37.176389, maxLongitude: 139.124444, maxLatitude: 37.710278 },
+    initialBounds: { minLongitude: 138.84375, minLatitude: 37.413334, maxLongitude: 138.92375, maxLatitude: 37.473334 },
   },
 } as const

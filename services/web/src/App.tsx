@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react'
 import { appConfig } from './api/config'
 import { yukisakiApi } from './api/createYukisakiApi'
 import type { Destination, RecommendedRoute, RoadSegmentFeature, Snowplow } from './api/contracts'
@@ -7,7 +7,38 @@ import { useYukisakiData } from './hooks/useYukisakiData'
 
 type Screen = 'splash' | 'home' | 'routes' | 'navigation'
 type Sheet = 'layers' | 'road' | 'plow' | undefined
-const defaultLayers: LayerVisibility = { drivability: true, snowmelt: true, plowing: true, plows: true, tracks: true, slopes: false, snowEffects: true }
+// Keep the first paint intentionally light. Supplemental overlays remain
+// available from the layer sheet and are created only when selected.
+const defaultLayers: LayerVisibility = {
+  drivability: true,
+  snowmelt: false,
+  plowing: false,
+  plows: true,
+  tracks: false,
+  slopes: false,
+  snowEffects: false,
+}
+
+class ApplicationErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
+  state: { error?: Error } = {}
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, details: ErrorInfo) {
+    console.error('Yukisaki rendering failed', error, details.componentStack)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+    return <div className="loading" role="alert">
+      <b>地図の表示中にエラーが発生しました</b>
+      <small>{this.state.error.message}</small>
+      <button className="primary" onClick={() => window.location.reload()}>再読み込み</button>
+    </div>
+  }
+}
 
 function SnowplowArt({ compact = false }: { compact?: boolean }) {
   return <svg className={compact ? 'plow-art compact' : 'plow-art'} viewBox="0 0 180 100" role="img" aria-label="除雪車">
@@ -99,4 +130,9 @@ function RoutePanel({ routes,active,setActive,back,start }: { routes: Recommende
 
 function NavigationPanel({ route,back }: { route?: RecommendedRoute; back: () => void }) { return <><section className="nav-instruction"><button onClick={back} aria-label="ナビを終了">×</button><div className="turn">↱</div><div><h2>300 m先を右折</h2><p>県道23号</p></div><div className="nav-tags"><span>💧 この先 消雪パイプ</span><span>🚛 12分前に通過</span>{route?.warnings.map((warning) => <span className="warning" key={warning}>△ {warning}</span>)}</div></section><section className="arrival"><div><b>{route?.durationMinutes ?? 18}分</b><small>到着まで</small></div><div><b>{route?.distanceKm ?? 6.2} km</b><small>残り</small></div><div><b>12:18</b><small>到着予定</small></div><button>↗ より走りやすいルート</button></section></> }
 
-export default function App() { return <main className="stage"><div className="phone"><AppContent/></div><p className="demo-caption">Yukisaki interactive demo · 2026/01/23 長岡市</p></main> }
+export default function App() {
+  return <main className="stage">
+    <div className="phone"><ApplicationErrorBoundary><AppContent/></ApplicationErrorBoundary></div>
+    <p className="demo-caption">Yukisaki interactive demo · 2026/01/23 長岡市</p>
+  </main>
+}

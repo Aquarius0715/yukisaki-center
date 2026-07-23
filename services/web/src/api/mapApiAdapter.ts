@@ -4,6 +4,7 @@ import type {
   ApiRoadCollection,
   ApiRoadProperties,
   ApiSnowplowCollection,
+  MapRoadPage,
   MapSnapshot,
   RoadCondition,
   RoadConditionStatus,
@@ -118,6 +119,23 @@ export function adaptRoads(collection: ApiRoadCollection): { roads: RoadSegmentF
   return {
     roads: { type: 'FeatureCollection', features: collection.features.map(adaptRoadFeature) },
     conditions: collection.features.map((feature) => adaptCondition(feature.properties)),
+  }
+}
+
+export function adaptRoadPage(collection: ApiRoadCollection): MapRoadPage {
+  const { roads, conditions } = adaptRoads(collection)
+  return {
+    roads,
+    conditions,
+    meta: {
+      schemaVersion: '1.0',
+      dataTimestamp: collection.data_timestamp,
+      confidence: collection.confidence,
+      isSimulated: collection.is_simulated,
+      truncated: collection.truncated,
+      source: 'api',
+    },
+    nextCursor: collection.next_cursor,
   }
 }
 

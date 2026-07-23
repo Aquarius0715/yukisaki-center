@@ -55,11 +55,11 @@ declare namespace mapkit {
     style: Style
   }
   class PolylineOverlay extends Overlay {
-    constructor(points: CoordinateData[], options?: OverlayOptions)
+    constructor(points: Coordinate[], options?: OverlayOptions)
   }
   class Annotation extends EventTarget {
-    constructor(location: CoordinateData, factory: AnnotationFactory, options?: AnnotationOptions)
-    coordinate: CoordinateData
+    constructor(location: Coordinate, factory: AnnotationFactory, options?: AnnotationOptions)
+    coordinate: Coordinate
     data: unknown
     enabled: boolean
     visible: boolean

@@ -184,15 +184,18 @@ APIスキーマのバージョンは、一括レスポンスの`schema_version: 
 
 ```text
 画面表示
-  -> GET /v1/map/snapshot?bbox=...
-  -> 道路レイヤー生成
+  -> GET /v1/road-segments?bbox=...&limit=75
+     とGET /v1/snowplowsを並列実行
+  -> 現在の表示範囲の道路75件を即時描画
+  -> next_cursorのページはブラウザへ自動蓄積しない
   -> 除雪車マーカー3台生成
   -> 5秒ごとにGET /v1/snowplows
   -> 同じvehicle_idのマーカー位置・向きだけ更新
 
 地図移動
-  -> debounce後にGET /v1/road-segments?bbox=...
-  -> 道路レイヤーを差し替え
+  -> debounce後に進行中の道路リクエストを中断
+  -> GET /v1/road-segments?bbox=...&limit=75
+  -> 現在の1ページで道路レイヤーを差し替え
 ```
 
 - 除雪車マーカーのキーには`vehicle_id`を使う
@@ -200,7 +203,8 @@ APIスキーマのバージョンは、一括レスポンスの`schema_version: 
 - `heading_degrees`で車両アイコンを回転する
 - `observed_at`が現在表示中の値より古い応答は反映しない
 - `is_simulated: true`の場合は「デモデータ」と表示する
-- `truncated: true`の場合は地図表示範囲を狭めて再取得する
+- `next_cursor`はAPI利用者が明示的に続きのページを必要とする場合に使用する。Web地図は自動取得しない
+- 1回の表示では最大1,000道路に抑え、広域表示でブラウザのメモリを圧迫しない
 - 503時は指数・位置を推定せず、最終正常データの時刻と「更新停止」を表示する
 
 ## 10. エラー設計
@@ -236,7 +240,8 @@ APIスキーマのバージョンは、一括レスポンスの`schema_version: 
 | Lambda timeout | 20秒 |
 | PostgreSQL connect timeout | 5秒 |
 | PostgreSQL statement timeout | 12秒 |
-| 道路最大件数 | 5,000件 |
+| 道路API上限 | 5,000件/ページ |
+| Webページサイズ | 表示範囲ごとに75件、MapKitへは1ページだけ描画 |
 | HTTPキャッシュ | `Cache-Control: no-store` |
 | 除雪車ポーリング | 約5秒 |
 
@@ -244,7 +249,7 @@ RDS停止中はAPIデータを提供しない。S3は正本として維持され
 
 今後、閲覧数が増えた場合は次の順で改善する。
 
-1. PostGISでbboxをDBクエリへ適用
+1. PostGIS/GiSTでbbox検索を高度化
 2. ETagまたは短時間キャッシュを道路レスポンスへ追加
 3. 道路をMVT化してS3・CloudFrontから配信
 4. 除雪車位置だけをWebSocket差分配信へ変更

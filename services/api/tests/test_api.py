@@ -27,7 +27,7 @@ class FakeRepository:
             "vehicle_id": "plow-01",
         }
 
-    def road_segments(self, bbox, limit):
+    def road_segments(self, bbox, limit, cursor=None):
         west, south, east, north = bbox
         if not (west <= 138.79 and east >= 138.78 and south <= 37.45 and north >= 37.44):
             return []
@@ -86,6 +86,23 @@ class MapApiTest(unittest.TestCase):
     def test_query_rejects_excessive_limit(self):
         with self.assertRaises(RequestError):
             MapQuery.parse({"limit": "5001"})
+
+    def test_road_pages_return_a_cursor_when_more_rows_exist(self):
+        class PagedRepository(FakeRepository):
+            def road_segments(self, bbox, limit, cursor=None):
+                rows = [
+                    {**self._road(), "segment_id": "road-1"},
+                    {**self._road(), "segment_id": "road-2"},
+                ]
+                return [row for row in rows if row["segment_id"] > (cursor or "")][: limit + 1]
+
+        service = MapService(PagedRepository())
+        first = service.roads(MapQuery.parse({"limit": "1"}))
+        second = service.roads(MapQuery.parse({"limit": "1", "cursor": first["next_cursor"]}))
+        self.assertTrue(first["truncated"])
+        self.assertEqual("road-1", first["next_cursor"])
+        self.assertEqual("road-2", second["features"][0]["properties"]["segment_id"])
+        self.assertIsNone(second["next_cursor"])
 
     def test_unknown_segment_is_404(self):
         self.assertEqual(404, handle(event("/v1/road-segments/missing"), self.service)["statusCode"])

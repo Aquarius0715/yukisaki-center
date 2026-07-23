@@ -17,7 +17,7 @@ npm run env:status -- --profile yukisaki-dev
 export YUKISAKI_API_URL="https://表示されたURL"
 
 curl "${YUKISAKI_API_URL}/healthz"
-curl "${YUKISAKI_API_URL}/v1/road-segments?bbox=138.643056,37.176389,139.124444,37.710278&limit=5000"
+curl "${YUKISAKI_API_URL}/v1/road-segments?bbox=138.84375,37.413334,138.92375,37.473334&limit=75"
 curl "${YUKISAKI_API_URL}/v1/snowplows"
 curl "${YUKISAKI_API_URL}/v1/map/snapshot?bbox=138.643056,37.176389,139.124444,37.710278"
 ```
@@ -27,14 +27,16 @@ curl "${YUKISAKI_API_URL}/v1/map/snapshot?bbox=138.643056,37.176389,139.124444,3
 ```javascript
 const API_URL = import.meta.env.VITE_YUKISAKI_API_URL;
 
-export async function fetchRoads(mapBounds) {
+export async function fetchRoadPage(mapBounds, cursor) {
   const bbox = [
     mapBounds.getWest(),
     mapBounds.getSouth(),
     mapBounds.getEast(),
     mapBounds.getNorth(),
   ].join(",");
-  const response = await fetch(`${API_URL}/v1/road-segments?bbox=${bbox}`);
+  const query = new URLSearchParams({ bbox, limit: "75" });
+  if (cursor) query.set("cursor", cursor);
+  const response = await fetch(`${API_URL}/v1/road-segments?${query}`);
   if (!response.ok) throw new Error(`road API failed: ${response.status}`);
   return response.json();
 }
@@ -46,7 +48,7 @@ export async function fetchSnowplows() {
 }
 ```
 
-道路Featureは`segment_id`をキーに保持し、除雪車Featureの`matched_segment_id`で現在走行中の道路と紐付ける。道路形状は初期表示時に取得し、Apple MapKit JSの`region-change-end`後に現在の表示範囲を`bbox`として再取得する。連続操作は400ミリ秒でデバウンスし、古い応答で新しい表示範囲を上書きしない。除雪車位置だけは約5秒間隔で更新する。`is_simulated: true`は画面に「デモデータ」と表示する。
+道路Featureは`segment_id`をキーに保持し、除雪車Featureの`matched_segment_id`で現在走行中の道路と紐付ける。道路と除雪車は並列取得し、道路は表示範囲ごとに75件取得する。MapKitへは現在の1ページだけを描画し、`next_cursor`のページをブラウザへ自動蓄積しない。Apple MapKit JSの`region-change-end`後に現在の表示範囲を`bbox`として再取得して道路を差し替え、連続操作は400ミリ秒でデバウンスする。次の表示範囲へ移動した場合は古い通信をAbortControllerで中断し、古い応答を反映しない。除雪車位置は約5秒間隔で取得し、MapKit座標更新は最大毎秒5回、移動補間が完了した時点で停止する。`is_simulated: true`は画面に「デモデータ」と表示する。
 
 ## 停止
 

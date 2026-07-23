@@ -52,6 +52,7 @@ WITH candidates AS MATERIALIZED (
     AND max_longitude >= %s
     AND min_latitude <= %s
     AND max_latitude >= %s
+    AND segment_id > %s
   ORDER BY segment_id
   LIMIT %s
 )
@@ -116,14 +117,16 @@ class PostgresMapRepository:
         self,
         bbox: tuple[float, float, float, float],
         limit: int,
+        cursor: str | None = None,
     ) -> list[dict[str, Any]]:
         west, south, east, north = bbox
-        with _connect() as connection, connection.cursor() as cursor:
-            cursor.execute(
+        after_segment_id = cursor or ""
+        with _connect() as connection, connection.cursor() as database_cursor:
+            database_cursor.execute(
                 ROAD_SEGMENTS_SQL,
-                (east, west, north, south, limit + 1),
+                (east, west, north, south, after_segment_id, limit + 1),
             )
-            return _rows(cursor)
+            return _rows(database_cursor)
 
     def road_segment(self, segment_id: str) -> dict[str, Any] | None:
         with _connect() as connection, connection.cursor() as cursor:

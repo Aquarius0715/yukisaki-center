@@ -83,6 +83,16 @@ export class MockYukisakiApi implements YukisakiApi {
       meta: { schemaVersion: '1.0', dataTimestamp: generatedAt, confidence: 0.8, isSimulated: true, truncated: false, source: 'mock' as const },
     }
   }
+  async getMapRoadPage() {
+    const roads = await this.getRoadSegments()
+    const conditions = await this.getRoadConditions()
+    return {
+      roads,
+      conditions,
+      meta: { schemaVersion: '1.0', dataTimestamp: generatedAt, confidence: 0.8, isSimulated: true, truncated: false, source: 'mock' as const },
+      nextCursor: null,
+    }
+  }
   getRoadSegments() { return loadRoads() }
   async getRoadConditions(segmentIds?: string[]) {
     const roads = await loadRoads()

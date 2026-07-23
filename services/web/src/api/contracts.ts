@@ -123,6 +123,13 @@ export type MapSnapshot = {
   meta: MapDataMeta
 }
 
+export type MapRoadPage = {
+  roads: RoadSegmentFeatureCollection
+  conditions: RoadCondition[]
+  meta: MapDataMeta
+  nextCursor: string | null
+}
+
 export type ApiRoadProperties = {
   segment_id: string
   road_name: string | null
@@ -147,6 +154,7 @@ export type ApiRoadCollection = FeatureCollection<RoadGeometry, ApiRoadPropertie
   bbox: [number, number, number, number]
   count: number
   truncated: boolean
+  next_cursor: string | null
   data_timestamp: string | null
   confidence: number
   is_simulated: boolean
@@ -186,11 +194,12 @@ export type ApiMapSnapshot = {
 }
 
 export interface YukisakiApi {
-  getMapSnapshot(bounds?: MapBounds): Promise<MapSnapshot>
-  getRoadSegments(bounds?: MapBounds): Promise<RoadSegmentFeatureCollection>
+  getMapSnapshot(bounds?: MapBounds, signal?: AbortSignal): Promise<MapSnapshot>
+  getMapRoadPage(bounds?: MapBounds, cursor?: string, signal?: AbortSignal): Promise<MapRoadPage>
+  getRoadSegments(bounds?: MapBounds, signal?: AbortSignal): Promise<RoadSegmentFeatureCollection>
   getRoadConditions(segmentIds?: string[]): Promise<RoadCondition[]>
   getSnowmeltPipes(bounds?: MapBounds): Promise<SnowmeltPipeStatus[]>
-  getSnowplows(bounds?: MapBounds): Promise<Snowplow[]>
+  getSnowplows(bounds?: MapBounds, signal?: AbortSignal): Promise<Snowplow[]>
   getWeather(position: Position): Promise<WeatherData>
   getDestinations(query: string): Promise<Destination[]>
   recommendRoutes(request: RouteRecommendationRequest): Promise<RouteRecommendationResponse>
