@@ -20,7 +20,17 @@
 
 ## `POST /v1/ai/explain-routes`
 
-入力は`recommended_route_id`、1〜3件の`routes`、`data_timestamp`、`is_simulated`。LLM出力の推奨IDと全経路IDが入力と完全一致しなければ破棄し、定型文へフォールバックする。順位・数値の再計算は行わない。
+入力は`POST /v1/routes`の成功レスポンスをそのまま使用できる。互換性のため、従来どおり`recommended_route_id`を明示した1〜3件の経路根拠も受け付ける。
+
+`recommended_route_id`省略時は、経路探索が返した最小`rank`の経路を推奨として固定する。Bedrockへ渡す前にGeometry、`segment_ids`、危険区間Geometryを除去し、次の根拠だけに正規化する。
+
+- 順位、ラベル、距離、所要時間
+- 平均・最低走りやすさ指数、指数カバレッジ、最低信頼度
+- 除雪率、消雪パイプ率
+- 危険区間数と危険要因
+- データ時刻、デモ基準時刻、`is_simulated`
+
+LLM出力の推奨IDと全経路IDが入力と完全一致しなければ破棄し、定型文へフォールバックする。順位・数値の再計算は行わない。入力に交通・天気の明示的な根拠がないため、現在は渋滞、事故、規制、天気予報を説明しない。
 
 ## `POST /v1/ai/explain-danger-points`
 

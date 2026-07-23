@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 from typing import Any, Protocol
 
 from .prompts import (
@@ -57,9 +58,10 @@ class AssistantService:
         return self._response(result, fallback_used, is_simulated=False, data_timestamp=None)
 
     def explain_routes(self, payload: dict[str, Any]) -> dict[str, Any]:
+        payload = _normalize_route_result(payload)
         _validate_payload_size(payload)
-        routes = payload.get("routes")
-        recommended_route_id = payload.get("recommended_route_id")
+        routes = payload["routes"]
+        recommended_route_id = payload["recommended_route_id"]
         if not isinstance(routes, list) or not 1 <= len(routes) <= 3:
             raise InputError("routes must contain between 1 and 3 routes")
         route_ids = [_required_string(route, "route_id") for route in routes]
@@ -256,6 +258,116 @@ def _fallback_route_explanation(payload: dict[str, Any]) -> dict[str, Any]:
         "recommendation_reason": simulated_prefix + "経路探索サービスが確定した順位に基づく推奨です。",
         "routes": explanations,
     }
+
+
+def _normalize_route_result(payload: dict[str, Any]) -> dict[str, Any]:
+    """Reduce a route API result to bounded, evidence-only LLM input.
+
+    Geometry and segment identifiers are intentionally omitted. The route
+    service remains the owner of ranking and numerical evaluation.
+    """
+    if not isinstance(payload, dict):
+        raise InputError("request body must be an object")
+    routes = payload.get("routes")
+    if not isinstance(routes, list) or not 1 <= len(routes) <= 3:
+        raise InputError("routes must contain between 1 and 3 routes")
+
+    normalized_routes = []
+    route_ids = []
+    for index, route in enumerate(routes, start=1):
+        route_id = _required_string(route, "route_id")
+        route_ids.append(route_id)
+        hazard_groups = route.get("hazard_groups", [])
+        factors: set[str] = set()
+        if isinstance(hazard_groups, list):
+            for hazard in hazard_groups:
+                if not isinstance(hazard, dict):
+                    continue
+                values = hazard.get("factors")
+                if isinstance(values, list):
+                    factors.update(
+                        value
+                        for value in values
+                        if isinstance(value, str) and 0 < len(value) <= 64
+                    )
+        normalized_routes.append(
+            {
+                "route_id": route_id,
+                "rank": route.get("rank")
+                if isinstance(route.get("rank"), int)
+                else index,
+                "label": route.get("label")
+                if route.get("label")
+                in {"fastest", "balanced", "most_drivable", "alternative"}
+                else "alternative",
+                "distance_m": _number(route.get("distance_m")),
+                "duration_s": _number(route.get("duration_s")),
+                "average_score": _number(
+                    route.get("average_drivability_score", route.get("average_score"))
+                ),
+                "minimum_score": _number(
+                    route.get("minimum_drivability_score", route.get("minimum_score"))
+                ),
+                "score_coverage": _number(route.get("score_coverage")),
+                "minimum_confidence": _number(route.get("minimum_confidence")),
+                "plowed_ratio": _number(route.get("plowed_ratio")),
+                "snow_pipe_ratio": _number(route.get("snow_pipe_ratio")),
+                "hazard_count": int(
+                    route.get("hazard_group_count", route.get("hazard_count", 0))
+                )
+                if isinstance(
+                    route.get("hazard_group_count", route.get("hazard_count", 0)),
+                    int,
+                )
+                else None,
+                "hazard_factors": sorted(factors)[:20],
+            }
+        )
+
+    if len(route_ids) != len(set(route_ids)):
+        raise InputError("route_id must be unique")
+    recommended_route_id = payload.get("recommended_route_id")
+    if recommended_route_id is None:
+        recommended_route_id = min(
+            normalized_routes, key=lambda route: (route["rank"], route["route_id"])
+        )["route_id"]
+    if recommended_route_id not in route_ids:
+        raise InputError("recommended_route_id must identify an input route")
+
+    warnings = payload.get("warnings", [])
+    safe_warnings = (
+        [item[:200] for item in warnings[:10] if isinstance(item, str)]
+        if isinstance(warnings, list)
+        else []
+    )
+    data_timestamp, is_simulated = _evidence_metadata(payload)
+    return {
+        "route_request_id": payload.get("request_id")
+        if isinstance(payload.get("request_id"), str)
+        else None,
+        "recommended_route_id": recommended_route_id,
+        "mode": payload.get("mode")
+        if payload.get("mode")
+        in {"time_priority", "balanced", "drivability_priority"}
+        else None,
+        "reference_time": payload.get("reference_time")
+        if isinstance(payload.get("reference_time"), str)
+        else None,
+        "data_timestamp": data_timestamp,
+        "is_simulated": is_simulated,
+        "routes": normalized_routes,
+        "warnings": safe_warnings,
+    }
+
+
+def _number(value: Any) -> int | float | None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not math.isfinite(value)
+    ):
+        return None
+    return value
 
 
 def _fallback_danger_explanation(payload: dict[str, Any]) -> dict[str, Any]:

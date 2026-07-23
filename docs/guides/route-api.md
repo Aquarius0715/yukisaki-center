@@ -2,9 +2,9 @@
 
 ## 現在の状態
 
-道路収集、curated DB Loader、PostGIS/pgRoutingスキーマ、Route Planning Docker Lambda、`POST /v1/routes`、CDK、`env:start|stop|status`統合は実装済みである。Route PlanningとAPI GatewayはAWSへデプロイ済みだが、ルーティング属性を含む長岡市道路の再収集・再ロードは未完了である。この状態のAPIはDBに`routing_graph_state`がないため503を返す。
+道路収集、curated DB Loader、PostGIS/pgRoutingスキーマ、Route Planning Docker Lambda、`POST /v1/routes`、CDK、`env:start|stop|status`統合は実装済みである。経路はApple Mapsではなく、PostGIS/pgRoutingと独自の雪道コストで生成する。
 
-既存AWSの道路には`source_node_key`、`target_node_key`等がないため、Route Planningスタックだけをデプロイしても経路APIは409を返す。次の順序を守る。
+`POST /v1/ai/explain-routes`は経路APIレスポンスを直接受け取れるようにローカル改修済みである。このAI改修はまだAWSへデプロイしていない。
 
 ## デプロイ前確認
 
@@ -28,7 +28,7 @@ SHOW rds.extensions;
 
 1. `YukisakiRoadCollector-dev`を更新する。
 2. `YukisakiSnowPipePipeline-dev`を更新する。
-3. `YukisakiRoutePlanning-dev`を作成する。
+3. `YukisakiRoutePlanning-dev`を作成または更新する。
 4. `YukisakiApi-dev`を更新して`POST /v1/routes`を追加する。
 5. 道路Fargateタスクを手動実行する。
 6. S3 raw、消雪パイプ処理、curatedロードの完了を確認する。
@@ -58,6 +58,22 @@ curl -X POST "${API_URL}/v1/routes" \
 ```
 
 レスポンスでは`graph_version`、`score_rule_version`、`cost_config_version`、地点スナップ距離、最大3経路、指数カバレッジ、危険区間、`is_simulated`を確認する。
+
+## LLM比較説明
+
+経路APIのJSONをそのままAI説明APIへ渡せる。AIサービスは1位の`route_id`を推奨IDとして固定し、Geometryと大量の`segment_ids`をBedrockへ送らない。
+
+```bash
+ROUTE_RESULT="$(curl -sS -X POST "${API_URL}/v1/routes" \
+  -H 'content-type: application/json' \
+  -d @route-request.json)"
+
+curl -sS -X POST "${API_URL}/v1/ai/explain-routes" \
+  -H 'content-type: application/json' \
+  -d "${ROUTE_RESULT}" | jq
+```
+
+LLMが説明に利用するのは、距離、所要時間、平均・最低走りやすさ指数、指数カバレッジ、信頼度、除雪率、消雪パイプ率、危険要因である。順位と数値は経路探索サービスが確定し、LLMは変更しない。現在の経路レスポンスに交通情報はないため、渋滞や事故は説明対象外である。
 
 ## ローカル地図で確認
 

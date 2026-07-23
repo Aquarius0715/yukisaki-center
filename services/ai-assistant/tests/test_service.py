@@ -90,6 +90,71 @@ class AssistantTest(unittest.TestCase):
         self.assertIn("35", response["result"]["routes"][0]["summary"])
         self.assertTrue(response["metadata"]["fallback_used"])
 
+    def test_accepts_route_api_result_and_removes_geometry_before_bedrock(self):
+        output = {
+            "recommended_route_id": "route-a",
+            "recommendation_reason": "確定順位に基づく推奨です。",
+            "routes": [
+                {
+                    "route_id": "route-a",
+                    "summary": "走りやすさ指数と除雪状況を確認した経路です。",
+                    "advantages": ["消雪パイプのある区間が多いです。"],
+                    "cautions": ["凍結要因を含む注意区間があります。"],
+                }
+            ],
+        }
+        generator = FakeGenerator(output)
+        route_result = {
+            "request_id": "route-request-1",
+            "mode": "balanced",
+            "reference_time": "2026-01-23T12:00:00+09:00",
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "is_simulated": True,
+            "routes": [
+                {
+                    "route_id": "route-a",
+                    "rank": 1,
+                    "label": "balanced",
+                    "geometry": {
+                        "type": "LineString",
+                        "coordinates": [[138.79, 37.44], [138.80, 37.45]],
+                    },
+                    "segment_ids": ["a", "b"],
+                    "distance_m": 2100,
+                    "duration_s": 420,
+                    "average_drivability_score": 76.5,
+                    "minimum_drivability_score": 42,
+                    "score_coverage": 1.0,
+                    "minimum_confidence": 0.9,
+                    "plowed_ratio": 0.6,
+                    "snow_pipe_ratio": 0.7,
+                    "hazard_group_count": 1,
+                    "hazard_groups": [
+                        {
+                            "segment_ids": ["b"],
+                            "factors": ["ice_risk"],
+                            "geometry": {
+                                "type": "LineString",
+                                "coordinates": [[138.79, 37.44], [138.80, 37.45]],
+                            },
+                        }
+                    ],
+                    "is_simulated": True,
+                }
+            ],
+            "warnings": [],
+        }
+
+        response = AssistantService(generator).explain_routes(route_result)
+
+        self.assertEqual("route-a", response["result"]["recommended_route_id"])
+        evidence = generator.calls[0]["payload"]
+        self.assertEqual("route-a", evidence["recommended_route_id"])
+        self.assertEqual(76.5, evidence["routes"][0]["average_score"])
+        self.assertEqual(["ice_risk"], evidence["routes"][0]["hazard_factors"])
+        self.assertNotIn("geometry", evidence["routes"][0])
+        self.assertNotIn("segment_ids", evidence["routes"][0])
+
     def test_danger_output_must_preserve_ordered_ids(self):
         output = {
             "hazards": [
