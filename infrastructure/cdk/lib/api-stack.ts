@@ -84,7 +84,7 @@ export class ApiStack extends Stack {
       description: 'Yukisaki frontend GeoJSON API',
       corsPreflight: {
         allowOrigins: ['*'],
-        allowMethods: [apigateway.CorsHttpMethod.GET],
+        allowMethods: [apigateway.CorsHttpMethod.GET, apigateway.CorsHttpMethod.POST],
         allowHeaders: ['content-type'],
         maxAge: Duration.hours(1),
       },

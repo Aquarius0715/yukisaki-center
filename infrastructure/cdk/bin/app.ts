@@ -5,6 +5,7 @@ import { RoadCollectorStack } from '../lib/road-collector-stack';
 import { SnowPipePipelineStack } from '../lib/snow-pipe-pipeline-stack';
 import { GpsPipelineStack } from '../lib/gps-pipeline-stack';
 import { ApiStack } from '../lib/api-stack';
+import { AiAssistantStack } from '../lib/ai-assistant-stack';
 
 const app = new cdk.App();
 const environment = app.node.tryGetContext('environment') ?? 'dev';
@@ -85,7 +86,7 @@ new GpsPipelineStack(app, `YukisakiGpsPipeline-${environment}`, {
   description: 'Three simulated snowplows streamed through EventBridge, S3, PostgreSQL, and scoring',
 });
 
-new ApiStack(app, `YukisakiApi-${environment}`, {
+const apiStack = new ApiStack(app, `YukisakiApi-${environment}`, {
   environment,
   databaseVpc: dataPipelineStack.databaseVpc,
   database: dataPipelineStack.database,
@@ -96,4 +97,19 @@ new ApiStack(app, `YukisakiApi-${environment}`, {
     region,
   },
   description: 'Public GeoJSON API for road segments and simulated snowplow positions',
+});
+
+new AiAssistantStack(app, `YukisakiAiAssistant-${environment}`, {
+  environment,
+  httpApi: apiStack.httpApi,
+  modelId:
+    app.node.tryGetContext('bedrockModelId') ??
+    'jp.anthropic.claude-sonnet-4-5-20250929-v1:0',
+  guardrailIdentifier: app.node.tryGetContext('bedrockGuardrailIdentifier'),
+  guardrailVersion: app.node.tryGetContext('bedrockGuardrailVersion'),
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region,
+  },
+  description: 'Bedrock route condition extraction and evidence-bound explanations',
 });

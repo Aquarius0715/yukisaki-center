@@ -465,7 +465,7 @@ $$
 | Web配信 | Amazon S3、Amazon CloudFront |
 | API公開 | Amazon API Gateway |
 | API | Amazon API Gateway、AWS Lambda（コンテナイメージ） |
-| 経路探索 | Amazon ECS Fargate |
+| 経路探索 | AWS Lambda（コンテナイメージ、MVP）、Amazon ECS Fargate（対象地域拡大・常駐エンジン採用時） |
 | 定期データ取得 | Amazon EventBridge、AWS Lambda、Amazon ECS Fargate |
 | 元データ保存 | Amazon S3 |
 | 地理空間DB | Amazon RDS for PostgreSQL、PostGIS、pgRouting |

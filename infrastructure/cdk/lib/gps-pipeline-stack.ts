@@ -229,7 +229,7 @@ export class GpsPipelineStack extends Stack {
     this.scoringFunction = this.imageFunction('DrivabilityScorer', {
       servicePath: '../../../services/drivability-scoring', target: 'runtime',
       command: 'drivability_scoring.pipeline.handler',
-      description: 'Calculates deterministic drivability scores after GPS passage loading',
+      description: 'Calculates full initial and GPS-triggered incremental drivability scores',
       memorySize: 1024,
       vpc: props.databaseVpc,
       securityGroups: [databaseConsumersSecurityGroup],
@@ -237,6 +237,7 @@ export class GpsPipelineStack extends Stack {
         DATABASE_NAME: props.databaseName,
         DATABASE_SECRET_ARN: props.databaseSecret.secretArn,
         DATA_BUCKET: props.dataBucket.bucketName,
+        TARGET_REFERENCE_TIME: props.targetReferenceTime,
       },
     });
     props.databaseSecret.grantRead(this.scoringFunction);
