@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-from drivability_scoring.pipeline import handler, score_all_segments, score_message
+from drivability_scoring.pipeline import handler, score_message
 
 
 class FakeCursor:
@@ -30,15 +30,12 @@ class FakeCursor:
         return (1,)
 
     def fetchall(self):
-        if "SELECT segment_id FROM road_segments ORDER BY segment_id" in self.statement:
-            return [(segment_id,) for segment_id in self.all_segment_ids]
-        return [
-            (
-                segment_id, 3, -1, 1, 0.2, True, "active",
-                datetime.fromisoformat("2026-01-23T11:59:00+09:00"),
-            )
-            for segment_id in self.requested_segment_ids
-        ]
+        if "SELECT segment_id FROM road_segments" in self.statement:
+            return [("s-1",), ("s-2",)]
+        return [(
+            "s-1", 3, -1, 1, 0.2, True, "active",
+            datetime.fromisoformat("2026-01-23T11:59:00+09:00"),
+        )]
 
 
 class FakeConnection:
@@ -74,32 +71,19 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(len(connection.fake_cursor.projected_rows), 1)
         self.assertTrue(s3.put_object.call_args.kwargs["Key"].startswith("curated/drivability-scores/"))
 
-    @patch.dict("os.environ", {
-        "DATA_BUCKET": "data-bucket",
-        "TARGET_REFERENCE_TIME": "2026-01-23T12:00:00+09:00",
-    })
-    @patch("drivability_scoring.pipeline.s3_client")
+    @patch("drivability_scoring.pipeline.score_message")
     @patch("drivability_scoring.pipeline.connect_database")
-    def test_scores_every_road_for_the_initial_snapshot(self, connect, s3_factory):
-        connection = FakeConnection(["s-1", "s-2"])
-        connect.return_value = connection
-        s3 = Mock()
-        s3_factory.return_value = s3
-
-        result = score_all_segments({"action": "score_all"})
-
-        self.assertEqual(result["runId"], "score-initial-all-roads-20260123T030000Z")
-        self.assertEqual(result["recordCount"], 2)
-        self.assertEqual(len(connection.fake_cursor.projected_rows), 2)
-        body = s3.put_object.call_args.kwargs["Body"].decode()
-        self.assertEqual(len(body.strip().splitlines()), 2)
-
-    @patch("drivability_scoring.pipeline.score_all_segments")
-    def test_handler_routes_the_manual_full_scoring_action(self, score_all):
-        score_all.return_value = {"recordCount": 4944}
-        result = handler({"action": "score_all"}, None)
-        self.assertEqual(result["recordCount"], 4944)
-        score_all.assert_called_once()
+    def test_bootstraps_every_road_segment(self, connect, score):
+        connect.return_value = FakeConnection()
+        score.return_value = {"runId": "score-bootstrap", "recordCount": 2, "key": "scores.jsonl"}
+        result = handler({
+            "mode": "bootstrap-all-road-segments",
+            "dataTimestamp": "2026-01-23T12:00:00+09:00",
+        }, None)
+        message = score.call_args.args[0]
+        self.assertEqual(message["segmentIds"], ["s-1", "s-2"])
+        self.assertEqual(message["latestObservedAt"], "2026-01-23T12:00:00+09:00")
+        self.assertEqual(result["scored"][0]["recordCount"], 2)
 
 
 if __name__ == "__main__":

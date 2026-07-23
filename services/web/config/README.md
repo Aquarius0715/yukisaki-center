@@ -4,8 +4,8 @@
 
 - `VITE_DATA_MODE`: `mock` または `api`
 - `VITE_YUKISAKI_API_URL`: 地図API GatewayのHTTPS URL
-- `VITE_MAP_TILE_URL`: MapLibreの背景タイル
+- `VITE_MAPKIT_TOKEN`: Apple Developerで発行するMapKit JS用のドメイン制限付きトークン
 - `VITE_PUBLIC_BASE_PATH`: CloudFrontで配信するベースパス
 - `VITE_ENABLE_MOCK_FALLBACK`: API失敗時のモック切替
 
-認証情報や秘密値は `VITE_` 変数へ保存しません。
+秘密鍵やAWS認証情報は `VITE_` 変数へ保存しません。MapKit JSトークンはブラウザへ配信される公開値として扱い、Apple Developer側で利用ドメインを必ず制限します。
