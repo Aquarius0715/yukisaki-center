@@ -29,6 +29,7 @@ export interface ApiStackProps extends StackProps {
 /** Public read-only map API backed by the unified PostgreSQL serving projection. */
 export class ApiStack extends Stack {
   public readonly apiFunction: lambda.DockerImageFunction;
+  public readonly placeSearchFunction: lambda.DockerImageFunction;
   public readonly httpApi: apigateway.HttpApi;
 
   constructor(scope: Construct, id: string, props: ApiStackProps) {
@@ -80,6 +81,34 @@ export class ApiStack extends Stack {
     Tags.of(this.apiFunction).add('Lifecycle', 'runtime');
     Tags.of(this.apiFunction).add('Service', 'api');
 
+    const appleMapsSecret = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      'AppleMapsServerApiSecret',
+      `yukisaki/${props.environment}/api/apple-maps-server-api`,
+    );
+    const placeSearchLogGroup = new logs.LogGroup(this, 'PlaceSearchFunctionLogs', {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+    this.placeSearchFunction = new lambda.DockerImageFunction(this, 'PlaceSearchFunction', {
+      architecture: lambda.Architecture.ARM_64,
+      description: 'Searches places in Nagaoka through Apple Maps Server API',
+      code: lambda.DockerImageCode.fromImageAsset(path.join(__dirname, '../../../services/api'), {
+        target: 'places-lambda',
+        platform: ecrAssets.Platform.LINUX_ARM64,
+      }),
+      timeout: Duration.seconds(15),
+      memorySize: 512,
+      reservedConcurrentExecutions: 0,
+      logGroup: placeSearchLogGroup,
+      environment: {
+        APPLE_MAPS_SECRET_ARN: appleMapsSecret.secretArn,
+      },
+    });
+    appleMapsSecret.grantRead(this.placeSearchFunction);
+    Tags.of(this.placeSearchFunction).add('Lifecycle', 'runtime');
+    Tags.of(this.placeSearchFunction).add('Service', 'api');
+
     this.httpApi = new apigateway.HttpApi(this, 'MapHttpApi', {
       apiName: `yukisaki-map-api-${props.environment}`,
       description: 'Yukisaki frontend GeoJSON API',
@@ -114,8 +143,23 @@ export class ApiStack extends Stack {
         ),
       });
     }
+    const placeSearchIntegration = new integrations.HttpLambdaIntegration(
+      'PlaceSearchIntegration',
+      this.placeSearchFunction,
+    );
+    for (const route of ['/v1/places/search', '/v1/places/autocomplete']) {
+      this.httpApi.addRoutes({
+        path: route,
+        methods: [apigateway.HttpMethod.GET],
+        integration: placeSearchIntegration,
+      });
+    }
 
     new CfnOutput(this, 'ApiFunctionName', { value: this.apiFunction.functionName });
+    new CfnOutput(this, 'PlaceSearchFunctionName', {
+      value: this.placeSearchFunction.functionName,
+    });
+    new CfnOutput(this, 'AppleMapsSecretName', { value: appleMapsSecret.secretName });
     new CfnOutput(this, 'ApiUrl', { value: this.httpApi.apiEndpoint });
     new CfnOutput(this, 'RouteApiUrl', { value: `${this.httpApi.apiEndpoint}/v1/routes` });
   }

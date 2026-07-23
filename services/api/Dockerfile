@@ -16,3 +16,8 @@ FROM public.ecr.aws/lambda/python:3.13-arm64 AS lambda
 RUN pip install --no-cache-dir "psycopg[binary]==3.2.9"
 COPY src/yukisaki_api ${LAMBDA_TASK_ROOT}/yukisaki_api
 CMD ["yukisaki_api.handler.handler"]
+
+FROM public.ecr.aws/lambda/python:3.13-arm64 AS places-lambda
+RUN pip install --no-cache-dir "PyJWT[crypto]==2.10.1"
+COPY src/yukisaki_api ${LAMBDA_TASK_ROOT}/yukisaki_api
+CMD ["yukisaki_api.places_handler.handler"]

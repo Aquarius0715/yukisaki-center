@@ -24,11 +24,13 @@
 - 走りやすさ指数はデモ開始時に全道路を一括評価し、その後はGPSロード後にSQSから通過区間を差分評価する。気象、勾配、消雪パイプ、最終除雪時刻を決定的なルールへ入力し、S3 `curated/drivability-scores/`を正本として共通RDS `drivability_scores`へ投影する
 - 消雪パイプ仮データは`road-name-active-v2`を使い、道路名がある区間を`snow_pipe=true`かつ`operation_status=active`、道路名がない区間を`inactive`とする
 - REST APIはAPI Gateway HTTP APIとDockerイメージLambdaで実装し、共通RDSの道路・指数・消雪パイプ・最新除雪車位置をGeoJSONで返す。道路Geometryの外接矩形をRDSへ保持し、DB側の`bbox`条件とSQL件数上限で絞る。GPSは別エンドポイントから更新できる
-- 経路探索は道路収集時のOSMノード・分割ノード・方向・速度・accessをS3 curatedからPostGIS/pgRoutingへ投影し、地点スナップ、動的な指数コスト、K最短候補、危険区間集計を行うDocker Lambdaと`POST /v1/routes`をローカル実装済み。AWSデプロイとルーティング属性を含む道路の再収集・再ロードは未実施
+- 地点名称検索はApple Maps Server API専用のVPC外Docker Lambdaへ分離し、長岡市内の検索・入力補完だけを公開する。`server_api`秘密鍵はSecrets Managerへ置き、ブラウザ用MapKit JSトークンと分離する。Webへの接続は未実施
+- 2026-07-24にApple Maps地点名称検索をAWSへデプロイ済み。署名JWTをToken APIでaccess tokenへ交換し、`GET /v1/places/search`と`GET /v1/places/autocomplete`で長岡市内の実検索結果を確認済み
+- 経路探索は道路収集時のOSMノード・分割ノード・方向・速度・accessをS3 curatedからPostGIS/pgRoutingへ投影し、地点スナップ、動的な指数コスト、K最短候補、危険区間集計を行うDocker Lambdaと`POST /v1/routes`をAWSへデプロイ済み。ルーティング属性を含む道路の再収集・再ロードは未完了で、現在のAPIはグラフ未ロードにより利用不可
 - AIサービスはAmazon BedrockのStructured Outputsを使うDocker Lambdaとして実装し、自然言語の条件抽出、確定済み経路の比較説明、確定済み危険要因の説明を別APIで提供する。識別子変更やBedrock失敗時は定型文へフォールバックし、指数・順位・通行可否は決定しない
 - WebはReactとApple MapKit JSで実装し、非公開S3とCloudFront OACで配信するCDKスタックを持つ。CloudFrontからAPI Gatewayへ`/v1/*`を同一オリジン転送し、デプロイ直後は無効とする
 - MapKit JSトークンはGit管理外の`services/web/env.local`からSecrets Managerへ同期し、CDKデプロイ時だけ取得する。トークンはCloudFrontドメインへ制限し、ログやCloudFormationへ直接出力しない
-- AWS CDKでは気象データパイプライン、道路収集、消雪パイプ処理、GPS・指数処理、経路探索、公開API、AIアシスタント、Web配信を別スタックとして管理。経路探索スタックだけはローカル実装済み・AWS未デプロイ
+- AWS CDKでは気象データパイプライン、道路収集、消雪パイプ処理、GPS・指数処理、経路探索、公開API、AIアシスタント、Web配信を別スタックとして管理。経路探索スタックと公開API経路はAWSへデプロイ済み
 - Weather、道路、消雪パイプmanifestはEventBridge Ruleを共通の入口とし、3つのRuleはデプロイ時に`DISABLED`。単一RDS、3つのRule、関連Lambda（Map APIを含む）、道路Fargate、GPS Fargate、Web CloudFrontは`env:start|stop|status`でまとめて管理する
 - 全Collectorは共通メタデータ契約で`run_id`、取得日時、対象期間、出典URL、SHA-256をS3 metadata/manifestへ保持し、PostgreSQLへ直接書かない
 - `services/`直下の8サービスはすべてDockerfileを持ち、ローカルテストもDocker Composeから実行する
@@ -38,7 +40,7 @@
 - AWS実行系は開発・デモ時だけ起動し、`npm run env:start|stop|status`で管理する。S3等の正本は停止対象にしない
 - RDSの直接確認は`db:start|stop`でRDSとSSM踏み台をまとめて起動・停止し、Session Managerで入って踏み台内の`yukisaki-psql`から行う。RDSは非公開とし、踏み台には受信ルールを設けない
 
-標高・勾配は未実装または骨組みのみである。経路探索はローカル実装済みだがAWS未デプロイであり、既存AWS道路も新しいグラフ契約では未ロードである。Web画面とAWS配信基盤は実装・デプロイ済みである。AIサービスはAWSデプロイ済みだが、Claude実推論はAnthropic用途申請が完了するまで利用できない。除雪車GPS、消雪パイプ、走りやすさ指数はデモ用の仮データ・ルールベース処理であり、実設備データではない。未実装・利用条件未完了の機能を、すでに動作しているかのように扱わない。
+標高・勾配は未実装または骨組みのみである。経路探索のLambdaとAPI経路はAWSへデプロイ済みだが、既存AWS道路は新しいグラフ契約で未ロードのため経路探索はまだ利用できない。Web画面とAWS配信基盤は実装・デプロイ済みである。AIサービスはAWSデプロイ済みだが、Claude実推論はAnthropic用途申請が完了するまで利用できない。除雪車GPS、消雪パイプ、走りやすさ指数はデモ用の仮データ・ルールベース処理であり、実設備データではない。未実装・利用条件未完了の機能を、すでに動作しているかのように扱わない。
 
 ## デモ固定条件
 

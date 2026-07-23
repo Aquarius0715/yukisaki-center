@@ -6,7 +6,7 @@
 
 経路の数値、通行対象外区間、順位、危険区間は決定的なルールとグラフ探索で確定する。LLMは確定済み候補の説明だけを担当し、探索結果を変更しない。
 
-PostGIS/pgRouting道路グラフ投影、公開経路API、Docker Lambda、AWS CDKはローカル実装済みである。AWSへのデプロイと、ルーティング属性を含む道路の再収集・再ロードは未実施である。
+PostGIS/pgRouting道路グラフ投影、公開経路API、Docker Lambda、AWS CDKは実装済みで、Route Planningスタックと公開API経路はAWSへデプロイ済みである。ルーティング属性を含む道路の再収集・再ロードは未完了であり、現在のAPIはDBに`routing_graph_state`がないため利用できない。
 
 ## 2. 結論
 

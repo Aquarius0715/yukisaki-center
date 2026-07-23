@@ -1,0 +1,141 @@
+{
+  "request_id": "route-request-local-viewer-sample",
+  "mode": "balanced",
+  "reference_time": "2026-01-23T12:00:00+09:00",
+  "graph_version": "local-viewer-fixture-v1",
+  "score_rule_version": "drivability-v1",
+  "cost_config_version": "route-cost-v1",
+  "data_timestamp": "2026-01-23T12:00:00+09:00",
+  "is_simulated": true,
+  "snapped_points": {
+    "origin": {
+      "node_id": 1001,
+      "node_key": "fixture:origin",
+      "latitude": 37.4427,
+      "longitude": 138.7908,
+      "distance_m": 4.2
+    },
+    "destination": {
+      "node_id": 1009,
+      "node_key": "fixture:destination",
+      "latitude": 37.451,
+      "longitude": 138.805,
+      "distance_m": 6.8
+    }
+  },
+  "routes": [
+    {
+      "route_id": "route-local-balanced",
+      "rank": 1,
+      "label": "balanced",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [138.7908, 37.4427],
+          [138.7935, 37.4442],
+          [138.7972, 37.4458],
+          [138.8002, 37.448],
+          [138.805, 37.451]
+        ]
+      },
+      "segment_ids": ["fixture-1", "fixture-2", "fixture-3", "fixture-4"],
+      "distance_m": 1680,
+      "duration_s": 262,
+      "weighted_cost_s": 338.4,
+      "average_drivability_score": 76.3,
+      "minimum_drivability_score": 54,
+      "score_coverage": 1,
+      "minimum_confidence": 0.82,
+      "plowed_ratio": 0.72,
+      "snow_pipe_ratio": 0.48,
+      "hazard_group_count": 1,
+      "hazard_groups": [
+        {
+          "segment_ids": ["fixture-3"],
+          "minimum_drivability_score": 54,
+          "factors": ["snowfall"],
+          "geometry": {
+            "type": "LineString",
+            "coordinates": [
+              [138.7972, 37.4458],
+              [138.8002, 37.448]
+            ]
+          }
+        }
+      ],
+      "is_simulated": true
+    },
+    {
+      "route_id": "route-local-fastest",
+      "rank": 2,
+      "label": "fastest",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [138.7908, 37.4427],
+          [138.7946, 37.4429],
+          [138.7993, 37.445],
+          [138.803, 37.4476],
+          [138.805, 37.451]
+        ]
+      },
+      "segment_ids": ["fixture-5", "fixture-6", "fixture-7", "fixture-8"],
+      "distance_m": 1510,
+      "duration_s": 228,
+      "weighted_cost_s": 371.1,
+      "average_drivability_score": 64.8,
+      "minimum_drivability_score": 36,
+      "score_coverage": 0.91,
+      "minimum_confidence": 0.68,
+      "plowed_ratio": 0.31,
+      "snow_pipe_ratio": 0.22,
+      "hazard_group_count": 1,
+      "hazard_groups": [
+        {
+          "segment_ids": ["fixture-7"],
+          "minimum_drivability_score": 36,
+          "factors": ["low_temperature", "snowfall"],
+          "geometry": {
+            "type": "LineString",
+            "coordinates": [
+              [138.7993, 37.445],
+              [138.803, 37.4476]
+            ]
+          }
+        }
+      ],
+      "is_simulated": true
+    },
+    {
+      "route_id": "route-local-drivable",
+      "rank": 3,
+      "label": "most_drivable",
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [138.7908, 37.4427],
+          [138.7898, 37.446],
+          [138.793, 37.4502],
+          [138.799, 37.452],
+          [138.805, 37.451]
+        ]
+      },
+      "segment_ids": ["fixture-9", "fixture-10", "fixture-11", "fixture-12"],
+      "distance_m": 2040,
+      "duration_s": 326,
+      "weighted_cost_s": 354.7,
+      "average_drivability_score": 84.1,
+      "minimum_drivability_score": 73,
+      "score_coverage": 1,
+      "minimum_confidence": 0.88,
+      "plowed_ratio": 0.91,
+      "snow_pipe_ratio": 0.67,
+      "hazard_group_count": 0,
+      "hazard_groups": [],
+      "is_simulated": true
+    }
+  ],
+  "warnings": [
+    "このレスポンスはローカル地図表示確認専用のシミュレーションfixtureです"
+  ]
+}

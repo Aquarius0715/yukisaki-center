@@ -116,6 +116,7 @@ GPS_MATCHER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsMapMatcherFunctionNa
 GPS_LOADER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsDatabaseLoaderFunctionName)"
 GPS_SCORER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" DrivabilityScorerFunctionName)"
 API_FUNCTION="$(stack_output "${API_STACK_NAME}" ApiFunctionName)"
+PLACE_SEARCH_FUNCTION="$(optional_stack_output "${API_STACK_NAME}" PlaceSearchFunctionName)"
 API_URL="$(stack_output "${API_STACK_NAME}" ApiUrl)"
 ROUTE_FUNCTION="$(optional_stack_output "${ROUTE_STACK_NAME}" RoutePlanningFunctionName)"
 ROUTE_API_URL="$(optional_stack_output "${API_STACK_NAME}" RouteApiUrl)"
@@ -356,6 +357,11 @@ case "${ACTION}" in
     echo "gpsLoader=${GPS_LOADER_FUNCTION} state=$(function_state "${GPS_LOADER_FUNCTION}")"
     echo "drivabilityScorer=${GPS_SCORER_FUNCTION} state=$(function_state "${GPS_SCORER_FUNCTION}")"
     echo "mapApi=${API_FUNCTION} state=$(function_state "${API_FUNCTION}") url=${API_URL}"
+    if [[ "${PLACE_SEARCH_FUNCTION}" != "None" ]]; then
+      echo "placeSearch=${PLACE_SEARCH_FUNCTION} state=$(function_state "${PLACE_SEARCH_FUNCTION}") url=${API_URL}/v1/places/search"
+    else
+      echo "placeSearch state=not-deployed"
+    fi
     if route_is_deployed; then
       echo "routePlanning=${ROUTE_FUNCTION} state=$(function_state "${ROUTE_FUNCTION}") url=${ROUTE_API_URL}"
     else
@@ -386,6 +392,9 @@ case "${ACTION}" in
     pause_function "${GPS_LOADER_FUNCTION}"
     pause_function "${GPS_SCORER_FUNCTION}"
     pause_function "${API_FUNCTION}"
+    if [[ "${PLACE_SEARCH_FUNCTION}" != "None" ]]; then
+      pause_function "${PLACE_SEARCH_FUNCTION}"
+    fi
     if route_is_deployed; then
       pause_function "${ROUTE_FUNCTION}"
     fi
@@ -412,6 +421,9 @@ case "${ACTION}" in
     resume_function "${GPS_LOADER_FUNCTION}"
     resume_function "${GPS_SCORER_FUNCTION}"
     resume_function "${API_FUNCTION}"
+    if [[ "${PLACE_SEARCH_FUNCTION}" != "None" ]]; then
+      resume_function "${PLACE_SEARCH_FUNCTION}"
+    fi
     if route_is_deployed; then
       resume_function "${ROUTE_FUNCTION}"
     fi
