@@ -154,11 +154,41 @@ def score_message(message: dict[str, Any]) -> dict[str, Any]:
                      record_count=EXCLUDED.record_count, loaded_at=now()""",
                 (score_run_id, f"s3://{os.environ['DATA_BUCKET']}/{key}", len(results)),
             )
-    LOGGER.info("Scored %d GPS-touched road segments", len(results))
+    LOGGER.info("Scored %d road segments", len(results))
     return {"runId": score_run_id, "recordCount": len(results), "key": key}
 
 
+def score_all_segments(data_timestamp: str) -> dict[str, Any]:
+    parsed_timestamp = datetime.fromisoformat(data_timestamp)
+    if parsed_timestamp.tzinfo is None:
+        raise ValueError("dataTimestamp must include a timezone")
+    bootstrap_run_id = f"bootstrap-all-roads-{parsed_timestamp.strftime('%Y%m%dT%H%M%S%z')}"
+    with connect_database() as connection:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT segment_id FROM road_segments ORDER BY segment_id")
+            segment_ids = [row[0] for row in cursor.fetchall()]
+            if not segment_ids:
+                raise RuntimeError("road_segments contains no rows")
+            cursor.execute(
+                """INSERT INTO data_load_runs (run_id, dataset, source_key, record_count)
+                   VALUES (%s, 'drivability-bootstrap', %s, %s)
+                   ON CONFLICT (run_id) DO UPDATE SET record_count=EXCLUDED.record_count,
+                     loaded_at=now()""",
+                (bootstrap_run_id, "internal://drivability-bootstrap/all-road-segments", len(segment_ids)),
+            )
+    return score_message({
+        "processingRunId": bootstrap_run_id,
+        "segmentIds": segment_ids,
+        "latestObservedAt": data_timestamp,
+    })
+
+
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
+    if event.get("mode") == "bootstrap-all-road-segments":
+        return {
+            "batchItemFailures": [],
+            "scored": [score_all_segments(event["dataTimestamp"])],
+        }
     failures = []
     scored = []
     for record in event.get("Records", []):

@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react'
-import maplibregl, { type GeoJSONSource, type Map as MapLibreMap } from 'maplibre-gl'
-import 'maplibre-gl/dist/maplibre-gl.css'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { appConfig } from '../../api/config'
 import type { Destination, RecommendedRoute, RoadCondition, RoadSegmentFeature, RoadSegmentFeatureCollection, Snowplow } from '../../api/contracts'
+import { loadMapKit } from './loadMapKit'
 
 export type LayerVisibility = { drivability: boolean; snowmelt: boolean; plowing: boolean; plows: boolean; tracks: boolean; slopes: boolean; snowEffects: boolean }
 type Props = {
@@ -19,165 +18,329 @@ type Props = {
   animateSnowplows: boolean
 }
 
-function boundsOf(roads: RoadSegmentFeatureCollection): maplibregl.LngLatBounds {
-  const bounds = new maplibregl.LngLatBounds()
-  roads.features.forEach((feature) => {
-    const lines = feature.geometry.type === 'LineString' ? [feature.geometry.coordinates] : feature.geometry.coordinates
-    lines.forEach((line) => line.forEach((coordinate) => bounds.extend(coordinate as [number, number])))
-  })
-  return bounds
-}
-
+type OverlayKind = 'road' | 'snow' | 'pipe' | 'plowing' | 'slope' | 'track' | 'route'
+type OverlayData = { kind: OverlayKind; segmentId?: string; originalWidth?: number }
+type AnnotationData = { kind: 'plow' | 'destination' | 'current'; id?: string }
 type PlowCoordinate = [number, number]
 type PlowMotion = { from: PlowCoordinate; to: PlowCoordinate; startedAt: number }
 const PLOW_INTERPOLATION_MS = 5_000
 
 function motionPosition(motion: PlowMotion, now: number, animate: boolean): PlowCoordinate {
   if (!animate) return motion.to
-  const linearProgress = Math.min(1, Math.max(0, (now - motion.startedAt) / PLOW_INTERPOLATION_MS))
-  const progress = linearProgress * linearProgress * (3 - 2 * linearProgress)
-  return [
-    motion.from[0] + (motion.to[0] - motion.from[0]) * progress,
-    motion.from[1] + (motion.to[1] - motion.from[1]) * progress,
-  ]
+  const progressLinear = Math.min(1, Math.max(0, (now - motion.startedAt) / PLOW_INTERPOLATION_MS))
+  const progress = progressLinear * progressLinear * (3 - 2 * progressLinear)
+  return [motion.from[0] + (motion.to[0] - motion.from[0]) * progress, motion.from[1] + (motion.to[1] - motion.from[1]) * progress]
 }
 
-function plowPointCollection(plows: Snowplow[], motions: Map<string, PlowMotion>, now: number, animate: boolean) {
-  return {
-    type: 'FeatureCollection' as const,
-    features: plows.map((plow) => ({
-      type: 'Feature' as const,
-      properties: { id: plow.id, heading: plow.heading },
-      geometry: { type: 'Point' as const, coordinates: motionPosition(motions.get(plow.id) ?? { from: [plow.longitude, plow.latitude], to: [plow.longitude, plow.latitude], startedAt: now }, now, animate) },
-    })),
+function colorForScore(score: number | undefined): string {
+  if (score === undefined || !Number.isFinite(score)) return '#9cabb8'
+  const stops: Array<[number, [number, number, number]]> = [
+    [0, [215, 48, 39]], [50, [246, 201, 69]], [75, [106, 174, 214]], [100, [23, 111, 192]],
+  ]
+  const bounded = Math.max(0, Math.min(100, score))
+  const upperIndex = stops.findIndex(([value]) => value >= bounded)
+  if (upperIndex <= 0) return `rgb(${stops[0][1].join(',')})`
+  const [lowerValue, lowerColor] = stops[upperIndex - 1]
+  const [upperValue, upperColor] = stops[upperIndex]
+  const ratio = (bounded - lowerValue) / (upperValue - lowerValue)
+  return `rgb(${lowerColor.map((channel, index) => Math.round(channel + (upperColor[index] - channel) * ratio)).join(',')})`
+}
+
+function linesOf(feature: RoadSegmentFeature): number[][][] {
+  return feature.geometry.type === 'LineString' ? [feature.geometry.coordinates] : feature.geometry.coordinates
+}
+
+function coordinatesOf(line: number[][]): mapkit.CoordinateData[] {
+  return line.map(([longitude, latitude]) => ({ latitude, longitude }))
+}
+
+function mapRegion(roads: RoadSegmentFeatureCollection): mapkit.CoordinateRegion {
+  const coordinates = roads.features.flatMap((feature) => linesOf(feature).flat())
+  if (!coordinates.length) {
+    return new mapkit.CoordinateRegion(
+      new mapkit.Coordinate(appConfig.demo.position.latitude, appConfig.demo.position.longitude),
+      new mapkit.CoordinateSpan(0.05, 0.05),
+    )
+  }
+  const longitudes = coordinates.map(([longitude]) => longitude)
+  const latitudes = coordinates.map(([, latitude]) => latitude)
+  const west = Math.min(...longitudes)
+  const east = Math.max(...longitudes)
+  const south = Math.min(...latitudes)
+  const north = Math.max(...latitudes)
+  return new mapkit.CoordinateRegion(
+    new mapkit.Coordinate((south + north) / 2, (west + east) / 2),
+    new mapkit.CoordinateSpan(Math.max(0.01, (north - south) * 1.15), Math.max(0.01, (east - west) * 1.15)),
+  )
+}
+
+function annotationElement(className: string, text?: string) {
+  return () => {
+    const element = document.createElement('div')
+    element.className = `map-annotation ${className}`
+    if (text) element.textContent = text
+    return element
   }
 }
 
-export function YukisakiMap({ roads, conditions, snowplows, layers, destination, routes, activeRouteId, onRoadSelect, onPlowSelect, onMapDestination, animateSnowplows }: Props) {
+function dataOf(overlay: mapkit.Overlay | undefined): OverlayData | undefined {
+  return overlay?.data as OverlayData | undefined
+}
+
+export function YukisakiMap(props: Props) {
+  const { roads, conditions, snowplows, layers, destination, routes, activeRouteId, animateSnowplows } = props
   const containerRef = useRef<HTMLDivElement>(null)
-  const mapRef = useRef<MapLibreMap | undefined>(undefined)
-  const selectedRoadRef = useRef<string | undefined>(undefined)
-  const snowplowsRef = useRef(snowplows)
+  const mapRef = useRef<mapkit.Map | undefined>(undefined)
+  const propsRef = useRef(props)
+  const overlayGroupsRef = useRef<Record<OverlayKind, mapkit.Overlay[]>>({ road: [], snow: [], pipe: [], plowing: [], slope: [], track: [], route: [] })
+  const plowAnnotationsRef = useRef(new Map<string, mapkit.Annotation>())
+  const destinationAnnotationRef = useRef<mapkit.Annotation | undefined>(undefined)
   const plowMotionsRef = useRef(new Map<string, PlowMotion>())
-  const animateSnowplowsRef = useRef(animateSnowplows)
-  snowplowsRef.current = snowplows
-  animateSnowplowsRef.current = animateSnowplows
-  const conditionsById = useMemo(() => new Map(conditions.map((item) => [item.segmentId, item])), [conditions])
-  const enrichedRoads = useMemo(() => ({ ...roads, features: roads.features.map((feature) => ({ ...feature, properties: { ...feature.properties, ...(conditionsById.get(feature.properties.segment_id) ?? {}), selected: false } })) }), [roads, conditionsById])
+  const selectedOverlayRef = useRef<mapkit.Overlay | undefined>(undefined)
+  const animationFrameRef = useRef<number | undefined>(undefined)
+  const [mapError, setMapError] = useState<string | undefined>(undefined)
+  const [mapReady, setMapReady] = useState(false)
+  propsRef.current = props
+
+  const conditionsById = useMemo(() => new Map(conditions.map((condition) => [condition.segmentId, condition])), [conditions])
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return
-    const map = new maplibregl.Map({
-      container: containerRef.current,
-      style: { version: 8, sources: { osm: { type: 'raster', tiles: [appConfig.mapTileUrl], tileSize: 256, attribution: '© OpenStreetMap contributors' } }, layers: [{ id: 'osm', type: 'raster', source: 'osm', paint: { 'raster-saturation': -0.65, 'raster-opacity': .72 } }] },
-      center: [appConfig.demo.position.longitude, appConfig.demo.position.latitude], zoom: 14.5, attributionControl: false,
-    })
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right')
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right')
-    let animationFrame: number | undefined
-    let lastPipePhase = -1
-    map.on('load', () => {
-      map.addSource('roads', { type: 'geojson', data: enrichedRoads, promoteId: 'segment_id' })
-      map.addLayer({ id: 'snow-banks', type: 'line', source: 'roads', paint: { 'line-color': '#ffffff', 'line-opacity': .88, 'line-width': ['interpolate',['linear'],['zoom'],12,8,17,22], 'line-blur': 1.3 } })
-      map.addLayer({ id: 'road-surface', type: 'line', source: 'roads', paint: { 'line-color': ['case',['boolean',['get','hasDrivabilityScore'],true],['interpolate',['linear'],['to-number',['get','drivabilityScore']],0,'#d73027',50,'#f6c945',75,'#6aaed6',100,'#176fc0'],'#9cabb8'], 'line-width': ['interpolate',['linear'],['zoom'],12,['case',['boolean',['feature-state','selected'],false],11,2.5],17,['case',['boolean',['feature-state','selected'],false],11,8]], 'line-opacity': .96 } })
-      map.addLayer({ id: 'pipe-idle', type: 'line', source: 'roads', filter: ['==',['get','hasSnowmeltPipe'],true], paint: { 'line-color': '#00a8df', 'line-opacity': .96, 'line-width': ['interpolate',['linear'],['zoom'],12,2.5,17,5], 'line-offset': ['interpolate',['linear'],['zoom'],12,3,17,8], 'line-dasharray': [2,1.25] } })
-      map.addLayer({ id: 'pipe-water', type: 'line', source: 'roads', filter: ['==',['get','snowmeltPipeOperating'],true], paint: { 'line-color': '#d9f8ff', 'line-opacity': 1, 'line-width': ['interpolate',['linear'],['zoom'],12,1.5,17,3], 'line-offset': ['interpolate',['linear'],['zoom'],12,3,17,8], 'line-dasharray': [1,1.3] } })
-      map.addLayer({ id: 'tire-tracks', type: 'line', source: 'roads', filter: ['in',['get','status'],['literal',['recently_plowed','plowed']]], paint: { 'line-color': '#142839', 'line-opacity': .22, 'line-width': .8, 'line-gap-width': 2 } })
-      map.addLayer({ id: 'slope-warning', type: 'line', source: 'roads', filter: ['>=',['to-number',['get','slopePercent']],7], paint: { 'line-color': '#dc4838', 'line-width': 3, 'line-dasharray': [1,1] } })
-      map.addSource('plow-tracks', { type: 'geojson', data: { type: 'FeatureCollection', features: snowplows.filter((plow) => plow.track).map((plow) => ({ type: 'Feature', properties: { id: plow.id }, geometry: plow.track! })) } })
-      map.addLayer({ id: 'plow-tracks', type: 'line', source: 'plow-tracks', paint: { 'line-color': '#344a5e', 'line-width': 5, 'line-opacity': .8 } })
-      map.addSource('plows', { type: 'geojson', data: plowPointCollection(snowplowsRef.current, plowMotionsRef.current, performance.now(), false) })
-      map.addLayer({ id: 'plows-halo', type: 'circle', source: 'plows', paint: { 'circle-radius': 16, 'circle-color': '#fff', 'circle-stroke-color': '#f59e0b', 'circle-stroke-width': 3 } })
-      map.addLayer({ id: 'plows', type: 'symbol', source: 'plows', layout: { 'text-field': '🚛', 'text-size': 21, 'text-allow-overlap': true, 'text-rotate': ['get','heading'] } })
-      map.addSource('current-location', { type: 'geojson', data: { type: 'Point', coordinates: [appConfig.demo.position.longitude, appConfig.demo.position.latitude] } })
-      map.addLayer({ id: 'current-location-halo', type: 'circle', source: 'current-location', paint: { 'circle-radius': 13, 'circle-color': '#4c9fe8', 'circle-opacity': .22 } })
-      map.addLayer({ id: 'current-location', type: 'circle', source: 'current-location', paint: { 'circle-radius': 6, 'circle-color': '#176fc0', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } })
-      map.fitBounds(boundsOf(roads), { padding: 42, duration: 0 })
-      map.on('click', 'road-surface', (event) => {
-        const feature = event.features?.[0]
-        if (!feature?.properties) return
-        const id = feature.properties.segment_id as string
-        if (selectedRoadRef.current) map.setFeatureState({ source: 'roads', id: selectedRoadRef.current }, { selected: false })
-        map.setFeatureState({ source: 'roads', id }, { selected: true })
-        selectedRoadRef.current = id
-        const original = roads.features.find((item) => item.properties.segment_id === id)
-        if (original) onRoadSelect(original)
+    let cancelled = false
+    const container = containerRef.current
+    if (!container) return
+
+    const handleContextMenu = (event: MouseEvent) => {
+      const map = mapRef.current
+      if (!map) return
+      event.preventDefault()
+      const coordinate = map.convertPointOnPageToCoordinate(new DOMPoint(event.clientX, event.clientY))
+      propsRef.current.onMapDestination({
+        id: 'map-point', name: '地図で指定した地点', address: 'デモ道路内の指定地点',
+        latitude: coordinate.latitude, longitude: coordinate.longitude,
       })
-      map.on('click', 'plows', (event) => { const id = event.features?.[0]?.properties?.id as string | undefined; const plow = snowplowsRef.current.find((item) => item.id === id); if (plow) onPlowSelect(plow) })
-      ;['road-surface','plows'].forEach((layer) => { map.on('mouseenter', layer, () => { map.getCanvas().style.cursor = 'pointer' }); map.on('mouseleave', layer, () => { map.getCanvas().style.cursor = '' }) })
-      map.on('contextmenu', (event) => onMapDestination({ id: 'map-point', name: '地図で指定した地点', address: 'デモ道路内の指定地点', latitude: event.lngLat.lat, longitude: event.lngLat.lng }))
-      navigator.geolocation?.getCurrentPosition((position) => {
-        const candidate: [number,number] = [position.coords.longitude, position.coords.latitude]
-        if (boundsOf(roads).contains(candidate)) (map.getSource('current-location') as GeoJSONSource).setData({ type: 'Point', coordinates: candidate })
-      }, () => undefined, { timeout: 5_000, maximumAge: 60_000 })
-      const renderMotion = (now: number) => {
-        const motionEnabled = animateSnowplowsRef.current && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        ;(map.getSource('plows') as GeoJSONSource).setData(plowPointCollection(snowplowsRef.current, plowMotionsRef.current, now, motionEnabled))
-        const pipePhase = Math.floor(now / 500) % 2
-        if (pipePhase !== lastPipePhase) {
-          lastPipePhase = pipePhase
-          map.setPaintProperty('pipe-water', 'line-dasharray', pipePhase === 0 ? [1,1.3] : [1.3,1])
+    }
+
+    loadMapKit(appConfig.mapKitToken).then(() => {
+      if (cancelled) return
+      const map = new mapkit.Map(container, {
+        region: mapRegion(propsRef.current.roads),
+        tintColor: '#176fc0',
+        showsMapTypeControl: false,
+        isRotationEnabled: false,
+        showsZoomControl: true,
+        showsPointsOfInterest: true,
+      })
+      mapRef.current = map
+      setMapReady(true)
+      container.addEventListener('contextmenu', handleContextMenu)
+
+      map.addEventListener('select', ((event: Event & { overlay?: mapkit.Overlay; annotation?: mapkit.Annotation }) => {
+        if (event.overlay) {
+          const data = dataOf(event.overlay)
+          if (data?.kind !== 'road' || !data.segmentId) return
+          const previous = selectedOverlayRef.current
+          if (previous && previous !== event.overlay) {
+            previous.style.lineWidth = dataOf(previous)?.originalWidth ?? 5
+            previous.selected = false
+          }
+          event.overlay.style.lineWidth = 9
+          selectedOverlayRef.current = event.overlay
+          const feature = propsRef.current.roads.features.find((item) => item.properties.segment_id === data.segmentId)
+          if (feature) propsRef.current.onRoadSelect(feature)
+          return
         }
-        animationFrame = window.requestAnimationFrame(renderMotion)
+        const data = event.annotation?.data as AnnotationData | undefined
+        if (data?.kind === 'plow' && data.id) {
+          const plow = propsRef.current.snowplows.find((item) => item.id === data.id)
+          if (plow) propsRef.current.onPlowSelect(plow)
+        }
+      }) as EventListener)
+
+      const current = new mapkit.Annotation(
+        appConfig.demo.position,
+        annotationElement('current-location-marker'),
+        { data: { kind: 'current' } satisfies AnnotationData, enabled: false, accessibilityLabel: '現在地' },
+      )
+      map.addAnnotation(current)
+      navigator.geolocation?.getCurrentPosition((position) => {
+        current.coordinate = { latitude: position.coords.latitude, longitude: position.coords.longitude }
+      }, () => undefined, { timeout: 5_000, maximumAge: 60_000 })
+
+      const renderMotion = (now: number) => {
+        const motionEnabled = propsRef.current.animateSnowplows && !window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        plowAnnotationsRef.current.forEach((annotation, id) => {
+          const motion = plowMotionsRef.current.get(id)
+          if (!motion) return
+          const [longitude, latitude] = motionPosition(motion, now, motionEnabled)
+          annotation.coordinate = { latitude, longitude }
+        })
+        animationFrameRef.current = window.requestAnimationFrame(renderMotion)
       }
-      animationFrame = window.requestAnimationFrame(renderMotion)
+      animationFrameRef.current = window.requestAnimationFrame(renderMotion)
+    }).catch((error: unknown) => {
+      if (!cancelled) setMapError(error instanceof Error ? error.message : 'Apple Mapsを初期化できませんでした')
     })
-    mapRef.current = map
-    return () => { if (animationFrame) window.cancelAnimationFrame(animationFrame); map.remove(); mapRef.current = undefined }
+
+    return () => {
+      cancelled = true
+      container.removeEventListener('contextmenu', handleContextMenu)
+      if (animationFrameRef.current) window.cancelAnimationFrame(animationFrameRef.current)
+      mapRef.current?.destroy()
+      mapRef.current = undefined
+    }
   }, [])
 
-  useEffect(() => { const source = mapRef.current?.getSource('roads') as GeoJSONSource | undefined; source?.setData(enrichedRoads) }, [enrichedRoads])
   useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const kinds: OverlayKind[] = ['road', 'snow', 'pipe', 'plowing', 'slope']
+    const old = kinds.flatMap((kind) => overlayGroupsRef.current[kind])
+    if (old.length) map.removeOverlays(old)
+    kinds.forEach((kind) => { overlayGroupsRef.current[kind] = [] })
+
+    roads.features.forEach((feature) => {
+      const segmentId = feature.properties.segment_id
+      const condition = conditionsById.get(segmentId)
+      const score = condition?.hasDrivabilityScore === false ? undefined : condition?.drivabilityScore
+      linesOf(feature).forEach((line) => {
+        const points = coordinatesOf(line)
+        if (points.length < 2) return
+        overlayGroupsRef.current.snow.push(new mapkit.PolylineOverlay(points, {
+          data: { kind: 'snow', segmentId } satisfies OverlayData,
+          enabled: false,
+          style: new mapkit.Style({ strokeColor: '#ffffff', strokeOpacity: 0.82, lineWidth: 10, lineCap: 'round', lineJoin: 'round' }),
+        }))
+        overlayGroupsRef.current.road.push(new mapkit.PolylineOverlay(points, {
+          data: { kind: 'road', segmentId, originalWidth: 5 } satisfies OverlayData,
+          enabled: true,
+          style: new mapkit.Style({ strokeColor: colorForScore(score), strokeOpacity: 0.96, lineWidth: 5, lineCap: 'round', lineJoin: 'round' }),
+        }))
+        if (condition?.status === 'recently_plowed' || condition?.status === 'plowed') {
+          overlayGroupsRef.current.plowing.push(new mapkit.PolylineOverlay(points, {
+            data: { kind: 'plowing', segmentId } satisfies OverlayData,
+            enabled: false,
+            style: new mapkit.Style({ strokeColor: '#142839', strokeOpacity: 0.45, lineWidth: 1.5, lineDash: [5, 5] }),
+          }))
+        }
+        if (condition?.hasSnowmeltPipe) {
+          overlayGroupsRef.current.pipe.push(new mapkit.PolylineOverlay(points, {
+            data: { kind: 'pipe', segmentId } satisfies OverlayData,
+            enabled: false,
+            style: new mapkit.Style({
+              strokeColor: condition.snowmeltPipeOperating ? '#13bde9' : '#1686c5',
+              strokeOpacity: 0.95,
+              lineWidth: 2.5,
+              lineDash: condition.snowmeltPipeOperating ? [4, 3] : [8, 5],
+            }),
+          }))
+        }
+        if ((condition?.slopePercent ?? 0) >= 7) {
+          overlayGroupsRef.current.slope.push(new mapkit.PolylineOverlay(points, {
+            data: { kind: 'slope', segmentId } satisfies OverlayData,
+            enabled: false,
+            style: new mapkit.Style({ strokeColor: '#dc4838', strokeOpacity: 1, lineWidth: 3, lineDash: [4, 4] }),
+          }))
+        }
+      })
+    })
+
+    map.addOverlays([
+      ...overlayGroupsRef.current.snow,
+      ...overlayGroupsRef.current.road,
+      ...overlayGroupsRef.current.plowing,
+      ...overlayGroupsRef.current.pipe,
+      ...overlayGroupsRef.current.slope,
+    ])
+  }, [roads, conditionsById, mapReady])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
     const now = performance.now()
     const activeIds = new Set(snowplows.map((plow) => plow.id))
     snowplows.forEach((plow) => {
       const previous = plowMotionsRef.current.get(plow.id)
-      const from = previous
-        ? motionPosition(previous, now, animateSnowplowsRef.current)
-        : [plow.longitude, plow.latitude] as PlowCoordinate
-      plowMotionsRef.current.set(plow.id, {
-        from,
-        to: [plow.longitude, plow.latitude],
-        startedAt: now,
-      })
+      const from = previous ? motionPosition(previous, now, animateSnowplows) : [plow.longitude, plow.latitude] as PlowCoordinate
+      plowMotionsRef.current.set(plow.id, { from, to: [plow.longitude, plow.latitude], startedAt: now })
+      if (!plowAnnotationsRef.current.has(plow.id)) {
+        const annotation = new mapkit.Annotation(
+          { latitude: plow.latitude, longitude: plow.longitude },
+          annotationElement('plow-marker', '🚛'),
+          { title: plow.name, data: { kind: 'plow', id: plow.id } satisfies AnnotationData, accessibilityLabel: `${plow.name}（デモデータ）` },
+        )
+        plowAnnotationsRef.current.set(plow.id, annotation)
+        map.addAnnotation(annotation)
+      }
     })
-    plowMotionsRef.current.forEach((_motion, id) => { if (!activeIds.has(id)) plowMotionsRef.current.delete(id) })
+    plowAnnotationsRef.current.forEach((annotation, id) => {
+      if (!activeIds.has(id)) {
+        map.removeAnnotation(annotation)
+        plowAnnotationsRef.current.delete(id)
+        plowMotionsRef.current.delete(id)
+      }
+    })
 
-    const map = mapRef.current
-    if (!map?.isStyleLoaded()) return
-    const trackSource = map.getSource('plow-tracks') as GeoJSONSource | undefined
-    trackSource?.setData({ type: 'FeatureCollection', features: snowplows.filter((plow) => plow.track).map((plow) => ({ type: 'Feature', properties: { id: plow.id }, geometry: plow.track! })) })
-  }, [snowplows])
+    if (overlayGroupsRef.current.track.length) map.removeOverlays(overlayGroupsRef.current.track)
+    overlayGroupsRef.current.track = snowplows.flatMap((plow) => plow.track ? [new mapkit.PolylineOverlay(coordinatesOf(plow.track.coordinates), {
+      data: { kind: 'track' } satisfies OverlayData,
+      enabled: false,
+      style: new mapkit.Style({ strokeColor: '#344a5e', strokeOpacity: 0.8, lineWidth: 5 }),
+    })] : [])
+    if (overlayGroupsRef.current.track.length) map.addOverlays(overlayGroupsRef.current.track)
+  }, [snowplows, animateSnowplows, mapReady])
+
   useEffect(() => {
     const map = mapRef.current
-    if (!map?.isStyleLoaded()) return
-    const visibility = (id: string, shown: boolean) => { if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', shown ? 'visible' : 'none') }
-    visibility('road-surface', layers.drivability); visibility('snow-banks', layers.snowEffects)
-    visibility('pipe-idle', layers.snowmelt); visibility('pipe-water', layers.snowmelt); visibility('tire-tracks', layers.plowing)
-    visibility('plows', layers.plows); visibility('plows-halo', layers.plows); visibility('plow-tracks', layers.tracks)
-    visibility('slope-warning', layers.slopes)
-  }, [layers])
+    if (!map) return
+    if (overlayGroupsRef.current.route.length) map.removeOverlays(overlayGroupsRef.current.route)
+    overlayGroupsRef.current.route = (routes ?? []).map((route) => new mapkit.PolylineOverlay(coordinatesOf(route.geometry.coordinates), {
+      data: { kind: 'route' } satisfies OverlayData,
+      enabled: false,
+      style: new mapkit.Style({
+        strokeColor: route.id === 'fastest' ? '#ef6a3a' : route.id === 'recommended' ? '#236cc4' : '#168755',
+        strokeOpacity: route.id === activeRouteId ? 0.95 : 0.28,
+        lineWidth: route.id === activeRouteId ? 8 : 3,
+      }),
+    }))
+    if (overlayGroupsRef.current.route.length) map.addOverlays(overlayGroupsRef.current.route)
+  }, [routes, activeRouteId, mapReady])
 
   useEffect(() => {
     const map = mapRef.current
-    if (!map?.isStyleLoaded()) return
-    const collection = { type: 'FeatureCollection' as const, features: (routes ?? []).map((route) => ({ type: 'Feature' as const, properties: { id: route.id, active: route.id === activeRouteId }, geometry: route.geometry })) }
-    const source = map.getSource('routes') as GeoJSONSource | undefined
-    if (source) source.setData(collection)
-    else {
-      map.addSource('routes', { type: 'geojson', data: collection })
-      map.addLayer({ id: 'routes', type: 'line', source: 'routes', paint: { 'line-color': ['match',['get','id'],'fastest','#ef6a3a','recommended','#236cc4','#168755','#236cc4'], 'line-width': ['case',['==',['get','active'],true],8,3], 'line-opacity': ['case',['==',['get','active'],true],.95,.28] } })
+    if (!map) return
+    if (!destination) {
+      if (destinationAnnotationRef.current) map.removeAnnotation(destinationAnnotationRef.current)
+      destinationAnnotationRef.current = undefined
+      return
     }
-  }, [routes, activeRouteId])
+    if (!destinationAnnotationRef.current) {
+      destinationAnnotationRef.current = new mapkit.Annotation(
+        destination,
+        annotationElement('destination-marker'),
+        { title: destination.name, data: { kind: 'destination' } satisfies AnnotationData, enabled: false, accessibilityLabel: `目的地: ${destination.name}` },
+      )
+      map.addAnnotation(destinationAnnotationRef.current)
+    } else {
+      destinationAnnotationRef.current.coordinate = destination
+    }
+  }, [destination, mapReady])
 
   useEffect(() => {
-    const map = mapRef.current
-    if (!map?.isStyleLoaded()) return
-    const data = { type: 'Feature' as const, properties: {}, geometry: { type: 'Point' as const, coordinates: destination ? [destination.longitude,destination.latitude] : [0,0] } }
-    const source = map.getSource('destination') as GeoJSONSource | undefined
-    if (source) source.setData(data)
-    else { map.addSource('destination', { type: 'geojson', data }); map.addLayer({ id: 'destination', type: 'circle', source: 'destination', paint: { 'circle-radius': 8, 'circle-color': '#cf3c31', 'circle-stroke-color': '#fff', 'circle-stroke-width': 3 } }) }
-  }, [destination])
+    const visibility: Record<OverlayKind, boolean> = {
+      road: layers.drivability, snow: layers.snowEffects, pipe: layers.snowmelt,
+      plowing: layers.plowing, slope: layers.slopes, track: layers.tracks, route: true,
+    }
+    ;(Object.entries(overlayGroupsRef.current) as Array<[OverlayKind, mapkit.Overlay[]]>).forEach(([kind, overlays]) => {
+      overlays.forEach((overlay) => { overlay.visible = visibility[kind] })
+    })
+    plowAnnotationsRef.current.forEach((annotation) => { annotation.visible = layers.plows })
+  }, [layers, roads, conditions, snowplows, routes, mapReady])
 
-  return <div ref={containerRef} className="map-canvas" aria-label="長岡市石動南町の道路状態地図" />
+  return (
+    <div className="map-canvas mapkit-canvas" aria-label="長岡市石動南町の道路状態地図">
+      <div ref={containerRef} className="mapkit-host" />
+      {mapError && <div className="map-error" role="alert"><b>Apple Mapsを表示できません</b><span>{mapError}</span></div>}
+      <small className="osm-attribution">道路データ © OpenStreetMap contributors</small>
+    </div>
+  )
 }

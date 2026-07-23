@@ -1,6 +1,6 @@
 # Yukisaki Webフロントエンド
 
-雪国向けナビゲーション「Yukisaki」のReact Webアプリです。MapLibreで道路GeoJSONを表示し、REST APIまたは再現可能なモックAPIから道路状態、消雪パイプ、除雪車、経路候補を取得します。Web側は受け取った指数や危険理由を表示し、再計算しません。
+雪国向けナビゲーション「Yukisaki」のReact Webアプリです。MapKit JSのApple Mapsを背景地図として、OpenStreetMap由来の道路GeoJSONを重ねて表示します。REST APIまたは再現可能なモックAPIから道路状態、消雪パイプ、除雪車、経路候補を取得し、Web側では受け取った指数や危険理由を再計算しません。
 
 ## ディレクトリ
 
@@ -8,7 +8,7 @@
 src/                 React / TypeScriptソース
   api/               API契約、HTTPクライアント、モード切替
   data/mock/         API未実装期間のモックAPI
-  features/map/      MapLibre地図
+  features/map/      MapKit JS地図と独自オーバーレイ
   hooks/             データ取得フック
 public/data/         ブラウザ配信用GeoJSON
 docs/                API契約、AWS配備手順
@@ -40,7 +40,7 @@ corepack pnpm preview
 
 ## データモード
 
-`.env.example` を `.env.local` へコピーして設定します。`VITE_DATA_MODE=api` と `VITE_YUKISAKI_API_URL` で公開Map APIへ接続します。初回は `/v1/map/snapshot`、除雪車は `/v1/snowplows` を5秒間隔で取得します。API停止時に `VITE_ENABLE_MOCK_FALLBACK=true` ならモック表示へ切り替わります。
+`.env.example` を `.env.local` へコピーして設定します。`VITE_MAPKIT_TOKEN`にはApple Developerで発行したMapKit JS用のドメイン制限付きトークンを設定します。ローカル確認ではトークンの許可ドメインに`localhost`も追加してください。`VITE_DATA_MODE=api` と `VITE_YUKISAKI_API_URL` で公開Map APIへ接続します。初回は `/v1/map/snapshot`、除雪車は `/v1/snowplows` を5秒間隔で取得します。API停止時に `VITE_ENABLE_MOCK_FALLBACK=true` ならモック表示へ切り替わります。
 
 デモ条件は2026年1月23日・新潟県長岡市石動南町です。道路付加情報、指数、消雪パイプ、GPSはAPIでも `is_simulated` を明示したデモデータです。現在のMap API対象外である経路候補、目的地検索、天気、走行軌跡はWebモックを使用します。
 

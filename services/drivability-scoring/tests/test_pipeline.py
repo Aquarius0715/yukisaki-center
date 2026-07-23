@@ -2,7 +2,7 @@ import unittest
 from datetime import datetime
 from unittest.mock import Mock, patch
 
-from drivability_scoring.pipeline import score_message
+from drivability_scoring.pipeline import handler, score_message
 
 
 class FakeCursor:
@@ -22,6 +22,8 @@ class FakeCursor:
         return (1,)
 
     def fetchall(self):
+        if "SELECT segment_id FROM road_segments" in self.statement:
+            return [("s-1",), ("s-2",)]
         return [(
             "s-1", 3, -1, 1, 0.2, True, "active",
             datetime.fromisoformat("2026-01-23T11:59:00+09:00"),
@@ -58,6 +60,20 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(result["runId"], "score-gps-process-test")
         self.assertEqual(result["recordCount"], 1)
         self.assertTrue(s3.put_object.call_args.kwargs["Key"].startswith("curated/drivability-scores/"))
+
+    @patch("drivability_scoring.pipeline.score_message")
+    @patch("drivability_scoring.pipeline.connect_database")
+    def test_bootstraps_every_road_segment(self, connect, score):
+        connect.return_value = FakeConnection()
+        score.return_value = {"runId": "score-bootstrap", "recordCount": 2, "key": "scores.jsonl"}
+        result = handler({
+            "mode": "bootstrap-all-road-segments",
+            "dataTimestamp": "2026-01-23T12:00:00+09:00",
+        }, None)
+        message = score.call_args.args[0]
+        self.assertEqual(message["segmentIds"], ["s-1", "s-2"])
+        self.assertEqual(message["latestObservedAt"], "2026-01-23T12:00:00+09:00")
+        self.assertEqual(result["scored"][0]["recordCount"], 2)
 
 
 if __name__ == "__main__":
