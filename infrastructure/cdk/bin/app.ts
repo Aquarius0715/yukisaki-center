@@ -118,6 +118,7 @@ new AiAssistantStack(app, `YukisakiAiAssistant-${environment}`, {
 new WebStack(app, `YukisakiWeb-${environment}`, {
   environment,
   apiEndpoint: apiStack.httpApi.apiEndpoint,
+  mapKitToken: process.env.VITE_MAPKIT_TOKEN,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,

@@ -44,6 +44,8 @@ npm run web:enable -- --profile yukisaki-dev
 npm run web:disable -- --profile yukisaki-dev
 ```
 
+Webを初回デプロイするとき、またはMapKit JSトークンを更新するときは、Git管理外の`services/web/env.local`へ`VITE_MAPKIT_TOKEN`を設定し、`npm run web:secret:sync -- --profile yukisaki-dev`を実行する。通常のWebデプロイは`npm run web:deploy -- --profile yukisaki-dev`を使用し、Secrets Managerの`yukisaki/dev/web/mapkit-js-token`からトークンを取得する。
+
 `env:stop`は次を行う。
 
 1. Weather、道路、消雪パイプmanifestのEventBridge Ruleを無効化する。

@@ -17,12 +17,17 @@ pnpm build
 
 正規のAWS構成は`infrastructure/cdk/lib/web-stack.ts`で管理する。CDK synth時にDockerでWebを本番ビルドし、非公開S3、CloudFront Origin Access Control、SPAフォールバック、API Gatewayへの`/v1/*`・`/healthz`転送、成果物アップロードとキャッシュ無効化を作成する。CloudFrontはデプロイ直後に無効である。
 
+MapKit JSトークンは`yukisaki/<environment>/web/mapkit-js-token`という名前でSecrets Managerへ保存する。トークン自体はブラウザへ配信される公開値だが、GitやCloudFormationへ直接記録せず、Apple Developer側でCloudFrontドメインへ制限する。初回またはローテーション時だけ、Git管理外の`services/web/env.local`から同期する。
+
 ```bash
 cd infrastructure/cdk
-npx cdk deploy YukisakiWeb-dev --profile yukisaki-dev --require-approval never
+npm run web:secret:sync -- --profile yukisaki-dev
+npm run web:deploy -- --profile yukisaki-dev
 npm run web:enable -- --profile yukisaki-dev
 npm run web:status -- --profile yukisaki-dev
 ```
+
+`npm run deploy|diff|synth`も同じラッパーを通り、デプロイ時はSecrets Managerからトークンを取得してDockerビルドへだけ渡す。値はコマンド出力へ表示しない。
 
 全サービスとまとめて操作するときは`env:start|stop|status`を使用する。CloudFrontの有効・無効変更は非同期であり、`status=Deployed`になるまで数分かかることがある。Web配信S3は停止時も削除しない。
 

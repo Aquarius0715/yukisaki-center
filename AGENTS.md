@@ -26,6 +26,7 @@
 - REST APIはAPI Gateway HTTP APIとDockerイメージLambdaで実装し、共通RDSの道路・指数・消雪パイプ・最新除雪車位置をGeoJSONで返す。道路Geometryの外接矩形をRDSへ保持し、DB側の`bbox`条件とSQL件数上限で絞る。GPSは別エンドポイントから更新できる
 - AIサービスはAmazon BedrockのStructured Outputsを使うDocker Lambdaとして実装し、自然言語の条件抽出、確定済み経路の比較説明、確定済み危険要因の説明を別APIで提供する。識別子変更やBedrock失敗時は定型文へフォールバックし、指数・順位・通行可否は決定しない
 - WebはReactとApple MapKit JSで実装し、非公開S3とCloudFront OACで配信するCDKスタックを持つ。CloudFrontからAPI Gatewayへ`/v1/*`を同一オリジン転送し、デプロイ直後は無効とする
+- MapKit JSトークンはGit管理外の`services/web/env.local`からSecrets Managerへ同期し、CDKデプロイ時だけ取得する。トークンはCloudFrontドメインへ制限し、ログやCloudFormationへ直接出力しない
 - AWS CDKでは気象データパイプライン、道路収集、消雪パイプ処理、GPS・指数処理、公開API、AIアシスタント、Web配信を別スタックとして管理
 - Weather、道路、消雪パイプmanifestはEventBridge Ruleを共通の入口とし、3つのRuleはデプロイ時に`DISABLED`。単一RDS、3つのRule、関連Lambda（Map APIを含む）、道路Fargate、GPS Fargate、Web CloudFrontは`env:start|stop|status`でまとめて管理する
 - 全Collectorは共通メタデータ契約で`run_id`、取得日時、対象期間、出典URL、SHA-256をS3 metadata/manifestへ保持し、PostgreSQLへ直接書かない

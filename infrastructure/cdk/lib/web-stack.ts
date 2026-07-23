@@ -18,6 +18,7 @@ import { Construct } from 'constructs';
 export interface WebStackProps extends StackProps {
   readonly environment: string;
   readonly apiEndpoint: string;
+  readonly mapKitToken?: string;
   readonly webSourcePath?: string;
   readonly bundleWebApp?: boolean;
 }
@@ -87,12 +88,20 @@ export class WebStack extends Stack {
 
     const webSourcePath = props.webSourcePath
       ?? path.join(__dirname, '../../../services/web');
+    if (props.bundleWebApp !== false && !props.mapKitToken) {
+      throw new Error(
+        'VITE_MAPKIT_TOKEN is required when bundling the Web app. Use the CDK npm scripts so the token is loaded from Secrets Manager.',
+      );
+    }
     const source = props.bundleWebApp === false
       ? s3deploy.Source.asset(webSourcePath)
       : s3deploy.Source.asset(webSourcePath, {
         exclude: ['node_modules', 'dist', 'legacy-static'],
         bundling: {
           image: DockerImage.fromRegistry('node:22-alpine'),
+          environment: {
+            VITE_MAPKIT_TOKEN: props.mapKitToken!,
+          },
           command: [
             'sh',
             '-c',
