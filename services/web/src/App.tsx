@@ -1,7 +1,7 @@
 import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react'
 import { appConfig } from './api/config'
 import { yukisakiApi } from './api/createYukisakiApi'
-import type { Destination, RecommendedRoute, RoadSegmentFeature, Snowplow } from './api/contracts'
+import type { Destination, RecommendedRoute, RoadCondition, RoadSegmentFeature, Snowplow } from './api/contracts'
 import { YukisakiMap, type LayerVisibility } from './features/map/YukisakiMap'
 import { useYukisakiData } from './hooks/useYukisakiData'
 
@@ -81,6 +81,94 @@ function displayValue(value: unknown): string {
   return String(value)
 }
 
+const scoreLabels: Record<string, string> = {
+  snow_pipe: '消雪パイプ',
+  temperature_c: '気温',
+  last_plowed_at: '最終除雪車通過',
+  snowfall_1h_cm: '1時間降雪量',
+  max_slope_percent: '最大勾配',
+  no_plow_history: '除雪実績なし',
+  active_snow_pipe: '消雪パイプ作動中',
+  light_hourly_snowfall: '弱い降雪',
+  moderate_hourly_snowfall: '中程度の降雪',
+  heavy_hourly_snowfall: '強い降雪',
+  freezing_wet_condition: '凍結しやすい路面・気温',
+}
+
+function scoreValue(key: string, value: unknown): string {
+  if (value === null || value === undefined) return '情報なし'
+  if (key === 'temperature_c') return `${value} ℃`
+  if (key === 'snowfall_1h_cm') return `${value} cm`
+  if (key === 'max_slope_percent') return `${value} %`
+  if (key === 'last_plowed_at' && typeof value === 'string') {
+    const date = new Date(value)
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+  }
+  return displayValue(value)
+}
+
+type ScoreSection = { title: string; rows: Array<{ key: string; label: string; value: unknown }> }
+
+function scoreSections(condition: RoadCondition | undefined): ScoreSection[] {
+  const raw = condition?.scoreFactors as unknown
+  if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+    const factors = raw as Record<string, unknown>
+    const inputs = factors.inputs
+    const appliedRules = factors.applied_rules
+    const sourceRunIds = factors.source_run_ids
+    const sections: ScoreSection[] = []
+    if (inputs && typeof inputs === 'object' && !Array.isArray(inputs)) {
+      sections.push({
+        title: '算出に使用したデータ',
+        rows: Object.entries(inputs as Record<string, unknown>).map(([key, value]) => ({
+          key, label: scoreLabels[key] ?? key, value,
+        })),
+      })
+    }
+    if (appliedRules && typeof appliedRules === 'object' && !Array.isArray(appliedRules)) {
+      sections.push({
+        title: '適用された補正',
+        rows: Object.entries(appliedRules as Record<string, unknown>).map(([key, value]) => ({
+          key, label: scoreLabels[key] ?? key, value,
+        })),
+      })
+    }
+    if (Array.isArray(sourceRunIds)) {
+      sections.push({
+        title: '算出データID',
+        rows: sourceRunIds.map((value, index) => ({
+          key: `source-${index}`, label: `データ ${index + 1}`, value,
+        })),
+      })
+    }
+    if (sections.length) return sections
+  }
+
+  if (condition?.scoreFactorDetails?.length) {
+    return [{
+      title: '適用された根拠',
+      rows: condition.scoreFactorDetails.map((factor, index) => ({
+        key: `factor-${index}`, label: factor.label, value: factor.value,
+      })),
+    }]
+  }
+
+  const breakdown = condition?.scoreBreakdown
+  return breakdown ? [{
+    title: 'スコア内訳',
+    rows: [
+      ['base', '基本点', breakdown.base],
+      ['snowmeltPipe', '消雪パイプ', breakdown.snowmeltPipe],
+      ['snowmeltPipeOperation', '稼働状態', breakdown.snowmeltPipeOperation],
+      ['recentPlowing', '除雪実績', breakdown.recentPlowing],
+      ['roadClass', '道路種別', breakdown.roadClass],
+      ['roadWidth', '道幅', breakdown.roadWidth],
+      ['slope', '坂道', breakdown.slope],
+      ['dataFreshness', '情報の新しさ', breakdown.dataFreshness],
+    ].map(([key, label, value]) => ({ key: String(key), label: String(label), value })),
+  }] : []
+}
+
 function LayerSheet({ layers, setLayers, close }: { layers: LayerVisibility; setLayers: (layers: LayerVisibility) => void; close: () => void }) {
   const items: [keyof LayerVisibility,string,string][] = [['drivability','走りやすさ指数','低い道路は赤、高い道路は青'],['snowmelt','消雪パイプ','道路脇の水色ライン'],['plowing','除雪実績','道路面とタイヤ跡'],['plows','除雪車の現在地','5秒かけて次の位置へ移動'],['tracks','除雪車の走行軌跡','走行済みの道路'],['slopes','坂道','注意区間'],['snowEffects','雪のビジュアル演出','実測積雪量ではありません']]
   return <BottomSheet title="地図レイヤー" onClose={close}><div className="sheet-content layer-list">{items.map(([key,label,note]) => <label key={key}><span><b>{label}</b><small>{note}</small></span><input type="checkbox" checked={layers[key]} onChange={() => setLayers({ ...layers, [key]: !layers[key] })}/><i/></label>)}</div></BottomSheet>
@@ -88,12 +176,11 @@ function LayerSheet({ layers, setLayers, close }: { layers: LayerVisibility; set
 
 function RoadSheet({ road, condition, close }: { road: RoadSegmentFeature; condition: ReturnType<typeof useYukisakiData>['conditions'][number] | undefined; close: () => void }) {
   const p = road.properties
-  const breakdown = condition?.scoreBreakdown
-  const scoreRows: Array<readonly [string, number | boolean | string | null]> = condition?.scoreFactorDetails?.map((factor) => [factor.label, factor.value] as const) ?? (breakdown ? [['基本点',breakdown.base],['消雪パイプ',breakdown.snowmeltPipe],['稼働状態',breakdown.snowmeltPipeOperation],['除雪実績',breakdown.recentPlowing],['道路種別',breakdown.roadClass],['道幅',breakdown.roadWidth],['坂道',breakdown.slope],['情報の新しさ',breakdown.dataFreshness]] as const : [])
+  const sections = scoreSections(condition)
   return <BottomSheet title="道路区間の詳細" onClose={close}><div className="sheet-content">
     <div className="road-title"><div><small>{p.highway ?? '道路'}</small><h3>{p.road_name || p.name || '名称のない道路'}</h3><code>{p.segment_id}</code></div>{condition && <Score value={condition.drivabilityScore}/>}</div>
     <div className="fact-grid"><span>道幅<b>{condition?.roadWidthM ? `${condition.roadWidthM} m` : '情報なし'}</b></span><span>一方通行<b>{p.oneway === true || p.oneway === 'yes' ? 'はい' : 'いいえ'}</b></span><span>消雪パイプ<b>{condition?.hasSnowmeltPipe ? condition.snowmeltPipeOperating ? '作動中' : 'あり・停止中' : '設置情報なし'}</b></span><span>最終除雪車通過<b>{condition?.lastPlowedAt ? new Date(condition.lastPlowedAt).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : '走行実績を確認できません'}</b></span></div>
-    <h4>APIが返したスコアの根拠</h4><div className="breakdown">{scoreRows.map(([label,value]) => { const numeric = typeof value === 'number' ? value : null; return <div key={label}><span>{label}</span><b className={numeric !== null && numeric < 0 ? 'minus' : ''}>{numeric !== null && numeric > 0 ? '+' : ''}{displayValue(value)}</b></div> })}</div>
+    <h4>APIが返したスコアの根拠</h4>{sections.map((section) => <section className="score-section" key={section.title}><h5>{section.title}</h5><div className="breakdown">{section.rows.map(({ key, label, value }) => { const numeric = typeof value === 'number' ? value : null; return <div key={key}><span>{label}</span><b className={numeric !== null && numeric < 0 ? 'minus' : ''}>{numeric !== null && numeric > 0 ? '+' : ''}{scoreValue(key, value)}</b></div> })}</div></section>)}
     {[...(condition?.reasons ?? []),...(condition?.warnings ?? [])].length > 0 && <div className="reason-list">{condition?.reasons.map((reason) => <span key={reason}>✓ {reason}</span>)}{condition?.warnings.map((warning) => <span className="warn" key={warning}>△ {warning}</span>)}</div>}
     <p className="data-note">更新: {condition?.updatedAt ? new Date(condition.updatedAt).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : '時刻情報なし'}・{condition?.isSimulated ? 'デモ用の仮データ' : 'APIデータ'}</p>
   </div></BottomSheet>
