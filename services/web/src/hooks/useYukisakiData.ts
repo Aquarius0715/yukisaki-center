@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { yukisakiApi } from '../api/createYukisakiApi'
 import { appConfig } from '../api/config'
-import type { MapDataMeta, RoadCondition, RoadSegmentFeatureCollection, Snowplow, WeatherData } from '../api/contracts'
+import type { MapBounds, MapDataMeta, RoadCondition, RoadSegmentFeatureCollection, Snowplow, WeatherData } from '../api/contracts'
 
 function newerPlows(current: Snowplow[], incoming: Snowplow[]): Snowplow[] {
   const currentById = new Map(current.map((plow) => [plow.id, plow]))
@@ -22,7 +22,25 @@ export function useYukisakiData() {
   const [error, setError] = useState<string>()
   const [updateStopped, setUpdateStopped] = useState(false)
   const [reloadKey, setReloadKey] = useState(0)
+  const [viewportLoading, setViewportLoading] = useState(false)
+  const [viewportError, setViewportError] = useState<string>()
+  const requestSequence = useRef(0)
   const retry = useCallback(() => setReloadKey((value) => value + 1), [])
+  const loadViewport = useCallback((bounds: MapBounds) => {
+    const sequence = ++requestSequence.current
+    setViewportLoading(true)
+    setViewportError(undefined)
+    yukisakiApi.getRoadSegments(bounds).then((result) => {
+      if (sequence !== requestSequence.current) return
+      setRoads(result.roads)
+      setConditions(result.conditions)
+      setMeta((current) => current ? { ...current, truncated: result.truncated } : current)
+    }).catch(() => {
+      if (sequence === requestSequence.current) setViewportError('この範囲の道路データを取得できませんでした')
+    }).finally(() => {
+      if (sequence === requestSequence.current) setViewportLoading(false)
+    })
+  }, [])
 
   useEffect(() => {
     let active = true
@@ -43,12 +61,9 @@ export function useYukisakiData() {
         pollTimer = window.setInterval(() => {
           if (refreshInFlight) return
           refreshInFlight = true
-          yukisakiApi.getMapSnapshot(appConfig.demo.bounds).then((next) => {
+          yukisakiApi.getSnowplows(appConfig.demo.bounds).then((next) => {
             if (!active) return
-            setRoads(next.roads)
-            setConditions(next.conditions)
-            setSnowplows((current) => newerPlows(current, next.snowplows))
-            setMeta(next.meta)
+            setSnowplows((current) => newerPlows(current, next))
             setUpdateStopped(false)
           }).catch(() => { if (active) setUpdateStopped(true) }).finally(() => { refreshInFlight = false })
         }, 5_000)
@@ -65,5 +80,5 @@ export function useYukisakiData() {
     }
   }, [reloadKey])
 
-  return { roads, conditions, snowplows, weather, meta, loading, error, updateStopped, retry }
+  return { roads, conditions, snowplows, weather, meta, loading, error, updateStopped, viewportLoading, viewportError, loadViewport, retry }
 }

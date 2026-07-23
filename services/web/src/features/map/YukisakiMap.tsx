@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { appConfig } from '../../api/config'
-import type { Destination, RecommendedRoute, RoadCondition, RoadSegmentFeature, RoadSegmentFeatureCollection, Snowplow } from '../../api/contracts'
+import type { Destination, MapBounds, RecommendedRoute, RoadCondition, RoadSegmentFeature, RoadSegmentFeatureCollection, Snowplow } from '../../api/contracts'
 import { loadMapKit } from './loadMapKit'
 
 export type LayerVisibility = { drivability: boolean; snowmelt: boolean; plowing: boolean; plows: boolean; tracks: boolean; slopes: boolean; snowEffects: boolean }
@@ -15,6 +15,8 @@ type Props = {
   onRoadSelect: (feature: RoadSegmentFeature) => void
   onPlowSelect: (plow: Snowplow) => void
   onMapDestination: (destination: Destination) => void
+  onViewportChange: (bounds: MapBounds) => void
+  onDetailModeChange: (enabled: boolean) => void
   animateSnowplows: boolean
 }
 
@@ -24,6 +26,8 @@ type AnnotationData = { kind: 'plow' | 'destination' | 'current'; id?: string }
 type PlowCoordinate = [number, number]
 type PlowMotion = { from: PlowCoordinate; to: PlowCoordinate; startedAt: number }
 const PLOW_INTERPOLATION_MS = 5_000
+const DETAIL_SPAN_THRESHOLD = 0.075
+const VIEWPORT_PADDING = 0.18
 
 function motionPosition(motion: PlowMotion, now: number, animate: boolean): PlowCoordinate {
   if (!animate) return motion.to
@@ -34,16 +38,10 @@ function motionPosition(motion: PlowMotion, now: number, animate: boolean): Plow
 
 function colorForScore(score: number | undefined): string {
   if (score === undefined || !Number.isFinite(score)) return '#9cabb8'
-  const stops: Array<[number, [number, number, number]]> = [
-    [0, [215, 48, 39]], [50, [246, 201, 69]], [75, [106, 174, 214]], [100, [23, 111, 192]],
-  ]
-  const bounded = Math.max(0, Math.min(100, score))
-  const upperIndex = stops.findIndex(([value]) => value >= bounded)
-  if (upperIndex <= 0) return `rgb(${stops[0][1].join(',')})`
-  const [lowerValue, lowerColor] = stops[upperIndex - 1]
-  const [upperValue, upperColor] = stops[upperIndex]
-  const ratio = (bounded - lowerValue) / (upperValue - lowerValue)
-  return `rgb(${lowerColor.map((channel, index) => Math.round(channel + (upperColor[index] - channel) * ratio)).join(',')})`
+  if (score < 60) return '#d73027'
+  if (score < 75) return '#f0a72f'
+  if (score < 85) return '#55a9d6'
+  return '#176fc0'
 }
 
 function linesOf(feature: RoadSegmentFeature): number[][][] {
@@ -52,6 +50,40 @@ function linesOf(feature: RoadSegmentFeature): number[][][] {
 
 function coordinatesOf(line: number[][]): mapkit.CoordinateData[] {
   return line.map(([longitude, latitude]) => ({ latitude, longitude }))
+}
+
+function offsetLine(line: number[][], metres = 3.5): number[][] {
+  if (line.length < 2) return line
+  return line.map(([longitude, latitude], index) => {
+    const before = line[Math.max(0, index - 1)]
+    const after = line[Math.min(line.length - 1, index + 1)]
+    const dx = (after[0] - before[0]) * Math.cos(latitude * Math.PI / 180)
+    const dy = after[1] - before[1]
+    const length = Math.hypot(dx, dy)
+    if (!length) return [longitude, latitude]
+    const degrees = metres / 111_320
+    return [
+      longitude - (dy / length) * degrees / Math.max(0.2, Math.cos(latitude * Math.PI / 180)),
+      latitude + (dx / length) * degrees,
+    ]
+  })
+}
+
+function viewportOf(region: mapkit.CoordinateRegion): { bounds: MapBounds; detailed: boolean } {
+  const latitudeDelta = Math.abs(region.span.latitudeDelta)
+  const longitudeDelta = Math.abs(region.span.longitudeDelta)
+  const detailed = Math.max(latitudeDelta, longitudeDelta) <= DETAIL_SPAN_THRESHOLD
+  const latitudePadding = latitudeDelta * VIEWPORT_PADDING
+  const longitudePadding = longitudeDelta * VIEWPORT_PADDING
+  return {
+    detailed,
+    bounds: {
+      minLongitude: region.center.longitude - longitudeDelta / 2 - longitudePadding,
+      minLatitude: region.center.latitude - latitudeDelta / 2 - latitudePadding,
+      maxLongitude: region.center.longitude + longitudeDelta / 2 + longitudePadding,
+      maxLatitude: region.center.latitude + latitudeDelta / 2 + latitudePadding,
+    },
+  }
 }
 
 function mapRegion(roads: RoadSegmentFeatureCollection): mapkit.CoordinateRegion {
@@ -100,6 +132,7 @@ export function YukisakiMap(props: Props) {
   const animationFrameRef = useRef<number | undefined>(undefined)
   const [mapError, setMapError] = useState<string | undefined>(undefined)
   const [mapReady, setMapReady] = useState(false)
+  const [detailMode, setDetailMode] = useState(true)
   propsRef.current = props
 
   const conditionsById = useMemo(() => new Map(conditions.map((condition) => [condition.segmentId, condition])), [conditions])
@@ -133,6 +166,19 @@ export function YukisakiMap(props: Props) {
       mapRef.current = map
       setMapReady(true)
       container.addEventListener('contextmenu', handleContextMenu)
+
+      let viewportTimer: number | undefined
+      const handleRegionChange = () => {
+        window.clearTimeout(viewportTimer)
+        viewportTimer = window.setTimeout(() => {
+          const viewport = viewportOf(map.region)
+          setDetailMode(viewport.detailed)
+          propsRef.current.onDetailModeChange(viewport.detailed)
+          if (viewport.detailed) propsRef.current.onViewportChange(viewport.bounds)
+        }, 350)
+      }
+      map.addEventListener('region-change-end', handleRegionChange)
+      handleRegionChange()
 
       map.addEventListener('select', ((event: Event & { overlay?: mapkit.Overlay; annotation?: mapkit.Annotation }) => {
         if (event.overlay) {
@@ -197,6 +243,7 @@ export function YukisakiMap(props: Props) {
     const old = kinds.flatMap((kind) => overlayGroupsRef.current[kind])
     if (old.length) map.removeOverlays(old)
     kinds.forEach((kind) => { overlayGroupsRef.current[kind] = [] })
+    if (!detailMode) return
 
     roads.features.forEach((feature) => {
       const segmentId = feature.properties.segment_id
@@ -223,7 +270,7 @@ export function YukisakiMap(props: Props) {
           }))
         }
         if (condition?.hasSnowmeltPipe) {
-          overlayGroupsRef.current.pipe.push(new mapkit.PolylineOverlay(points, {
+          overlayGroupsRef.current.pipe.push(new mapkit.PolylineOverlay(coordinatesOf(offsetLine(line)), {
             data: { kind: 'pipe', segmentId } satisfies OverlayData,
             enabled: false,
             style: new mapkit.Style({
@@ -251,7 +298,7 @@ export function YukisakiMap(props: Props) {
       ...overlayGroupsRef.current.pipe,
       ...overlayGroupsRef.current.slope,
     ])
-  }, [roads, conditionsById, mapReady])
+  }, [roads, conditionsById, mapReady, detailMode])
 
   useEffect(() => {
     const map = mapRef.current

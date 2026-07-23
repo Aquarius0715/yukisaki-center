@@ -39,7 +39,8 @@ export class HttpYukisakiApi implements YukisakiApi {
   async getRoadSegments(bounds?: MapBounds) {
     const value = await requestJson<unknown>(this.url('/v1/road-segments', { bbox: bbox(bounds), limit: '5000' }))
     if (!isApiRoadCollection(value)) throw new PublicApiError('道路APIの応答形式が正しくありません。')
-    return adaptRoads(value as ApiRoadCollection).roads
+    const adapted = adaptRoads(value as ApiRoadCollection)
+    return { ...adapted, truncated: (value as ApiRoadCollection).truncated }
   }
 
   async getRoadConditions(segmentIds?: string[]): Promise<RoadCondition[]> {

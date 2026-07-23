@@ -123,6 +123,12 @@ export type MapSnapshot = {
   meta: MapDataMeta
 }
 
+export type RoadViewport = {
+  roads: RoadSegmentFeatureCollection
+  conditions: RoadCondition[]
+  truncated: boolean
+}
+
 export type ApiRoadProperties = {
   segment_id: string
   road_name: string | null
@@ -187,7 +193,7 @@ export type ApiMapSnapshot = {
 
 export interface YukisakiApi {
   getMapSnapshot(bounds?: MapBounds): Promise<MapSnapshot>
-  getRoadSegments(bounds?: MapBounds): Promise<RoadSegmentFeatureCollection>
+  getRoadSegments(bounds?: MapBounds): Promise<RoadViewport>
   getRoadConditions(segmentIds?: string[]): Promise<RoadCondition[]>
   getSnowmeltPipes(bounds?: MapBounds): Promise<SnowmeltPipeStatus[]>
   getSnowplows(bounds?: MapBounds): Promise<Snowplow[]>

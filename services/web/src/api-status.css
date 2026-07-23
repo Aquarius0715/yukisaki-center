@@ -20,3 +20,14 @@
 .api-warning b { font-size: 11px; }
 .api-warning.truncated { border-color: #9dc7e8; background: rgba(239, 248, 255, 0.96); color: #205e91; }
 .api-warning.truncated + .home-card { box-shadow: 0 -4px 30px rgba(21, 53, 83, 0.18); }
+.api-warning.zoom-hint { border-color: #9dc7e8; background: rgba(239, 248, 255, 0.96); color: #205e91; }
+.api-warning.viewport-error { border-color: #e3a6a0; background: rgba(255, 243, 242, 0.96); color: #9b3830; }
+
+@media (min-width: 900px) {
+  .api-warning {
+    left: 24px;
+    right: auto;
+    bottom: 220px;
+    width: 390px;
+  }
+}

@@ -38,6 +38,18 @@ function BottomSheet({ title, onClose, children }: { title: string; onClose: () 
 
 function Score({ value }: { value: number }) { return <span className={`score ${value >= 80 ? 'good' : value >= 60 ? 'fair' : 'care'}`}><b>{value}</b><small>/100</small></span> }
 
+function displayValue(value: unknown): string {
+  if (value === null || value === undefined) return '情報なし'
+  if (typeof value === 'boolean') return value ? 'はい' : 'いいえ'
+  if (Array.isArray(value)) return value.map(displayValue).join('、')
+  if (typeof value === 'object') {
+    return Object.entries(value as Record<string, unknown>)
+      .map(([key, item]) => `${key}: ${displayValue(item)}`)
+      .join(' / ')
+  }
+  return String(value)
+}
+
 function LayerSheet({ layers, setLayers, close }: { layers: LayerVisibility; setLayers: (layers: LayerVisibility) => void; close: () => void }) {
   const items: [keyof LayerVisibility,string,string][] = [['drivability','走りやすさ指数','低い道路は赤、高い道路は青'],['snowmelt','消雪パイプ','道路脇の水色ライン'],['plowing','除雪実績','道路面とタイヤ跡'],['plows','除雪車の現在地','5秒かけて次の位置へ移動'],['tracks','除雪車の走行軌跡','走行済みの道路'],['slopes','坂道','注意区間'],['snowEffects','雪のビジュアル演出','実測積雪量ではありません']]
   return <BottomSheet title="地図レイヤー" onClose={close}><div className="sheet-content layer-list">{items.map(([key,label,note]) => <label key={key}><span><b>{label}</b><small>{note}</small></span><input type="checkbox" checked={layers[key]} onChange={() => setLayers({ ...layers, [key]: !layers[key] })}/><i/></label>)}</div></BottomSheet>
@@ -50,7 +62,7 @@ function RoadSheet({ road, condition, close }: { road: RoadSegmentFeature; condi
   return <BottomSheet title="道路区間の詳細" onClose={close}><div className="sheet-content">
     <div className="road-title"><div><small>{p.highway ?? '道路'}</small><h3>{p.road_name || p.name || '名称のない道路'}</h3><code>{p.segment_id}</code></div>{condition && <Score value={condition.drivabilityScore}/>}</div>
     <div className="fact-grid"><span>道幅<b>{condition?.roadWidthM ? `${condition.roadWidthM} m` : '情報なし'}</b></span><span>一方通行<b>{p.oneway === true || p.oneway === 'yes' ? 'はい' : 'いいえ'}</b></span><span>消雪パイプ<b>{condition?.hasSnowmeltPipe ? condition.snowmeltPipeOperating ? '作動中' : 'あり・停止中' : '設置情報なし'}</b></span><span>最終除雪車通過<b>{condition?.lastPlowedAt ? new Date(condition.lastPlowedAt).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : '走行実績を確認できません'}</b></span></div>
-    <h4>APIが返したスコアの根拠</h4><div className="breakdown">{scoreRows.map(([label,value]) => { const numeric = typeof value === 'number' ? value : null; return <div key={label}><span>{label}</span><b className={numeric !== null && numeric < 0 ? 'minus' : ''}>{numeric !== null && numeric > 0 ? '+' : ''}{String(value)}</b></div> })}</div>
+    <h4>APIが返したスコアの根拠</h4><div className="breakdown">{scoreRows.map(([label,value]) => { const numeric = typeof value === 'number' ? value : null; return <div key={label}><span>{label}</span><b className={numeric !== null && numeric < 0 ? 'minus' : ''}>{numeric !== null && numeric > 0 ? '+' : ''}{displayValue(value)}</b></div> })}</div>
     {[...(condition?.reasons ?? []),...(condition?.warnings ?? [])].length > 0 && <div className="reason-list">{condition?.reasons.map((reason) => <span key={reason}>✓ {reason}</span>)}{condition?.warnings.map((warning) => <span className="warn" key={warning}>△ {warning}</span>)}</div>}
     <p className="data-note">更新: {condition?.updatedAt ? new Date(condition.updatedAt).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : '時刻情報なし'}・{condition?.isSimulated ? 'デモ用の仮データ' : 'APIデータ'}</p>
   </div></BottomSheet>
@@ -74,6 +86,7 @@ function AppContent() {
   const [screen,setScreen] = useState<Screen>('splash'); const [sheet,setSheet] = useState<Sheet>(); const [layers,setLayers] = useState(defaultLayers)
   const [road,setRoad] = useState<RoadSegmentFeature>(); const [plow,setPlow] = useState<Snowplow>(); const [destination,setDestination] = useState<Destination>()
   const [routes,setRoutes] = useState<RecommendedRoute[]>([]); const [activeRoute,setActiveRoute] = useState('recommended'); const [routeLoading,setRouteLoading] = useState(false)
+  const [mapDetailMode,setMapDetailMode] = useState(true)
   const data = useYukisakiData(); const condition = useMemo(() => data.conditions.find((item) => item.segmentId === road?.properties.segment_id), [data.conditions,road])
   const scoredConditions = data.conditions.filter((item) => item.hasDrivabilityScore !== false)
   const averageScore = scoredConditions.length ? Math.round(scoredConditions.reduce((sum,item) => sum + item.drivabilityScore,0) / scoredConditions.length) : 0
@@ -83,9 +96,9 @@ function AppContent() {
   if (data.loading || !data.roads) return <div className="loading" role="status" aria-live="polite"><div className="spinner"/><b>道路データを読み込んでいます</b><small>長岡市石動南町・デモデータ</small></div>
   if (data.error) return <div className="loading" role="alert"><b>{data.error}</b><button className="primary" onClick={data.retry}>再試行</button></div>
   return <div className="app-screen"><Header weather={data.weather}/>
-    <YukisakiMap roads={data.roads} conditions={data.conditions} snowplows={data.snowplows} layers={layers} destination={destination} routes={screen === 'routes' || screen === 'navigation' ? routes : undefined} activeRouteId={activeRoute} onRoadSelect={(item) => { setRoad(item); setSheet('road') }} onPlowSelect={(item) => { setPlow(item); setSheet('plow') }} onMapDestination={selectDestination} animateSnowplows/>
+    <YukisakiMap roads={data.roads} conditions={data.conditions} snowplows={data.snowplows} layers={layers} destination={destination} routes={screen === 'routes' || screen === 'navigation' ? routes : undefined} activeRouteId={activeRoute} onRoadSelect={(item) => { setRoad(item); setSheet('road') }} onPlowSelect={(item) => { setPlow(item); setSheet('plow') }} onMapDestination={selectDestination} onViewportChange={data.loadViewport} onDetailModeChange={setMapDetailMode} animateSnowplows/>
     {layers.snowEffects && <div className="map-snow" aria-hidden="true"/>}
-    {screen === 'home' && <><Search onChoose={selectDestination}/><div className="map-actions"><button onClick={() => setSheet('layers')} aria-label="地図レイヤーを選択">◇</button><button aria-label="現在地へ移動">◎</button></div><div className="legend"><b>走りやすさ指数</b><span className="score-gradient"/><small><em>0</em><em>50</em><em>100</em></small><span className="legend-unknown"><i/>未算出</span></div>{data.updateStopped && <div className="api-warning" role="alert"><b>更新停止</b><span>最後に取得したデータを表示しています</span></div>}{data.meta?.truncated && <div className="api-warning truncated" role="status"><b>表示範囲を縮小してください</b><span>道路データが上限に達しました</span></div>}<section className="home-card"><div><small>現在地周辺の走りやすさ</small><h2>{appConfig.demo.area}</h2><p>消雪パイプ・除雪車通過実績・道路属性を表示</p></div><Score value={averageScore}/><footer><span>更新 {data.meta?.dataTimestamp ? new Date(data.meta.dataTimestamp).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : appConfig.demo.label}</span><b>{data.meta?.source === 'api' ? 'API・デモデータ' : 'API未接続・モック'}</b></footer><button className="primary" onClick={() => document.querySelector<HTMLInputElement>('.search input')?.focus()}>目的地を設定</button></section></>}
+    {screen === 'home' && <><Search onChoose={selectDestination}/><div className="map-actions"><button onClick={() => setSheet('layers')} aria-label="地図レイヤーを選択">◇</button><button aria-label="現在地へ移動">◎</button></div><div className="legend"><b>走りやすさ指数</b><span className="score-gradient"/><small><em>注意 0–59</em><em>60–74</em><em>75–84</em><em>良好 85–100</em></small><span className="legend-unknown"><i/>未算出</span></div>{!mapDetailMode && <div className="api-warning zoom-hint" role="status"><b>地図を拡大してください</b><span>道路ごとの指数は町より近い縮尺で表示します</span></div>}{data.viewportLoading && mapDetailMode && <div className="map-data-loading" role="status">表示範囲の道路を更新中…</div>}{data.viewportError && <div className="api-warning viewport-error" role="alert"><b>道路の更新に失敗</b><span>{data.viewportError}</span></div>}{data.updateStopped && <div className="api-warning" role="alert"><b>更新停止</b><span>最後に取得したデータを表示しています</span></div>}{data.meta?.truncated && <div className="api-warning truncated" role="status"><b>さらに拡大してください</b><span>道路データが取得上限に達しました</span></div>}<section className="home-card"><div><small>現在地周辺の走りやすさ</small><h2>{appConfig.demo.area}</h2><p>消雪パイプ・除雪車通過実績・道路属性を表示</p></div><Score value={averageScore}/><footer><span>更新 {data.meta?.dataTimestamp ? new Date(data.meta.dataTimestamp).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : appConfig.demo.label}</span><b>{data.meta?.source === 'api' ? 'API・デモデータ' : 'API未接続・モック'}</b></footer><button className="primary" onClick={() => document.querySelector<HTMLInputElement>('.search input')?.focus()}>目的地を設定</button></section></>}
     {screen === 'routes' && <RoutePanel routes={routes} active={activeRoute} setActive={setActiveRoute} back={() => setScreen('home')} start={() => setScreen('navigation')}/>} 
     {screen === 'navigation' && <NavigationPanel route={routes.find((item) => item.id === activeRoute)} back={() => setScreen('home')}/>} 
     {routeLoading && <div className="route-loading" role="status"><div className="spinner"/>ルート候補を準備しています</div>}
