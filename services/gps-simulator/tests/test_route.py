@@ -25,6 +25,12 @@ class RouteTest(unittest.TestCase):
     def test_builds_three_routes_and_samples_on_a_segment(self):
         routes = build_routes(self.roads, center=(138.79, 37.44), vehicle_count=3)
         self.assertEqual(len(routes), 3)
+        self.assertEqual(
+            {edge.segment_id for route in routes for edge in route},
+            {f"s-{index}" for index in range(15)},
+        )
+        lengths = [sum(edge.length_m for edge in route) for route in routes]
+        self.assertLessEqual(max(lengths) - min(lengths), max(edge.length_m for edge in routes[0]))
         position = sample_route(routes[0], 10)
         self.assertEqual(position.segment_id, "s-0")
         self.assertGreater(position.longitude, 138.79)

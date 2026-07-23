@@ -2,7 +2,7 @@
 
 ## 実装範囲
 
-デモ基準時刻を`2026-01-23T12:00:00+09:00`、地点を長岡市石動南町（37.442762, 138.790865）に固定する。
+デモ基準時刻を`2026-01-23T12:00:00+09:00`、対象範囲を長岡市全域に固定する。気象は市域bbox内の5×7グリッド35地点を一括取得する。
 
 ```text
 Open-Meteo Historical Weather API（09:00〜12:00の実気象）
@@ -37,13 +37,13 @@ AWSリソースは次のとおり。
 
 ## AWS反映状況
 
-2026-07-14にAWSアカウント`179260492296`、東京リージョンへデプロイし、次を確認済み。
+AWSアカウント`179260492296`、東京リージョンへデプロイし、次を確認済み。
 
 - Collector実行成功
 - S3 rawに`response.json`と`metadata.json`を保存
 - S3 normalizedに`part-00000.jsonl`を保存
-- RDS PostgreSQLに09:00〜15:00 JSTの7件を保存
-- 内訳は実気象4件、当時予報3件
+- 2026-07-23に長岡市全域35地点の09:00〜15:00 JSTを再収集し、実気象4時間・当時予報3時間の245件をRDSへ保存
+- 同じ基準時刻に属する旧単地点7件はスナップショット同期で削除し、RDSがS3上の最新35地点と一致することを確認
 - Processing DLQは0件
 - 旧Lambda 3個とEventBridge Schedulerは存在しない
 - 2026-07-14にSecrets Manager Endpointを1 AZ化し、RDSの7件が維持されることを再確認済み
@@ -54,6 +54,7 @@ AWSリソースは次のとおり。
 - 旧踏み台とローカルのDBポートフォワーディング／Docker版`psql`環境は削除済み
 - 接続検証後は踏み台を停止済み。RDSは非公開、踏み台Security Groupにも受信ルールはない
 - 2026-07-21にコミット`25e5f07`を気象・道路・消雪パイプの3スタックへデプロイし、全スタック`UPDATE_COMPLETE`とCDK差分0を確認済み
+- 2026-07-23に全7スタックを長岡市全域版へ更新し、道路133,013件、消雪パイプ・指数133,013件をS3と共通RDSへ反映済み
 - 旧道路S3通知カスタムリソース、通知用Lambda・IAM、旧道路ECSタスク定義、旧踏み台EC2はCloudFormationで削除済み。気象S3通知用のCloudFormation管理Lambdaは現行構成に必要なため維持する
 - `env:start|stop|status`でRDS、3つのEventBridge Rule、関連Lambda、道路Fargateを一括管理し、SSM踏み台はDB確認時だけ起動する
 
@@ -76,8 +77,9 @@ npm run synth
 | `environment` | `dev` |
 | `region` | `ap-northeast-1` |
 | `targetReferenceTime` | `2026-01-23T12:00:00+09:00` |
-| `targetLatitude` | `37.442762` |
-| `targetLongitude` | `138.790865` |
+| `WEATHER_SCOPE` | `nagaoka-city-grid`（Lambda環境変数） |
+| 市域bbox | `138.643056,37.176389,139.124444,37.710278` |
+| 気象地点数 | 35 |
 | `weatherScheduleEnabled` | `false` |
 | `weatherScheduleHours` | `24` |
 | `roadScheduleEnabled` | `false` |
@@ -115,14 +117,14 @@ npm run aws -- lambda invoke \
   /dev/stdout
 ```
 
-S3イベントでLoaderが自動起動し、7件をDBへUPSERTする。S3を確認する。
+S3イベントでLoaderが自動起動し、35地点×7時間の245件をDBへUPSERTする。S3を確認する。
 
 ```bash
 npm run aws -- s3 ls s3://DATA_BUCKET_NAME/raw/open-meteo/weather-window/ --recursive --region ap-northeast-1 --profile yukisaki-dev
 npm run aws -- s3 ls s3://DATA_BUCKET_NAME/normalized/open-meteo/weather-window/ --recursive --region ap-northeast-1 --profile yukisaki-dev
 ```
 
-LoaderのDB確認アクションで7件を確認する。
+LoaderのDB確認アクションで245件を確認する。
 
 ```bash
 npm run aws -- lambda invoke \

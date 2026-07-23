@@ -3,7 +3,7 @@ set -euo pipefail
 
 ACTION="${1:-}"
 if [[ -z "${ACTION}" ]]; then
-  echo "Usage: $0 <start|stop|status> [--profile PROFILE] [--region REGION] [--data-stack STACK] [--road-stack STACK] [--snow-stack STACK] [--gps-stack STACK] [--api-stack STACK]" >&2
+  echo "Usage: $0 <start|stop|status|web-enable|web-disable|web-status> [--profile PROFILE] [--region REGION] [--data-stack STACK] [--road-stack STACK] [--snow-stack STACK] [--gps-stack STACK] [--api-stack STACK] [--route-stack STACK] [--ai-stack STACK] [--web-stack STACK]" >&2
   exit 2
 fi
 shift
@@ -15,6 +15,9 @@ ROAD_STACK_NAME="${ROAD_STACK_NAME:-YukisakiRoadCollector-dev}"
 SNOW_STACK_NAME="${SNOW_STACK_NAME:-YukisakiSnowPipePipeline-dev}"
 GPS_STACK_NAME="${GPS_STACK_NAME:-YukisakiGpsPipeline-dev}"
 API_STACK_NAME="${API_STACK_NAME:-YukisakiApi-dev}"
+ROUTE_STACK_NAME="${ROUTE_STACK_NAME:-YukisakiRoutePlanning-dev}"
+AI_STACK_NAME="${AI_STACK_NAME:-YukisakiAiAssistant-dev}"
+WEB_STACK_NAME="${WEB_STACK_NAME:-YukisakiWeb-dev}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -46,6 +49,18 @@ while [[ $# -gt 0 ]]; do
       API_STACK_NAME="$2"
       shift 2
       ;;
+    --route-stack)
+      ROUTE_STACK_NAME="$2"
+      shift 2
+      ;;
+    --ai-stack)
+      AI_STACK_NAME="$2"
+      shift 2
+      ;;
+    --web-stack)
+      WEB_STACK_NAME="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown option: $1" >&2
       exit 2
@@ -69,6 +84,23 @@ stack_output() {
     --output text
 }
 
+optional_stack_output() {
+  local stack_name="$1"
+  local output_key="$2"
+  local value
+  value="$(
+    aws_cli cloudformation describe-stacks \
+      --stack-name "${stack_name}" \
+      --query "Stacks[0].Outputs[?OutputKey=='${output_key}'].OutputValue | [0]" \
+      --output text 2>/dev/null || true
+  )"
+  if [[ -z "${value}" || "${value}" == "None" ]]; then
+    echo "None"
+  else
+    echo "${value}"
+  fi
+}
+
 DATABASE_ID="$(stack_output "${STACK_NAME}" DatabaseIdentifier)"
 COLLECTOR_FUNCTION="$(stack_output "${STACK_NAME}" CollectorFunctionName)"
 LOADER_FUNCTION="$(stack_output "${STACK_NAME}" LoaderFunctionName)"
@@ -85,13 +117,19 @@ GPS_LOADER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsDatabaseLoaderFunctio
 GPS_SCORER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" DrivabilityScorerFunctionName)"
 API_FUNCTION="$(stack_output "${API_STACK_NAME}" ApiFunctionName)"
 API_URL="$(stack_output "${API_STACK_NAME}" ApiUrl)"
+ROUTE_FUNCTION="$(optional_stack_output "${ROUTE_STACK_NAME}" RoutePlanningFunctionName)"
+ROUTE_API_URL="$(optional_stack_output "${API_STACK_NAME}" RouteApiUrl)"
+AI_FUNCTION="$(stack_output "${AI_STACK_NAME}" AiAssistantFunctionName)"
+BEDROCK_MODEL_ID="$(stack_output "${AI_STACK_NAME}" BedrockModelId)"
+WEB_DISTRIBUTION_ID="$(optional_stack_output "${WEB_STACK_NAME}" WebDistributionId)"
+WEB_URL="$(optional_stack_output "${WEB_STACK_NAME}" WebUrl)"
 
 for required_output in \
   "${DATABASE_ID}" "${COLLECTOR_FUNCTION}" "${LOADER_FUNCTION}" "${WEATHER_SCHEDULE}" \
   "${ROAD_SCHEDULE}" "${ROAD_CLUSTER}" "${SNOW_LOADER_FUNCTION}" \
   "${SNOW_MANIFEST_RULE}" "${GPS_CLUSTER}" "${GPS_SERVICE}" \
   "${GPS_ARCHIVER_FUNCTION}" "${GPS_MATCHER_FUNCTION}" "${GPS_LOADER_FUNCTION}" \
-  "${GPS_SCORER_FUNCTION}" "${API_FUNCTION}" "${API_URL}"; do
+  "${GPS_SCORER_FUNCTION}" "${API_FUNCTION}" "${API_URL}" "${AI_FUNCTION}" "${BEDROCK_MODEL_ID}"; do
   if [[ "${required_output}" == "None" || -z "${required_output}" ]]; then
     echo "Required CloudFormation outputs are missing. Deploy all latest CDK stacks first." >&2
     exit 1
@@ -176,6 +214,10 @@ function_state() {
   fi
 }
 
+route_is_deployed() {
+  [[ "${ROUTE_FUNCTION}" != "None" && "${ROUTE_API_URL}" != "None" ]]
+}
+
 rule_state() {
   aws_cli events describe-rule --name "$1" --query 'State' --output text
 }
@@ -238,6 +280,63 @@ scale_gps_simulator() {
     --desired-count "$1" >/dev/null
 }
 
+web_distribution_enabled() {
+  aws_cli cloudfront get-distribution \
+    --id "${WEB_DISTRIBUTION_ID}" \
+    --query 'Distribution.DistributionConfig.Enabled' \
+    --output text
+}
+
+web_distribution_status() {
+  aws_cli cloudfront get-distribution \
+    --id "${WEB_DISTRIBUTION_ID}" \
+    --query 'Distribution.Status' \
+    --output text
+}
+
+set_web_distribution_enabled() {
+  local desired="$1"
+  local current
+  local etag
+  local config
+  current="$(web_distribution_enabled)"
+  if [[ (("${current}" == "True" || "${current}" == "true") && "${desired}" == "true") \
+    || (("${current}" == "False" || "${current}" == "false") && "${desired}" == "false") ]]; then
+    return
+  fi
+  etag="$(
+    aws_cli cloudfront get-distribution-config \
+      --id "${WEB_DISTRIBUTION_ID}" --query ETag --output text
+  )"
+  config="$(
+    aws_cli cloudfront get-distribution-config \
+      --id "${WEB_DISTRIBUTION_ID}" --query DistributionConfig --output json
+  )"
+  config="$(
+    node -e '
+      const fs = require("node:fs");
+      const config = JSON.parse(fs.readFileSync(0, "utf8"));
+      config.Enabled = process.argv[1] === "true";
+      process.stdout.write(JSON.stringify(config));
+    ' "${desired}" <<<"${config}"
+  )"
+  aws_cli cloudfront update-distribution \
+    --id "${WEB_DISTRIBUTION_ID}" \
+    --if-match "${etag}" \
+    --distribution-config "${config}" >/dev/null
+}
+
+web_is_deployed() {
+  [[ "${WEB_DISTRIBUTION_ID}" != "None" ]]
+}
+
+require_web_deployment() {
+  if ! web_is_deployed; then
+    echo "Web stack ${WEB_STACK_NAME} is not deployed." >&2
+    exit 1
+  fi
+}
+
 case "${ACTION}" in
   status)
     echo "dataStack=${STACK_NAME}"
@@ -245,6 +344,9 @@ case "${ACTION}" in
     echo "snowStack=${SNOW_STACK_NAME}"
     echo "gpsStack=${GPS_STACK_NAME}"
     echo "apiStack=${API_STACK_NAME}"
+    echo "routeStack=${ROUTE_STACK_NAME}"
+    echo "aiStack=${AI_STACK_NAME}"
+    echo "webStack=${WEB_STACK_NAME}"
     echo "database=${DATABASE_ID} status=$(database_status "${DATABASE_ID}")"
     echo "collector=${COLLECTOR_FUNCTION} state=$(function_state "${COLLECTOR_FUNCTION}")"
     echo "loader=${LOADER_FUNCTION} state=$(function_state "${LOADER_FUNCTION}")"
@@ -254,11 +356,22 @@ case "${ACTION}" in
     echo "gpsLoader=${GPS_LOADER_FUNCTION} state=$(function_state "${GPS_LOADER_FUNCTION}")"
     echo "drivabilityScorer=${GPS_SCORER_FUNCTION} state=$(function_state "${GPS_SCORER_FUNCTION}")"
     echo "mapApi=${API_FUNCTION} state=$(function_state "${API_FUNCTION}") url=${API_URL}"
+    if route_is_deployed; then
+      echo "routePlanning=${ROUTE_FUNCTION} state=$(function_state "${ROUTE_FUNCTION}") url=${ROUTE_API_URL}"
+    else
+      echo "routePlanning state=not-deployed"
+    fi
+    echo "aiAssistant=${AI_FUNCTION} state=$(function_state "${AI_FUNCTION}") model=${BEDROCK_MODEL_ID}"
     echo "weatherSchedule=${WEATHER_SCHEDULE} state=$(rule_state "${WEATHER_SCHEDULE}")"
     echo "roadSchedule=${ROAD_SCHEDULE} state=$(rule_state "${ROAD_SCHEDULE}")"
     echo "snowManifestRule=${SNOW_MANIFEST_RULE} state=$(rule_state "${SNOW_MANIFEST_RULE}")"
     echo "roadFargate cluster=${ROAD_CLUSTER} runningTasks=$(road_running_task_count)"
     echo "gpsSimulator cluster=${GPS_CLUSTER} service=${GPS_SERVICE} desiredTasks=$(gps_desired_task_count) runningTasks=$(gps_running_task_count) vehicles=3"
+    if web_is_deployed; then
+      echo "web distribution=${WEB_DISTRIBUTION_ID} enabled=$(web_distribution_enabled) status=$(web_distribution_status) url=${WEB_URL}"
+    else
+      echo "web state=not-deployed"
+    fi
     ;;
   stop)
     disable_rule "${ROAD_SCHEDULE}"
@@ -273,13 +386,20 @@ case "${ACTION}" in
     pause_function "${GPS_LOADER_FUNCTION}"
     pause_function "${GPS_SCORER_FUNCTION}"
     pause_function "${API_FUNCTION}"
+    if route_is_deployed; then
+      pause_function "${ROUTE_FUNCTION}"
+    fi
+    pause_function "${AI_FUNCTION}"
+    if web_is_deployed; then
+      set_web_distribution_enabled false
+    fi
     stop_road_tasks
     stop_failed=false
     request_database_stop "${DATABASE_ID}" || stop_failed=true
     if [[ "${stop_failed}" == "true" ]]; then
       exit 1
     fi
-    echo "Collection rules are disabled, Lambda execution is paused, and the unified database is stopping or stopped."
+    echo "Collection rules are disabled, Lambda execution is paused, CloudFront Web is disabling when deployed, and the unified database is stopping or stopped."
     ;;
   start)
     request_database_start "${DATABASE_ID}"
@@ -292,11 +412,35 @@ case "${ACTION}" in
     resume_function "${GPS_LOADER_FUNCTION}"
     resume_function "${GPS_SCORER_FUNCTION}"
     resume_function "${API_FUNCTION}"
+    if route_is_deployed; then
+      resume_function "${ROUTE_FUNCTION}"
+    fi
+    resume_function "${AI_FUNCTION}"
     enable_rule "${SNOW_MANIFEST_RULE}"
     enable_rule "${WEATHER_SCHEDULE}"
     enable_rule "${ROAD_SCHEDULE}"
     scale_gps_simulator 1
-    echo "The unified database is available. Lambda execution and collection rules are enabled, and the three-vehicle GPS simulator is starting."
+    if web_is_deployed; then
+      set_web_distribution_enabled true
+    fi
+    echo "The unified database is available. Lambda execution and collection rules are enabled, the three-vehicle GPS simulator is starting, and CloudFront Web is enabling when deployed."
+    ;;
+  web-enable)
+    require_web_deployment
+    set_web_distribution_enabled true
+    echo "CloudFront Web enable requested. Check web:status until status=Deployed and enabled=True."
+    ;;
+  web-disable)
+    require_web_deployment
+    set_web_distribution_enabled false
+    echo "CloudFront Web disable requested. Check web:status until status=Deployed and enabled=False."
+    ;;
+  web-status)
+    if web_is_deployed; then
+      echo "webStack=${WEB_STACK_NAME} distribution=${WEB_DISTRIBUTION_ID} enabled=$(web_distribution_enabled) status=$(web_distribution_status) url=${WEB_URL}"
+    else
+      echo "webStack=${WEB_STACK_NAME} state=not-deployed"
+    fi
     ;;
   *)
     echo "Unknown action: ${ACTION}" >&2

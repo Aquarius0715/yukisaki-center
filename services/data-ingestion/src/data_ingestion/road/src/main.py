@@ -64,6 +64,8 @@ def run(args: argparse.Namespace, force_upload: bool = False) -> dict[str, objec
         extra={
             "schema_version": "1.0.0", "created_at": started_at.isoformat(),
             "source_url": "https://www.openstreetmap.org/", "target_place": settings.place_name,
+            "target_area_id": "nagaoka-city",
+            "target_area_bbox": [138.643056, 37.176389, 139.124444, 37.710278],
             "acquisition_method": acquired.method, "osm_network_type": "drive", "target_segment_length_m": settings.segment_length_m,
             "projected_crs": str(metric.crs), "source_edge_count": len(edges), "deduplicated_edge_count": len(deduplicated),
             "segment_count": len(segments), "minimum_segment_length_m": min(lengths), "maximum_segment_length_m": max(lengths),

@@ -73,8 +73,8 @@ export class GpsPipelineStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
     const simulatorTask = new ecs.FargateTaskDefinition(this, 'GpsSimulatorTask', {
-      cpu: 256,
-      memoryLimitMiB: 512,
+      cpu: 1024,
+      memoryLimitMiB: 2048,
       runtimePlatform: {
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
@@ -170,7 +170,7 @@ export class GpsPipelineStack extends Stack {
       servicePath: '../../../services/data-processing', target: 'lambda-loader',
       command: 'data_processing.plow_gps.pipeline.processor_handler',
       description: 'Map-matches GPS events and writes normalized and curated S3 batches',
-      memorySize: 1024,
+      memorySize: 2048,
       environment: {
         DATA_BUCKET: props.dataBucket.bucketName,
         ROAD_CURATED_BUCKET: props.roadCuratedBucket.bucketName,
@@ -229,7 +229,7 @@ export class GpsPipelineStack extends Stack {
     this.scoringFunction = this.imageFunction('DrivabilityScorer', {
       servicePath: '../../../services/drivability-scoring', target: 'runtime',
       command: 'drivability_scoring.pipeline.handler',
-      description: 'Calculates deterministic drivability scores after GPS passage loading',
+      description: 'Calculates full initial and GPS-triggered incremental drivability scores',
       memorySize: 1024,
       vpc: props.databaseVpc,
       securityGroups: [databaseConsumersSecurityGroup],
@@ -237,6 +237,7 @@ export class GpsPipelineStack extends Stack {
         DATABASE_NAME: props.databaseName,
         DATABASE_SECRET_ARN: props.databaseSecret.secretArn,
         DATA_BUCKET: props.dataBucket.bucketName,
+        TARGET_REFERENCE_TIME: props.targetReferenceTime,
       },
     });
     props.databaseSecret.grantRead(this.scoringFunction);

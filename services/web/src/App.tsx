@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react'
 import { appConfig } from './api/config'
 import { yukisakiApi } from './api/createYukisakiApi'
 import type { Destination, RecommendedRoute, RoadSegmentFeature, Snowplow } from './api/contracts'
@@ -7,7 +7,38 @@ import { useYukisakiData } from './hooks/useYukisakiData'
 
 type Screen = 'splash' | 'home' | 'routes' | 'navigation'
 type Sheet = 'layers' | 'road' | 'plow' | undefined
-const defaultLayers: LayerVisibility = { drivability: true, snowmelt: true, plowing: true, plows: true, tracks: true, slopes: false, snowEffects: true }
+// Keep the first paint intentionally light. Supplemental overlays remain
+// available from the layer sheet and are created only when selected.
+const defaultLayers: LayerVisibility = {
+  drivability: true,
+  snowmelt: false,
+  plowing: false,
+  plows: true,
+  tracks: false,
+  slopes: false,
+  snowEffects: false,
+}
+
+class ApplicationErrorBoundary extends Component<{ children: ReactNode }, { error?: Error }> {
+  state: { error?: Error } = {}
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, details: ErrorInfo) {
+    console.error('Yukisaki rendering failed', error, details.componentStack)
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children
+    return <div className="loading" role="alert">
+      <b>地図の表示中にエラーが発生しました</b>
+      <small>{this.state.error.message}</small>
+      <button className="primary" onClick={() => window.location.reload()}>再読み込み</button>
+    </div>
+  }
+}
 
 function SnowplowArt({ compact = false }: { compact?: boolean }) {
   return <svg className={compact ? 'plow-art compact' : 'plow-art'} viewBox="0 0 180 100" role="img" aria-label="除雪車">
@@ -86,19 +117,18 @@ function AppContent() {
   const [screen,setScreen] = useState<Screen>('splash'); const [sheet,setSheet] = useState<Sheet>(); const [layers,setLayers] = useState(defaultLayers)
   const [road,setRoad] = useState<RoadSegmentFeature>(); const [plow,setPlow] = useState<Snowplow>(); const [destination,setDestination] = useState<Destination>()
   const [routes,setRoutes] = useState<RecommendedRoute[]>([]); const [activeRoute,setActiveRoute] = useState('recommended'); const [routeLoading,setRouteLoading] = useState(false)
-  const [mapDetailMode,setMapDetailMode] = useState(true)
   const data = useYukisakiData(); const condition = useMemo(() => data.conditions.find((item) => item.segmentId === road?.properties.segment_id), [data.conditions,road])
   const scoredConditions = data.conditions.filter((item) => item.hasDrivabilityScore !== false)
   const averageScore = scoredConditions.length ? Math.round(scoredConditions.reduce((sum,item) => sum + item.drivabilityScore,0) / scoredConditions.length) : 0
   const selectDestination = (item: Destination) => { setDestination(item); if (!data.roads) return; setRouteLoading(true); yukisakiApi.recommendRoutes({ origin: appConfig.demo.position, destination: item, preference: 'recommended' }).then((response) => { setRoutes(response.routes); setActiveRoute('recommended'); setScreen('routes') }).finally(() => setRouteLoading(false)) }
 
   if (screen === 'splash') return <Splash onDone={() => setScreen('home')}/>
-  if (data.loading || !data.roads) return <div className="loading" role="status" aria-live="polite"><div className="spinner"/><b>道路データを読み込んでいます</b><small>長岡市石動南町・デモデータ</small></div>
   if (data.error) return <div className="loading" role="alert"><b>{data.error}</b><button className="primary" onClick={data.retry}>再試行</button></div>
+  if (data.loading || !data.roads) return <div className="loading" role="status" aria-live="polite"><div className="spinner"/><b>道路データを読み込んでいます</b><small>長岡市全域・デモデータ</small></div>
   return <div className="app-screen"><Header weather={data.weather}/>
-    <YukisakiMap roads={data.roads} conditions={data.conditions} snowplows={data.snowplows} layers={layers} destination={destination} routes={screen === 'routes' || screen === 'navigation' ? routes : undefined} activeRouteId={activeRoute} onRoadSelect={(item) => { setRoad(item); setSheet('road') }} onPlowSelect={(item) => { setPlow(item); setSheet('plow') }} onMapDestination={selectDestination} onViewportChange={data.loadViewport} onDetailModeChange={setMapDetailMode} animateSnowplows/>
+    <YukisakiMap roads={data.roads} conditions={data.conditions} snowplows={data.snowplows} layers={layers} destination={destination} routes={screen === 'routes' || screen === 'navigation' ? routes : undefined} activeRouteId={activeRoute} onRoadSelect={(item) => { setRoad(item); setSheet('road') }} onPlowSelect={(item) => { setPlow(item); setSheet('plow') }} onMapDestination={selectDestination} onViewportChange={data.refreshMap} animateSnowplows/>
     {layers.snowEffects && <div className="map-snow" aria-hidden="true"/>}
-    {screen === 'home' && <><Search onChoose={selectDestination}/><div className="map-actions"><button onClick={() => setSheet('layers')} aria-label="地図レイヤーを選択">◇</button><button aria-label="現在地へ移動">◎</button></div><div className="legend"><b>走りやすさ指数</b><span className="score-gradient"/><small><em>注意 0–59</em><em>60–74</em><em>75–84</em><em>良好 85–100</em></small><span className="legend-unknown"><i/>未算出</span></div>{!mapDetailMode && <div className="api-warning zoom-hint" role="status"><b>地図を拡大してください</b><span>道路ごとの指数は町より近い縮尺で表示します</span></div>}{data.viewportLoading && mapDetailMode && <div className="map-data-loading" role="status">表示範囲の道路を更新中…</div>}{data.viewportError && <div className="api-warning viewport-error" role="alert"><b>道路の更新に失敗</b><span>{data.viewportError}</span></div>}{data.updateStopped && <div className="api-warning" role="alert"><b>更新停止</b><span>最後に取得したデータを表示しています</span></div>}{data.meta?.truncated && <div className="api-warning truncated" role="status"><b>さらに拡大してください</b><span>道路データが取得上限に達しました</span></div>}<section className="home-card"><div><small>現在地周辺の走りやすさ</small><h2>{appConfig.demo.area}</h2><p>消雪パイプ・除雪車通過実績・道路属性を表示</p></div><Score value={averageScore}/><footer><span>更新 {data.meta?.dataTimestamp ? new Date(data.meta.dataTimestamp).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : appConfig.demo.label}</span><b>{data.meta?.source === 'api' ? 'API・デモデータ' : 'API未接続・モック'}</b></footer><button className="primary" onClick={() => document.querySelector<HTMLInputElement>('.search input')?.focus()}>目的地を設定</button></section></>}
+    {screen === 'home' && <><Search onChoose={selectDestination}/><div className="map-actions"><button onClick={() => setSheet('layers')} aria-label="地図レイヤーを選択">◇</button><button aria-label="現在地へ移動">◎</button></div><div className="legend"><b>走りやすさ指数</b><span className="score-gradient"/><small><em>注意 0–59</em><em>60–74</em><em>75–84</em><em>良好 85–100</em></small><span className="legend-unknown"><i/>未算出</span></div>{data.updateStopped && <div className="api-warning" role="alert"><b>更新停止</b><span>最後に取得したデータを表示しています</span></div>}{data.viewportRefreshing && <div className="api-warning truncated" role="status"><b>表示範囲を更新中</b><span>道路データを再取得しています</span></div>}<section className="home-card"><div><small>現在地周辺の走りやすさ</small><h2>{appConfig.demo.area}</h2><p>消雪パイプ・除雪車通過実績・道路属性を表示</p></div><Score value={averageScore}/><footer><span>更新 {data.meta?.dataTimestamp ? new Date(data.meta.dataTimestamp).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : appConfig.demo.label}</span><b>{data.meta?.source === 'api' ? 'API・デモデータ' : 'API未接続・モック'}</b></footer><button className="primary" onClick={() => document.querySelector<HTMLInputElement>('.search input')?.focus()}>目的地を設定</button></section></>}
     {screen === 'routes' && <RoutePanel routes={routes} active={activeRoute} setActive={setActiveRoute} back={() => setScreen('home')} start={() => setScreen('navigation')}/>} 
     {screen === 'navigation' && <NavigationPanel route={routes.find((item) => item.id === activeRoute)} back={() => setScreen('home')}/>} 
     {routeLoading && <div className="route-loading" role="status"><div className="spinner"/>ルート候補を準備しています</div>}
@@ -112,4 +142,9 @@ function RoutePanel({ routes,active,setActive,back,start }: { routes: Recommende
 
 function NavigationPanel({ route,back }: { route?: RecommendedRoute; back: () => void }) { return <><section className="nav-instruction"><button onClick={back} aria-label="ナビを終了">×</button><div className="turn">↱</div><div><h2>300 m先を右折</h2><p>県道23号</p></div><div className="nav-tags"><span>💧 この先 消雪パイプ</span><span>🚛 12分前に通過</span>{route?.warnings.map((warning) => <span className="warning" key={warning}>△ {warning}</span>)}</div></section><section className="arrival"><div><b>{route?.durationMinutes ?? 18}分</b><small>到着まで</small></div><div><b>{route?.distanceKm ?? 6.2} km</b><small>残り</small></div><div><b>12:18</b><small>到着予定</small></div><button>↗ より走りやすいルート</button></section></> }
 
-export default function App() { return <main className="stage"><div className="phone"><AppContent/></div><p className="demo-caption">Yukisaki interactive demo · 2026/01/23 長岡市</p></main> }
+export default function App() {
+  return <main className="stage">
+    <div className="phone"><ApplicationErrorBoundary><AppContent/></ApplicationErrorBoundary></div>
+    <p className="demo-caption">Yukisaki interactive demo · 2026/01/23 長岡市</p>
+  </main>
+}

@@ -74,7 +74,7 @@ function routeGeometry(destination: Destination, variant: number) {
 
 export class MockYukisakiApi implements YukisakiApi {
   async getMapSnapshot() {
-    const { roads } = await this.getRoadSegments()
+    const roads = await this.getRoadSegments()
     const conditions = await this.getRoadConditions()
     return {
       roads,
@@ -83,7 +83,7 @@ export class MockYukisakiApi implements YukisakiApi {
       meta: { schemaVersion: '1.0', dataTimestamp: generatedAt, confidence: 0.8, isSimulated: true, truncated: false, source: 'mock' as const },
     }
   }
-  async getRoadSegments(bounds?: Parameters<YukisakiApi['getRoadSegments']>[0]) {
+  private async roadsIn(bounds?: Parameters<YukisakiApi['getRoadSegments']>[0]) {
     const source = await loadRoads()
     const features = bounds ? source.features.filter((feature) => {
       const points = feature.geometry.type === 'LineString' ? feature.geometry.coordinates : feature.geometry.coordinates.flat()
@@ -91,10 +91,19 @@ export class MockYukisakiApi implements YukisakiApi {
         longitude >= bounds.minLongitude && longitude <= bounds.maxLongitude &&
         latitude >= bounds.minLatitude && latitude <= bounds.maxLatitude)
     }) : source.features
-    const roads = { ...source, features }
-    const conditions = features.map((feature) => conditionFor(feature.properties.segment_id, feature.properties.highway, feature.properties.width))
-    return { roads, conditions, truncated: false }
+    return { ...source, features }
   }
+  async getMapRoadPage(bounds?: Parameters<YukisakiApi['getRoadSegments']>[0]) {
+    const roads = await this.roadsIn(bounds)
+    const conditions = roads.features.map((feature) => conditionFor(feature.properties.segment_id, feature.properties.highway, feature.properties.width))
+    return {
+      roads,
+      conditions,
+      meta: { schemaVersion: '1.0', dataTimestamp: generatedAt, confidence: 0.8, isSimulated: true, truncated: false, source: 'mock' as const },
+      nextCursor: null,
+    }
+  }
+  getRoadSegments(bounds?: Parameters<YukisakiApi['getRoadSegments']>[0]) { return this.roadsIn(bounds) }
   async getRoadConditions(segmentIds?: string[]) {
     const roads = await loadRoads()
     return roads.features.filter((feature) => !segmentIds || segmentIds.includes(feature.properties.segment_id)).map((feature) => conditionFor(feature.properties.segment_id, feature.properties.highway, feature.properties.width))

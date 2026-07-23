@@ -44,7 +44,7 @@ describe('GpsPipelineStack', () => {
     template.resourceCountIs('AWS::Events::Rule', 2);
     template.hasResourceProperties('AWS::ECS::Service', { DesiredCount: 0 });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
-      Cpu: '256', Memory: '512', RuntimePlatform: Match.objectLike({ CpuArchitecture: 'ARM64' }),
+      Cpu: '1024', Memory: '2048', RuntimePlatform: Match.objectLike({ CpuArchitecture: 'ARM64' }),
     });
     template.resourcePropertiesCountIs('AWS::Lambda::Function', {
       PackageType: 'Image', ReservedConcurrentExecutions: 0,
@@ -55,7 +55,10 @@ describe('GpsPipelineStack', () => {
 
   test('loads and scores against the shared database name', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
-      Environment: { Variables: Match.objectLike({ DATABASE_NAME: 'yukisaki' }) },
+      Environment: { Variables: Match.objectLike({
+        DATABASE_NAME: 'yukisaki',
+        TARGET_REFERENCE_TIME: '2026-01-23T12:00:00+09:00',
+      }) },
     });
   });
 });

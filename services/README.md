@@ -7,11 +7,11 @@ S3を全データの正本とする。各サービスは、別サービスの実
 | `gps-simulator/` | 3台の仮想除雪車を道路上で継続走行 | S3 curated道路 | EventBridge GPSイベント | 実装済み（既定停止） |
 | `data-ingestion/` | 外部・仮データを収集して原本保存 | EventBridge、SQS、公開API、道路manifest | S3 `raw/` | 気象、道路、消雪パイプ、GPSを実装済み |
 | `data-processing/` | 検証・正規化・curated化・DBロード | S3、SQS | S3 `normalized/` / `curated/`、PostgreSQL | 気象、道路、消雪パイプ、GPSを実装済み |
-| `drivability-scoring/` | 区間ごとの指数・信頼度を算出 | curated、気象、設備、GPS | S3 `curated/drivability-scores/`、PostgreSQL | GPS通過時のルール計算を実装済み |
-| `route-planning/` | 指数をコストとして経路探索 | PostgreSQL/PostGIS | 経路候補 | 設計済み |
-| `ai-assistant/` | 自然言語解析、経路比較、危険説明 | REST APIが返す根拠データ | 構造化条件、説明文 | 設計済み |
+| `drivability-scoring/` | 区間ごとの指数・信頼度を算出 | curated、気象、設備、GPS | S3 `curated/drivability-scores/`、PostgreSQL | 全道路初期計算とGPS通過時の差分計算を実装済み |
+| `route-planning/` | 指数をコストとして経路探索 | PostgreSQL/PostGIS/pgRouting | 経路候補 | 実装済み（AWS未デプロイ・グラフ再ロード待ち） |
+| `ai-assistant/` | Bedrockによる自然言語解析、経路比較、危険説明 | REST APIが返す確定済み根拠 | 構造化条件、説明文 | AWSデプロイ済み（既定停止・Anthropic用途申請待ち） |
 | `api/` | REST API、CORS、入力検証 | PostgreSQLの配信用投影 | 道路・指数・除雪車JSON / GeoJSON | 実装済み（既定停止） |
-| `web/` | 地図・経路・説明の利用者画面 | REST API | ブラウザ画面 | 設計済み |
+| `web/` | 地図・経路・説明の利用者画面 | REST API | CloudFront配信のブラウザ画面 | 実装済み（AWSデプロイ待ち・既定停止） |
 
 ## 正本と派生データ
 

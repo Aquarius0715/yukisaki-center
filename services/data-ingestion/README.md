@@ -6,7 +6,7 @@
 
 `src/data_ingestion/weather/window_collector.py`が次の実データを取得する。
 
-- 対象: 2026年1月23日12:00 JST、長岡市石動南町（37.442762, 138.790865）
+- 対象: 2026年1月23日12:00 JST、長岡市全域。道路は行政界、気象は約9km間隔の35地点で取得
 - 過去気象: Open-Meteo Historical Weather APIの09:00〜12:00
 - 当時予報: Open-Meteo Historical Forecast APIの13:00〜15:00
 - 項目: 気温、湿度、降水量、降雪量、積雪深、WMO天気コード、風速、突風

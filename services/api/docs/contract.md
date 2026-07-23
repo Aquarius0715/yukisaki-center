@@ -9,13 +9,17 @@
 | GET | `/v1/road-segments/{id}` | 道路区間1件を取得 |
 | GET | `/v1/snowplows` | 除雪車の最新位置をPoint GeoJSONで取得 |
 | GET | `/v1/map/snapshot` | 初期表示用に道路と除雪車を一括取得 |
+| POST | `/v1/routes` | 始点・終点と選好から最大3件の経路候補を取得 |
+
+`POST /v1/routes`の詳細な入出力、固定デモ日時、エラー契約は[経路探索サービスAPI契約](../../route-planning/docs/contract.md)を正本とする。
 
 ## 道路のクエリ
 
-- `bbox=west,south,east,north`: 地図の表示範囲。省略時は石動南町周辺`138.74,37.40,138.84,37.49`
-- `limit=1..5000`: 最大道路件数。省略時は5,000件
+- `bbox=west,south,east,north`: 地図の表示範囲。省略時は長岡市全域`138.643056,37.176389,139.124444,37.710278`
+- `limit=1..5000`: 1ページの最大道路件数。省略時は5,000件。Webは75件を使用する
+- `cursor`: 前ページの`next_cursor`。同じ`bbox`の続きを取得する場合だけ指定する
 
-レスポンスが上限を超えると`truncated: true`になる。フロントエンドは表示範囲を狭めて再取得する。
+レスポンスに続きがある場合は`truncated: true`と`next_cursor`が返る。Web地図はブラウザ保護のため、現在の表示範囲の最初のページだけを描画する。
 
 ```json
 {
@@ -34,9 +38,10 @@
       "is_simulated": true
     }
   }],
-  "bbox": [138.74, 37.40, 138.84, 37.49],
+  "bbox": [138.643056, 37.176389, 139.124444, 37.710278],
   "count": 1,
   "truncated": false,
+  "next_cursor": null,
   "data_timestamp": "2026-01-23T12:01:00+09:00",
   "confidence": 0.9,
   "is_simulated": true
@@ -45,9 +50,11 @@
 
 ## 除雪車
 
-除雪車は`geometry.type=Point`、座標順はGeoJSON規約どおり`[longitude, latitude]`で返す。`matched_segment_id`で道路Featureの`properties.segment_id`と関連付ける。
+除雪車は`geometry.type=Point`、座標順はGeoJSON規約どおり`[longitude, latitude]`で返す。`matched_segment_id`で道路Featureの`properties.segment_id`と関連付ける。`observed_at`は固定デモシナリオ内の時刻、`data_timestamp`はDBが保持する実受信時刻`received_at`であり、クライアントは位置更新の新旧判定に`data_timestamp`を使う。
 
-フロントエンドは初回だけ`/v1/map/snapshot`を取得するか、道路と除雪車を個別取得する。その後は地図移動時に道路を再取得し、除雪車だけを約5秒間隔でポーリングする。
+フロントエンドは道路の最初のページと除雪車を並列取得する。最初の道路ページを受信した時点で地図を表示し、地図移動時に新しい表示範囲の道路へ差し替える。除雪車だけを約5秒間隔でポーリングする。
+
+道路検索は`road_segments`が保持する外接矩形列とリクエスト`bbox`をPostgreSQL上で比較し、SQLの`LIMIT + 1`まで取得する。Lambdaで全道路を読み込んでから絞り込まない。返却件数を超える道路がある場合は`truncated=true`とする。
 
 ## エラー
 

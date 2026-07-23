@@ -63,10 +63,72 @@ def _feature_lines(feature: dict[str, Any]) -> list[RouteEdge]:
     ]
 
 
+def _reverse_edges(edges: list[RouteEdge]) -> list[RouteEdge]:
+    return [
+        RouteEdge(edge.segment_id, edge.end, edge.start, edge.length_m)
+        for edge in reversed(edges)
+    ]
+
+
+def _coverage_walk(
+    start_index: int,
+    segment_edges: list[list[RouteEdge]],
+    endpoint_index: dict[tuple[float, float], list[int]],
+    visited: set[int],
+) -> list[RouteEdge]:
+    """Walk one connected component and return along visited roads at dead ends."""
+    start_node = _coordinate_key(segment_edges[start_index][0].start)
+    node_stack = [start_node]
+    return_stack: list[list[RouteEdge]] = []
+    route: list[RouteEdge] = []
+    while node_stack:
+        node = node_stack[-1]
+        candidates = sorted(
+            (index for index in endpoint_index.get(node, []) if index not in visited),
+            key=lambda index: (segment_edges[index][0].segment_id, index),
+        )
+        if candidates:
+            next_index = candidates[0]
+            visited.add(next_index)
+            edges = segment_edges[next_index]
+            oriented = edges if _coordinate_key(edges[0].start) == node else _reverse_edges(edges)
+            route.extend(oriented)
+            node_stack.append(_coordinate_key(oriented[-1].end))
+            return_stack.append(oriented)
+            continue
+        node_stack.pop()
+        if node_stack:
+            route.extend(_reverse_edges(return_stack.pop()))
+    return route
+
+
+def _balanced_routes(coverage: list[RouteEdge], vehicle_count: int) -> list[list[RouteEdge]]:
+    total_length = sum(edge.length_m for edge in coverage)
+    if total_length <= 0:
+        raise ValueError("road coverage length must be positive")
+    routes: list[list[RouteEdge]] = [[] for _ in range(vehicle_count)]
+    vehicle_index = 0
+    target_length = total_length / vehicle_count
+    route_length = 0.0
+    for edge in coverage:
+        if (
+            vehicle_index < vehicle_count - 1
+            and routes[vehicle_index]
+            and route_length + edge.length_m / 2 >= target_length
+        ):
+            vehicle_index += 1
+            route_length = 0.0
+        routes[vehicle_index].append(edge)
+        route_length += edge.length_m
+    if any(not route for route in routes):
+        raise ValueError("road coverage cannot be divided among all vehicles")
+    return routes
+
+
 def build_routes(
     feature_collection: dict[str, Any], *, center: tuple[float, float], vehicle_count: int = 3,
 ) -> list[list[RouteEdge]]:
-    """Create stable multi-segment walks near the demo center."""
+    """Create three balanced, repeatable walks covering every mapped road segment."""
     if feature_collection.get("type") != "FeatureCollection":
         raise ValueError("road data must be a GeoJSON FeatureCollection")
     segment_edges = []
@@ -88,28 +150,18 @@ def build_routes(
             segment_edges[index][0].segment_id,
         ),
     )
-    routes: list[list[RouteEdge]] = []
-    used_starts: set[int] = set()
-    for vehicle_index in range(vehicle_count):
-        start_index = next(index for index in ordered_starts[vehicle_index * 5:] if index not in used_starts)
-        used_starts.add(start_index)
-        route = list(segment_edges[start_index])
-        used = {start_index}
-        for _ in range(39):
-            endpoint = _coordinate_key(route[-1].end)
-            candidates = sorted(
-                (index for index in endpoint_index.get(endpoint, []) if index not in used),
-                key=lambda index: segment_edges[index][0].segment_id,
-            )
-            if not candidates:
-                break
-            next_index = candidates[0]
-            edges = segment_edges[next_index]
-            if _coordinate_key(edges[-1].end) == endpoint:
-                edges = [RouteEdge(edge.segment_id, edge.end, edge.start, edge.length_m) for edge in reversed(edges)]
-            route.extend(edges)
-            used.add(next_index)
-        routes.append(route)
+    visited: set[int] = set()
+    component_walks = [
+        _coverage_walk(index, segment_edges, endpoint_index, visited)
+        for index in ordered_starts
+        if index not in visited
+    ]
+    coverage = [edge for walk in component_walks for edge in walk]
+    routes = _balanced_routes(coverage, vehicle_count)
+    covered_segment_ids = {edge.segment_id for route in routes for edge in route}
+    expected_segment_ids = {edges[0].segment_id for edges in segment_edges}
+    if covered_segment_ids != expected_segment_ids:
+        raise RuntimeError("generated routes do not cover every mapped road segment")
     return routes
 
 
@@ -123,7 +175,7 @@ def sample_route(route: list[RouteEdge], distance_along_m: float) -> RoutePositi
     active_route = route
     if remaining > total:
         remaining = remaining - total
-        active_route = [RouteEdge(edge.segment_id, edge.end, edge.start, edge.length_m) for edge in reversed(route)]
+        active_route = _reverse_edges(route)
     for edge in active_route:
         if remaining <= edge.length_m:
             ratio = 0.0 if edge.length_m == 0 else remaining / edge.length_m

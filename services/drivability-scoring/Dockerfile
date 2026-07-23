@@ -5,7 +5,7 @@ COPY src ./src
 COPY tests ./tests
 CMD ["python", "-m", "unittest", "discover", "-v", "-s", "tests"]
 
-FROM public.ecr.aws/lambda/python:3.13 AS runtime
+FROM public.ecr.aws/lambda/python:3.13-arm64 AS runtime
 COPY config/requirements-runtime.txt /tmp/requirements-runtime.txt
 RUN pip install --no-cache-dir -r /tmp/requirements-runtime.txt --target ${LAMBDA_TASK_ROOT}
 COPY src/ ${LAMBDA_TASK_ROOT}/

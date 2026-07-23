@@ -93,8 +93,8 @@ export class SnowPipePipelineStack extends Stack {
           cmd: ['data_ingestion.snow_pipe.generator.handler'],
         },
       ),
-      timeout: Duration.minutes(2),
-      memorySize: 512,
+      timeout: Duration.minutes(10),
+      memorySize: 2048,
       logGroup: generatorLogs,
       environment: {
         TARGET_REFERENCE_TIME: props.targetReferenceTime,
@@ -121,8 +121,8 @@ export class SnowPipePipelineStack extends Stack {
           cmd: ['data_processing.snow_pipe.pipeline.merge_handler'],
         },
       ),
-      timeout: Duration.minutes(3),
-      memorySize: 1024,
+      timeout: Duration.minutes(10),
+      memorySize: 3008,
       logGroup: mergerLogs,
     });
     props.roadBucket.grantRead(merger, 'raw/osm/road-network/*');
@@ -150,8 +150,8 @@ export class SnowPipePipelineStack extends Stack {
           cmd: ['data_processing.snow_pipe.pipeline.loader_handler'],
         },
       ),
-      timeout: Duration.minutes(5),
-      memorySize: 1024,
+      timeout: Duration.minutes(15),
+      memorySize: 3008,
       // RDS is normally stopped. env:start removes this limit only after the
       // database is available, allowing SQS to retain load requests meanwhile.
       reservedConcurrentExecutions: 0,

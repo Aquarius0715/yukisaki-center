@@ -4,6 +4,10 @@ export class PublicApiError extends Error {
 
 export async function requestJson<T>(url: string, init: RequestInit = {}, timeoutMs = 10_000): Promise<T> {
   const controller = new AbortController()
+  const externalSignal = init.signal
+  const abortFromExternal = () => controller.abort()
+  if (externalSignal?.aborted) controller.abort()
+  else externalSignal?.addEventListener('abort', abortFromExternal, { once: true })
   const timer = window.setTimeout(() => controller.abort(), timeoutMs)
   try {
     const response = await fetch(url, { ...init, signal: controller.signal, headers: { Accept: 'application/json', ...init.headers } })
@@ -13,7 +17,10 @@ export async function requestJson<T>(url: string, init: RequestInit = {}, timeou
     if (error instanceof PublicApiError) throw error
     if (error instanceof DOMException && error.name === 'AbortError') throw new PublicApiError('通信がタイムアウトしました。')
     throw new PublicApiError('通信に失敗しました。接続を確認してください。')
-  } finally { window.clearTimeout(timer) }
+  } finally {
+    window.clearTimeout(timer)
+    externalSignal?.removeEventListener('abort', abortFromExternal)
+  }
 }
 
 export function withQuery(path: string, values: Record<string, string | undefined>): string {

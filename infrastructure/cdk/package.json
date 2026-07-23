@@ -8,6 +8,10 @@
     "env:start": "bash scripts/environment.sh start",
     "env:stop": "bash scripts/environment.sh stop",
     "env:status": "bash scripts/environment.sh status",
+    "web:enable": "bash scripts/environment.sh web-enable",
+    "web:disable": "bash scripts/environment.sh web-disable",
+    "web:status": "bash scripts/environment.sh web-status",
+    "score:all": "bash scripts/score-all-roads.sh",
     "db:start": "bash scripts/database-access.sh start",
     "db:stop": "bash scripts/database-access.sh stop",
     "db:status": "bash scripts/database-access.sh status",
@@ -15,9 +19,11 @@
     "test": "npm run test:infra && npm run test:services",
     "test:infra": "jest --runInBand",
     "test:services": "docker compose -f ../compose/docker-compose.yml run --build --rm gps-simulator-test && docker compose -f ../compose/docker-compose.yml run --build --rm data-ingestion-test && docker compose -f ../compose/docker-compose.yml run --build --rm road-test && docker compose -f ../compose/docker-compose.yml run --build --rm data-processing-test && docker compose -f ../compose/docker-compose.yml run --build --rm drivability-scoring-test && docker compose -f ../compose/docker-compose.yml run --build --rm route-planning-test && docker compose -f ../compose/docker-compose.yml run --build --rm ai-assistant-test && docker compose -f ../compose/docker-compose.yml run --build --rm api-test && docker compose -f ../compose/docker-compose.yml run --build --rm web-test",
-    "synth": "cdk synth",
-    "diff": "cdk diff",
-    "deploy": "cdk deploy"
+    "synth": "bash scripts/cdk-with-mapkit-secret.sh synth",
+    "diff": "bash scripts/cdk-with-mapkit-secret.sh diff",
+    "deploy": "bash scripts/cdk-with-mapkit-secret.sh deploy",
+    "web:secret:sync": "bash scripts/mapkit-secret.sh sync",
+    "web:deploy": "bash scripts/cdk-with-mapkit-secret.sh deploy YukisakiWeb-dev --require-approval never"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

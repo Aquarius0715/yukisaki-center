@@ -24,6 +24,9 @@ DEFAULT_LATITUDE = 37.442762
 DEFAULT_LONGITUDE = 138.790865
 DEFAULT_LOCATION_ID = "nagaoka-isuruginami-minami"
 DEFAULT_LOCATION_NAME = "新潟県長岡市石動南町"
+NAGAOKA_BBOX = (138.643056, 37.176389, 139.124444, 37.710278)
+NAGAOKA_GRID_COLUMNS = 5
+NAGAOKA_GRID_ROWS = 7
 TIMEZONE_NAME = "Asia/Tokyo"
 OBSERVATION_BASE_URL = "https://archive-api.open-meteo.com/v1/archive"
 FORECAST_BASE_URL = "https://historical-forecast-api.open-meteo.com/v1/forecast"
@@ -59,14 +62,48 @@ def parse_reference_time(value: str) -> datetime:
     return local
 
 
-def build_source_url(base_url: str, reference_time: datetime, latitude: float, longitude: float) -> str:
+def build_nagaoka_weather_grid() -> list[dict[str, Any]]:
+    """Return an approximately 9 km grid whose extent contains all of Nagaoka City."""
+    west, south, east, north = NAGAOKA_BBOX
+    longitude_step = (east - west) / NAGAOKA_GRID_COLUMNS
+    latitude_step = (north - south) / NAGAOKA_GRID_ROWS
+    locations: list[dict[str, Any]] = []
+    for row in range(NAGAOKA_GRID_ROWS):
+        for column in range(NAGAOKA_GRID_COLUMNS):
+            latitude = south + (row + 0.5) * latitude_step
+            longitude = west + (column + 0.5) * longitude_step
+            grid_id = f"r{row + 1:02d}-c{column + 1:02d}"
+            locations.append(
+                {
+                    "location_id": f"nagaoka-grid-{grid_id}",
+                    "name": f"新潟県長岡市 気象グリッド {grid_id.upper()}",
+                    "latitude": round(latitude, 6),
+                    "longitude": round(longitude, 6),
+                    "timezone": TIMEZONE_NAME,
+                }
+            )
+    return locations
+
+
+def _coordinate_parameter(value: float | list[float]) -> str | float:
+    if isinstance(value, list):
+        return ",".join(f"{coordinate:.6f}" for coordinate in value)
+    return value
+
+
+def build_source_url(
+    base_url: str,
+    reference_time: datetime,
+    latitude: float | list[float],
+    longitude: float | list[float],
+) -> str:
     parsed = urlparse(base_url)
     if parsed.scheme != "https" or parsed.hostname not in ALLOWED_HOSTS:
         raise ValueError("weather source URL is not allow-listed HTTPS")
     query = urlencode(
         {
-            "latitude": latitude,
-            "longitude": longitude,
+            "latitude": _coordinate_parameter(latitude),
+            "longitude": _coordinate_parameter(longitude),
             "start_date": reference_time.date().isoformat(),
             "end_date": reference_time.date().isoformat(),
             "hourly": ",".join(HOURLY_FIELDS),
@@ -76,7 +113,20 @@ def build_source_url(base_url: str, reference_time: datetime, latitude: float, l
     return f"{base_url}?{query}"
 
 
-def fetch_json(url: str, opener: Callable[..., Any] = urlopen) -> dict[str, Any]:
+def _validate_weather_response(payload: Any) -> None:
+    responses = payload if isinstance(payload, list) else [payload]
+    if not responses or not all(isinstance(response, dict) for response in responses):
+        raise ValueError("weather API response must contain one or more locations")
+    for response in responses:
+        hourly = response.get("hourly", {})
+        if not isinstance(hourly.get("time"), list):
+            raise ValueError("weather API response does not contain hourly time series")
+        for field in HOURLY_FIELDS:
+            if len(hourly.get(field, [])) != len(hourly["time"]):
+                raise ValueError(f"weather API response has an invalid {field} series")
+
+
+def fetch_json(url: str, opener: Callable[..., Any] = urlopen) -> dict[str, Any] | list[dict[str, Any]]:
     request = Request(
         url,
         headers={"Accept": "application/json", "User-Agent": "yukisaki-center/0.2"},
@@ -87,12 +137,7 @@ def fetch_json(url: str, opener: Callable[..., Any] = urlopen) -> dict[str, Any]
     if not body or len(body) > 5 * 1024 * 1024:
         raise ValueError("weather API response is empty or too large")
     payload = json.loads(body)
-    hourly = payload.get("hourly", {})
-    if not isinstance(hourly.get("time"), list):
-        raise ValueError("weather API response does not contain hourly time series")
-    for field in HOURLY_FIELDS:
-        if len(hourly.get(field, [])) != len(hourly["time"]):
-            raise ValueError(f"weather API response has an invalid {field} series")
+    _validate_weather_response(payload)
     return payload
 
 
@@ -120,34 +165,61 @@ def collect(event: dict[str, Any]) -> dict[str, Any]:
     reference_time = parse_reference_time(
         str(event.get("referenceTime") or os.environ.get("TARGET_REFERENCE_TIME", DEFAULT_REFERENCE_TIME))
     )
-    latitude = float(os.environ.get("TARGET_LATITUDE", DEFAULT_LATITUDE))
-    longitude = float(os.environ.get("TARGET_LONGITUDE", DEFAULT_LONGITUDE))
+    weather_scope = os.environ.get("WEATHER_SCOPE", "nagaoka-city-grid")
+    if weather_scope == "point":
+        locations = [
+            {
+                "location_id": DEFAULT_LOCATION_ID,
+                "name": DEFAULT_LOCATION_NAME,
+                "latitude": float(os.environ.get("TARGET_LATITUDE", DEFAULT_LATITUDE)),
+                "longitude": float(os.environ.get("TARGET_LONGITUDE", DEFAULT_LONGITUDE)),
+                "timezone": TIMEZONE_NAME,
+            }
+        ]
+    elif weather_scope == "nagaoka-city-grid":
+        locations = build_nagaoka_weather_grid()
+    else:
+        raise ValueError(f"unsupported WEATHER_SCOPE: {weather_scope}")
     run_id = str(event.get("executionId") or uuid.uuid4()).replace("/", "_")[:128]
 
-    observation_url = build_source_url(OBSERVATION_BASE_URL, reference_time, latitude, longitude)
-    forecast_url = build_source_url(FORECAST_BASE_URL, reference_time, latitude, longitude)
-    observation = fetch_json(observation_url)
-    forecast = fetch_json(forecast_url)
+    latitudes = [location["latitude"] for location in locations]
+    longitudes = [location["longitude"] for location in locations]
+    observation_url = build_source_url(OBSERVATION_BASE_URL, reference_time, latitudes, longitudes)
+    forecast_url = build_source_url(FORECAST_BASE_URL, reference_time, latitudes, longitudes)
+    observation_payload = fetch_json(observation_url)
+    forecast_payload = fetch_json(forecast_url)
+    observations = observation_payload if isinstance(observation_payload, list) else [observation_payload]
+    forecasts = forecast_payload if isinstance(forecast_payload, list) else [forecast_payload]
+    if len(observations) != len(locations) or len(forecasts) != len(locations):
+        raise ValueError("weather API location count does not match the requested grid")
     payload = {
-        "schema_version": "2.0.0",
+        "schema_version": "3.0.0",
         "dataset": "weather-hourly-window",
-        "location": {
-            "location_id": DEFAULT_LOCATION_ID,
-            "name": DEFAULT_LOCATION_NAME,
-            "latitude": latitude,
-            "longitude": longitude,
-            "timezone": TIMEZONE_NAME,
+        "target_area": {
+            "area_id": "nagaoka-city",
+            "name": "新潟県長岡市",
+            "bbox": list(NAGAOKA_BBOX),
+            "sampling": "regular-grid",
+            "grid_columns": NAGAOKA_GRID_COLUMNS,
+            "grid_rows": NAGAOKA_GRID_ROWS,
         },
+        "locations": [
+            {
+                "location": location,
+                "sources": {
+                    "observation": {"url": observation_url, "response": observations[index]},
+                    "forecast": {"url": forecast_url, "response": forecasts[index]},
+                },
+            }
+            for index, location in enumerate(locations)
+        ],
         "reference_time": reference_time.isoformat(),
         "window_start": (reference_time - timedelta(hours=3)).isoformat(),
         "window_end": (reference_time + timedelta(hours=3)).isoformat(),
         "fetched_at": started_at.isoformat(),
         "run_id": run_id,
         "is_simulated": False,
-        "sources": {
-            "observation": {"url": observation_url, "response": observation},
-            "forecast": {"url": forecast_url, "response": forecast},
-        },
+        "source_urls": [observation_url, forecast_url],
     }
     body = (json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n").encode()
     checksum = sha256_bytes(body)
@@ -182,8 +254,10 @@ def collect(event: dict[str, Any]) -> dict[str, Any]:
         metadata_key,
         {
             **collection_metadata,
-            "schema_version": "2.0.0",
+            "schema_version": "3.0.0",
             "reference_time": reference_time.isoformat(),
+            "target_area": "新潟県長岡市",
+            "location_count": len(locations),
         },
     )
     put_json(
@@ -197,10 +271,16 @@ def collect(event: dict[str, Any]) -> dict[str, Any]:
             "finished_at": utc_now().isoformat(),
             "input_keys": [observation_url, forecast_url],
             "output_keys": [f"s3://{bucket}/{raw_key}", f"s3://{bucket}/{metadata_key}"],
-            "output_count": 1,
+            "output_count": len(locations),
         },
     )
-    return {"status": "collected", "runId": run_id, "rawKey": raw_key}
+    return {
+        "status": "collected",
+        "runId": run_id,
+        "rawKey": raw_key,
+        "targetArea": "新潟県長岡市",
+        "locationCount": len(locations),
+    }
 
 
 def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:

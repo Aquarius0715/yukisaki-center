@@ -29,7 +29,8 @@ class SnowPipeGeneratorTest(unittest.TestCase):
         )
         self.assertEqual([True, False, False, True], [record["snow_pipe"] for record in records])
         self.assertTrue(all(record["is_simulated"] for record in records))
-        self.assertEqual("unknown", records[0]["operation_status"])
+        self.assertEqual("active", records[0]["operation_status"])
+        self.assertEqual("inactive", records[1]["operation_status"])
         self.assertEqual(0.8, records[0]["effectiveness"])
 
     def test_rejects_duplicate_segment_ids(self):

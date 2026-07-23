@@ -3,6 +3,7 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import * as lambda from 'aws-cdk-lib/aws-lambda';
 import { ApiStack } from '../lib/api-stack';
 
 describe('ApiStack', () => {
@@ -27,9 +28,14 @@ describe('ApiStack', () => {
     shared, 'Secret',
     'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:unified-ABC123',
   );
+  const routePlanningFunction = lambda.Function.fromFunctionArn(
+    shared,
+    'RoutePlanningFunction',
+    'arn:aws:lambda:ap-northeast-1:123456789012:function:route-planning',
+  );
   const stack = new ApiStack(app, 'ApiTestStack', {
     environment: 'test', databaseVpc: vpc, database,
-    databaseSecret: secret, databaseName: 'yukisaki',
+    databaseSecret: secret, databaseName: 'yukisaki', routePlanningFunction,
   });
   const template = Template.fromStack(stack);
 
@@ -41,7 +47,10 @@ describe('ApiStack', () => {
       Environment: { Variables: Match.objectLike({ DATABASE_NAME: 'yukisaki' }) },
     });
     template.resourceCountIs('AWS::ApiGatewayV2::Api', 1);
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 5);
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 6);
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'POST /v1/routes',
+    });
   });
 
   test('allows database access only from the API security group', () => {

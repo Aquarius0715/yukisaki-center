@@ -2,6 +2,8 @@
 
 EventBridgeの`source`は`com.yukisaki.gps-simulator`、`detail-type`は`Snowplow GPS Position`とする。
 
+シミュレーターは長岡市全域のcurated道路グラフを全域走査し、連続した道路上の移動として3台へ均等分割する。3台の経路の和集合が入力スナップショットの全道路区間を含むことをテストで保証する。`observed_at`は固定デモシナリオ内の時刻、`received_at`は実際にイベントを送信した時刻であり、再起動後の最新判定には`received_at`を使う。
+
 ```json
 {
   "schema_version": "1.0.0",

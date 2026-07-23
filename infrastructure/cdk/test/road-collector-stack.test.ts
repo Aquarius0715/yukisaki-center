@@ -1,5 +1,5 @@
 import { App } from 'aws-cdk-lib';
-import { Template } from 'aws-cdk-lib/assertions';
+import { Match, Template } from 'aws-cdk-lib/assertions';
 import { RoadCollectorStack } from '../lib/road-collector-stack';
 
 describe('RoadCollectorStack', () => {
@@ -16,8 +16,15 @@ describe('RoadCollectorStack', () => {
     });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
       RequiresCompatibilities: ['FARGATE'],
-      Cpu: '1024',
-      Memory: '4096',
+      Cpu: '2048',
+      Memory: '8192',
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Environment: Match.arrayWith([
+            { Name: 'OSM_PLACE_NAME', Value: '新潟県長岡市' },
+          ]),
+        }),
+      ]),
     });
     template.hasResourceProperties('AWS::Events::Rule', {
       ScheduleExpression: 'rate(7 days)',

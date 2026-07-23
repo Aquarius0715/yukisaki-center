@@ -28,7 +28,7 @@ declare namespace mapkit {
   }
   class CoordinateRegion {
     constructor(center: CoordinateData, span: CoordinateSpan)
-    center: CoordinateData
+    center: Coordinate
     span: CoordinateSpan
   }
   class Style {
@@ -55,11 +55,11 @@ declare namespace mapkit {
     style: Style
   }
   class PolylineOverlay extends Overlay {
-    constructor(points: CoordinateData[], options?: OverlayOptions)
+    constructor(points: Coordinate[], options?: OverlayOptions)
   }
   class Annotation extends EventTarget {
-    constructor(location: CoordinateData, factory: AnnotationFactory, options?: AnnotationOptions)
-    coordinate: CoordinateData
+    constructor(location: Coordinate, factory: AnnotationFactory, options?: AnnotationOptions)
+    coordinate: Coordinate
     data: unknown
     enabled: boolean
     visible: boolean
@@ -76,9 +76,9 @@ declare namespace mapkit {
   }
   class Map extends EventTarget {
     constructor(parent: string | HTMLElement, options?: MapOptions)
+    region: CoordinateRegion
     overlays: Overlay[]
     annotations: Annotation[]
-    region: CoordinateRegion
     addOverlay(overlay: Overlay): Overlay | null
     addOverlays(overlays: Overlay[]): Overlay[]
     removeOverlay(overlay: Overlay): Overlay | null

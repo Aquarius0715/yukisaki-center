@@ -6,3 +6,5 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 .venv-demo-pipeline/
+services/web/env.local
+services/web/.env.local

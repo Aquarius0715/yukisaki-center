@@ -1,0 +1,52 @@
+import { App, Stack } from 'aws-cdk-lib';
+import { Match, Template } from 'aws-cdk-lib/assertions';
+import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as rds from 'aws-cdk-lib/aws-rds';
+import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
+import { RoutePlanningStack } from '../lib/route-planning-stack';
+
+describe('RoutePlanningStack', () => {
+  const app = new App();
+  const shared = new Stack(app, 'RouteSharedTestStack');
+  const vpc = ec2.Vpc.fromVpcAttributes(shared, 'Vpc', {
+    vpcId: 'vpc-0123456789abcdef0',
+    availabilityZones: ['ap-northeast-1a', 'ap-northeast-1c'],
+    isolatedSubnetIds: ['subnet-iso1', 'subnet-iso2'],
+    isolatedSubnetRouteTableIds: ['rtb-iso1', 'rtb-iso2'],
+  });
+  const databaseSecurityGroup = ec2.SecurityGroup.fromSecurityGroupId(
+    shared, 'DatabaseSecurityGroup', 'sg-0123456789abcdef0', { mutable: false },
+  );
+  const database = rds.DatabaseInstance.fromDatabaseInstanceAttributes(shared, 'Database', {
+    instanceIdentifier: 'unified-database',
+    instanceEndpointAddress: 'database.internal',
+    port: 5432,
+    securityGroups: [databaseSecurityGroup],
+  });
+  const secret = secretsmanager.Secret.fromSecretCompleteArn(
+    shared, 'Secret',
+    'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:unified-ABC123',
+  );
+  const stack = new RoutePlanningStack(app, 'RoutePlanningTestStack', {
+    environment: 'test', databaseVpc: vpc, database,
+    databaseSecret: secret, databaseName: 'yukisaki',
+    targetReferenceTime: '2026-01-23T12:00:00+09:00',
+  });
+  const template = Template.fromStack(stack);
+
+  test('creates a paused ARM container Lambda', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      PackageType: 'Image',
+      Architectures: ['arm64'],
+      ReservedConcurrentExecutions: 0,
+      Timeout: 20,
+      Environment: { Variables: Match.objectLike({ DATABASE_NAME: 'yukisaki' }) },
+    });
+  });
+
+  test('allows database access only from route planning', () => {
+    template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
+      IpProtocol: 'tcp', FromPort: 5432, ToPort: 5432,
+    });
+  });
+});

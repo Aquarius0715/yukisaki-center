@@ -5,6 +5,9 @@ import { RoadCollectorStack } from '../lib/road-collector-stack';
 import { SnowPipePipelineStack } from '../lib/snow-pipe-pipeline-stack';
 import { GpsPipelineStack } from '../lib/gps-pipeline-stack';
 import { ApiStack } from '../lib/api-stack';
+import { AiAssistantStack } from '../lib/ai-assistant-stack';
+import { WebStack } from '../lib/web-stack';
+import { RoutePlanningStack } from '../lib/route-planning-stack';
 
 const app = new cdk.App();
 const environment = app.node.tryGetContext('environment') ?? 'dev';
@@ -85,15 +88,57 @@ new GpsPipelineStack(app, `YukisakiGpsPipeline-${environment}`, {
   description: 'Three simulated snowplows streamed through EventBridge, S3, PostgreSQL, and scoring',
 });
 
-new ApiStack(app, `YukisakiApi-${environment}`, {
+const routePlanningStack = new RoutePlanningStack(app, `YukisakiRoutePlanning-${environment}`, {
   environment,
   databaseVpc: dataPipelineStack.databaseVpc,
   database: dataPipelineStack.database,
   databaseSecret: dataPipelineStack.database.secret!,
   databaseName: 'yukisaki',
+  targetReferenceTime:
+    app.node.tryGetContext('targetReferenceTime') ?? '2026-01-23T12:00:00+09:00',
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,
   },
-  description: 'Public GeoJSON API for road segments and simulated snowplow positions',
+  description: 'PostGIS and pgRouting route planning with dynamic drivability costs',
+});
+
+const apiStack = new ApiStack(app, `YukisakiApi-${environment}`, {
+  environment,
+  databaseVpc: dataPipelineStack.databaseVpc,
+  database: dataPipelineStack.database,
+  databaseSecret: dataPipelineStack.database.secret!,
+  databaseName: 'yukisaki',
+  routePlanningFunction: routePlanningStack.routeFunction,
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region,
+  },
+  description: 'Public GeoJSON API for roads, snowplows, and route planning',
+});
+
+new AiAssistantStack(app, `YukisakiAiAssistant-${environment}`, {
+  environment,
+  httpApi: apiStack.httpApi,
+  modelId:
+    app.node.tryGetContext('bedrockModelId') ??
+    'jp.anthropic.claude-sonnet-4-5-20250929-v1:0',
+  guardrailIdentifier: app.node.tryGetContext('bedrockGuardrailIdentifier'),
+  guardrailVersion: app.node.tryGetContext('bedrockGuardrailVersion'),
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region,
+  },
+  description: 'Bedrock route condition extraction and evidence-bound explanations',
+});
+
+new WebStack(app, `YukisakiWeb-${environment}`, {
+  environment,
+  apiEndpoint: apiStack.httpApi.apiEndpoint,
+  mapKitToken: process.env.VITE_MAPKIT_TOKEN,
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region,
+  },
+  description: 'Private S3 and CloudFront delivery for the Yukisaki React frontend',
 });

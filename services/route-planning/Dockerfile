@@ -6,5 +6,6 @@ COPY tests ./tests
 CMD ["python", "-m", "unittest", "discover", "-v", "-s", "tests"]
 
 FROM public.ecr.aws/lambda/python:3.13 AS runtime
+RUN pip install --no-cache-dir "psycopg[binary]==3.2.9"
 COPY src/ ${LAMBDA_TASK_ROOT}/
 CMD ["route_planning.handler.handler"]

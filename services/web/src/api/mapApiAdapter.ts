@@ -4,6 +4,7 @@ import type {
   ApiRoadCollection,
   ApiRoadProperties,
   ApiSnowplowCollection,
+  MapRoadPage,
   MapSnapshot,
   RoadCondition,
   RoadConditionStatus,
@@ -121,6 +122,23 @@ export function adaptRoads(collection: ApiRoadCollection): { roads: RoadSegmentF
   }
 }
 
+export function adaptRoadPage(collection: ApiRoadCollection): MapRoadPage {
+  const { roads, conditions } = adaptRoads(collection)
+  return {
+    roads,
+    conditions,
+    meta: {
+      schemaVersion: '1.0',
+      dataTimestamp: collection.data_timestamp,
+      confidence: collection.confidence,
+      isSimulated: collection.is_simulated,
+      truncated: collection.truncated,
+      source: 'api',
+    },
+    nextCursor: collection.next_cursor,
+  }
+}
+
 export function adaptSnowplows(collection: ApiSnowplowCollection): Snowplow[] {
   return collection.features.map((feature) => {
     const [longitude = 0, latitude = 0] = feature.geometry.coordinates
@@ -133,7 +151,7 @@ export function adaptSnowplows(collection: ApiSnowplowCollection): Snowplow[] {
       longitude,
       heading: feature.properties.heading_degrees ?? 0,
       speedKmh: feature.properties.speed_kmh ?? 0,
-      lastUpdatedAt: feature.properties.observed_at ?? feature.properties.data_timestamp ?? '',
+      lastUpdatedAt: feature.properties.data_timestamp ?? feature.properties.observed_at ?? '',
       todayDistanceKm: null,
       matchedSegmentId: feature.properties.matched_segment_id,
       confidence: feature.properties.confidence,

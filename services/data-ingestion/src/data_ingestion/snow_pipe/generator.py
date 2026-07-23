@@ -14,7 +14,7 @@ from data_ingestion.common.metadata import build_collection_metadata
 
 LOGGER = logging.getLogger()
 LOGGER.setLevel(logging.INFO)
-RULE_VERSION = "road-name-v1"
+RULE_VERSION = "road-name-active-v2"
 DATASET = "snow-pipe-simulated"
 _S3_CLIENT = None
 
@@ -63,7 +63,7 @@ def generate_records(
         records.append({
             "segment_id": segment_id,
             "snow_pipe": present,
-            "operation_status": "unknown",
+            "operation_status": "active" if present else "inactive",
             "effectiveness": 0.8 if present else 0.0,
             "updated_at": reference_time,
             "source": "simulated-road-name-rule",
