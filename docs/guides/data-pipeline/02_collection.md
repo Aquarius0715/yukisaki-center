@@ -4,10 +4,10 @@
 
 ### 1.1 対象範囲
 
-長岡市全域をいきなり対象にせず、最初はデモ経路を含む小さなAOI（Area of Interest）をGeoJSONで作る。
+対象AOI（Area of Interest）は長岡市の行政区域全体とする。道路収集はOpenStreetMapの行政界ポリゴンを使用し、点・半径方式へ暗黙に縮退しない。
 
 ```text
-config/aoi/nagaoka-mvp.geojson
+OSM_PLACE_NAME=新潟県長岡市
 ```
 
 AOIには次を記録する。
@@ -15,8 +15,9 @@ AOIには次を記録する。
 - 名前と版
 - 作成日時
 - PolygonまたはMultiPolygon
-- 想定する出発地・目的地
-- バッファ距離。経路がAOI境界で切れないよう数km程度を検討する
+- 公式市域端点に基づくbbox
+- OSM行政界オブジェクトと取得日時
+- 市境をまたぐ経路を将来扱う場合のバッファ方針
 
 ### 1.2 データ台帳
 
@@ -44,7 +45,7 @@ AOIには次を記録する。
 1. OpenStreetMapのPBF形式の地域抽出データを用意する。
 2. 取得URL、取得日時、ファイルサイズ、SHA-256をmanifestへ記録する。
 3. 原本を`raw/osm/road-network/...`へ保存する。
-4. AOIで切り出す。ただし経路接続性のため、AOIにバッファを付ける。
+4. 長岡市行政界ポリゴンで切り出す。
 5. 車両通行対象となる`highway`を抽出する。
 6. OSMの帰属表示とODbLへの対応をデータ台帳へ記録する。
 
@@ -84,7 +85,7 @@ AOIには次を記録する。
 
 固定デモ日は2026年1月23日であり、現在のフィードから当時の予報を取得できない。そのため、[Open-Meteo Historical Weather API](https://open-meteo.com/en/docs/historical-weather-api)で基準時刻3時間前から基準時刻までの実気象、[Historical Forecast API](https://open-meteo.com/en/docs/historical-forecast-api)で1〜3時間後の当時予報を取得する。
 
-基準時刻は12:00 JST、地点は長岡市石動南町の中心点（37.442762, 138.790865）とする。取得値は観測所の現地実測そのものではなく、APIが返す格子データであることを表示・説明時に明示する。
+基準時刻は12:00 JSTとする。長岡市公式の市域端点を含むbboxを5列×7行に分割し、約9km間隔の35地点を一括取得する。取得値は観測所の現地実測そのものではなく、APIが返す気象モデルの格子データであることを表示・説明時に明示する。
 
 ### 4.2 Collectorの手順
 

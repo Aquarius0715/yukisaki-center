@@ -4,7 +4,8 @@
 |---|---|---|
 | `DATA_BUCKET` | なし | S3正本バケット |
 | `TARGET_REFERENCE_TIME` | `2026-01-23T12:00:00+09:00` | 3時間前後の基準時刻 |
-| `TARGET_LATITUDE` | `37.442762` | 石動南町中心点の緯度 |
-| `TARGET_LONGITUDE` | `138.790865` | 石動南町中心点の経度 |
+| `WEATHER_SCOPE` | `nagaoka-city-grid` | 長岡市全域の35地点グリッド。`point`指定時だけ単一点モード |
+| `TARGET_LATITUDE` | `37.442762` | 単一点モードで使う緯度 |
+| `TARGET_LONGITUDE` | `138.790865` | 単一点モードで使う経度 |
 
 APIキーや秘密値は使用しない。取得先ホストはコード内の許可リストで固定する。

@@ -215,6 +215,10 @@ CREATE TABLE IF NOT EXISTS data_load_runs (
 CREATE TABLE IF NOT EXISTS road_segments (
   segment_id TEXT PRIMARY KEY,
   geometry_geojson JSONB NOT NULL,
+  min_longitude DOUBLE PRECISION,
+  min_latitude DOUBLE PRECISION,
+  max_longitude DOUBLE PRECISION,
+  max_latitude DOUBLE PRECISION,
   road_name TEXT,
   road_type TEXT,
   length_m NUMERIC,
@@ -225,6 +229,12 @@ CREATE TABLE IF NOT EXISTS road_segments (
   is_simulated BOOLEAN NOT NULL DEFAULT false
 );
 ALTER TABLE road_segments ADD COLUMN IF NOT EXISTS road_name TEXT;
+ALTER TABLE road_segments ADD COLUMN IF NOT EXISTS min_longitude DOUBLE PRECISION;
+ALTER TABLE road_segments ADD COLUMN IF NOT EXISTS min_latitude DOUBLE PRECISION;
+ALTER TABLE road_segments ADD COLUMN IF NOT EXISTS max_longitude DOUBLE PRECISION;
+ALTER TABLE road_segments ADD COLUMN IF NOT EXISTS max_latitude DOUBLE PRECISION;
+CREATE INDEX IF NOT EXISTS road_segments_bbox_idx
+  ON road_segments (min_longitude, max_longitude, min_latitude, max_latitude);
 CREATE TABLE IF NOT EXISTS snow_pipe_history (
   segment_id TEXT NOT NULL REFERENCES road_segments(segment_id),
   snow_pipe BOOLEAN NOT NULL,
@@ -244,22 +254,40 @@ SELECT DISTINCT ON (segment_id)
   source, rule_version, run_id, is_simulated
 FROM snow_pipe_history
 ORDER BY segment_id, valid_from DESC, ingested_at DESC;
-CREATE OR REPLACE VIEW road_segments_enriched AS
-SELECT r.*, s.snow_pipe, s.operation_status, s.effectiveness,
+DROP VIEW IF EXISTS road_segments_enriched;
+CREATE VIEW road_segments_enriched AS
+SELECT r.segment_id, r.geometry_geojson, r.road_name, r.road_type,
+       r.length_m, r.max_slope_percent, r.source, r.source_version,
+       r.snapshot_date, r.is_simulated,
+       s.snow_pipe, s.operation_status, s.effectiveness,
        s.valid_from AS snow_pipe_updated_at, s.source AS snow_pipe_source,
        s.rule_version AS snow_pipe_rule_version,
-       s.is_simulated AS snow_pipe_is_simulated
+       s.is_simulated AS snow_pipe_is_simulated,
+       r.min_longitude, r.min_latitude, r.max_longitude, r.max_latitude
 FROM road_segments r
 LEFT JOIN latest_snow_pipe_status s USING (segment_id);
 """
 
-ROAD_UPSERT_SQL = """
-INSERT INTO road_segments (
-  segment_id, geometry_geojson, road_name, road_type, length_m, max_slope_percent,
-  source, source_version, snapshot_date, is_simulated
-) VALUES (%s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s::date, %s)
+ROAD_STAGE_COLUMNS = """
+segment_id, geometry_geojson, min_longitude, min_latitude, max_longitude, max_latitude,
+road_name, road_type, length_m, max_slope_percent, source, source_version,
+snapshot_date, is_simulated
+"""
+
+SNOW_PIPE_STAGE_COLUMNS = """
+segment_id, snow_pipe, operation_status, effectiveness, valid_from,
+source, rule_version, run_id, is_simulated
+"""
+
+BULK_UPSERT_SQL = f"""
+INSERT INTO road_segments ({ROAD_STAGE_COLUMNS})
+SELECT {ROAD_STAGE_COLUMNS} FROM road_segments_stage
 ON CONFLICT (segment_id) DO UPDATE SET
   geometry_geojson = EXCLUDED.geometry_geojson,
+  min_longitude = EXCLUDED.min_longitude,
+  min_latitude = EXCLUDED.min_latitude,
+  max_longitude = EXCLUDED.max_longitude,
+  max_latitude = EXCLUDED.max_latitude,
   road_name = EXCLUDED.road_name,
   road_type = EXCLUDED.road_type,
   length_m = EXCLUDED.length_m,
@@ -268,13 +296,9 @@ ON CONFLICT (segment_id) DO UPDATE SET
   source_version = EXCLUDED.source_version,
   snapshot_date = EXCLUDED.snapshot_date,
   is_simulated = EXCLUDED.is_simulated;
-"""
 
-SNOW_PIPE_UPSERT_SQL = """
-INSERT INTO snow_pipe_history (
-  segment_id, snow_pipe, operation_status, effectiveness, valid_from,
-  source, rule_version, run_id, is_simulated
-) VALUES (%s, %s, %s, %s, %s::timestamptz, %s, %s, %s, %s)
+INSERT INTO snow_pipe_history ({SNOW_PIPE_STAGE_COLUMNS})
+SELECT {SNOW_PIPE_STAGE_COLUMNS} FROM snow_pipe_history_stage
 ON CONFLICT (segment_id, valid_from, rule_version) DO UPDATE SET
   snow_pipe = EXCLUDED.snow_pipe,
   operation_status = EXCLUDED.operation_status,
@@ -286,12 +310,39 @@ ON CONFLICT (segment_id, valid_from, rule_version) DO UPDATE SET
 """
 
 
+def geometry_bounds(geometry: dict[str, Any]) -> tuple[float, float, float, float]:
+    points: list[tuple[float, float]] = []
+
+    def collect(value: Any) -> None:
+        if (
+            isinstance(value, list)
+            and len(value) >= 2
+            and isinstance(value[0], (int, float))
+            and isinstance(value[1], (int, float))
+        ):
+            points.append((float(value[0]), float(value[1])))
+            return
+        if isinstance(value, list):
+            for child in value:
+                collect(child)
+
+    collect(geometry.get("coordinates"))
+    if not points:
+        raise ValueError("road geometry contains no coordinates")
+    longitudes = [point[0] for point in points]
+    latitudes = [point[1] for point in points]
+    return min(longitudes), min(latitudes), max(longitudes), max(latitudes)
+
+
 def database_rows(feature_collection: dict[str, Any], processing_run_id: str) -> list[tuple[tuple[Any, ...], tuple[Any, ...]]]:
     rows = []
     for feature in feature_collection.get("features", []):
         properties = feature.get("properties") or {}
+        geometry = feature.get("geometry") or {}
+        min_longitude, min_latitude, max_longitude, max_latitude = geometry_bounds(geometry)
         road_row = (
-            properties["segment_id"], json.dumps(feature.get("geometry"), sort_keys=True),
+            properties["segment_id"], json.dumps(geometry, sort_keys=True),
+            min_longitude, min_latitude, max_longitude, max_latitude,
             properties.get("road_name", properties.get("name")), properties.get("highway"),
             properties.get("length_m"), properties.get("max_slope_percent"), "openstreetmap",
             properties.get("source_edge_id"), properties["snow_pipe_updated_at"][:10], False,
@@ -335,9 +386,19 @@ def load_message(message: dict[str, Any]) -> dict[str, Any]:
     with connect_database() as connection:
         with connection.cursor() as cursor:
             cursor.execute(SCHEMA_SQL)
-            for road_row, snow_row in rows:
-                cursor.execute(ROAD_UPSERT_SQL, road_row)
-                cursor.execute(SNOW_PIPE_UPSERT_SQL, snow_row)
+            cursor.execute(
+                """CREATE TEMP TABLE road_segments_stage
+                   (LIKE road_segments INCLUDING DEFAULTS) ON COMMIT DROP;
+                   CREATE TEMP TABLE snow_pipe_history_stage
+                   (LIKE snow_pipe_history INCLUDING DEFAULTS) ON COMMIT DROP;"""
+            )
+            with cursor.copy(f"COPY road_segments_stage ({ROAD_STAGE_COLUMNS}) FROM STDIN") as copy:
+                for road_row, _ in rows:
+                    copy.write_row(road_row)
+            with cursor.copy(f"COPY snow_pipe_history_stage ({SNOW_PIPE_STAGE_COLUMNS}) FROM STDIN") as copy:
+                for _, snow_row in rows:
+                    copy.write_row(snow_row)
+            cursor.execute(BULK_UPSERT_SQL)
             cursor.execute(
                 """INSERT INTO data_load_runs (run_id, dataset, source_key, record_count)
                    VALUES (%s, %s, %s, %s)

@@ -41,6 +41,7 @@ class SnowPipePipelineTest(unittest.TestCase):
         self.assertTrue(properties["snow_pipe_is_simulated"])
         rows = database_rows(merged, "processing-1")
         self.assertEqual("segment-1", rows[0][0][0])
+        self.assertEqual((138.7, 37.4, 138.8, 37.5), rows[0][0][2:6])
         self.assertEqual("processing-1", rows[0][1][7])
 
     def test_rejects_unknown_segment(self):

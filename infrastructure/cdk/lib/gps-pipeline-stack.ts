@@ -73,8 +73,8 @@ export class GpsPipelineStack extends Stack {
       removalPolicy: RemovalPolicy.DESTROY,
     });
     const simulatorTask = new ecs.FargateTaskDefinition(this, 'GpsSimulatorTask', {
-      cpu: 256,
-      memoryLimitMiB: 512,
+      cpu: 1024,
+      memoryLimitMiB: 2048,
       runtimePlatform: {
         cpuArchitecture: ecs.CpuArchitecture.ARM64,
         operatingSystemFamily: ecs.OperatingSystemFamily.LINUX,
@@ -170,7 +170,7 @@ export class GpsPipelineStack extends Stack {
       servicePath: '../../../services/data-processing', target: 'lambda-loader',
       command: 'data_processing.plow_gps.pipeline.processor_handler',
       description: 'Map-matches GPS events and writes normalized and curated S3 batches',
-      memorySize: 1024,
+      memorySize: 2048,
       environment: {
         DATA_BUCKET: props.dataBucket.bucketName,
         ROAD_CURATED_BUCKET: props.roadCuratedBucket.bucketName,

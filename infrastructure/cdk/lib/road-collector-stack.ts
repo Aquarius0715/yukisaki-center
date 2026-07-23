@@ -75,8 +75,8 @@ export class RoadCollectorStack extends Stack {
     Tags.of(logGroup).add('Component', 'road-collector');
     Tags.of(logGroup).add('Lifecycle', 'persistent');
     const taskDefinition = new ecs.FargateTaskDefinition(this, 'RoadTaskDefinition', {
-      cpu: 1024,
-      memoryLimitMiB: 4096,
+      cpu: 2048,
+      memoryLimitMiB: 8192,
       ephemeralStorageGiB: 50,
     });
     Tags.of(taskDefinition).add('Service', 'data-ingestion');
@@ -93,9 +93,7 @@ export class RoadCollectorStack extends Stack {
         ROAD_S3_DATASET: 'road-network',
         UPLOAD_TO_S3: 'true',
         AWS_REGION: this.region,
-        FALLBACK_CENTER_LAT: '37.442959',
-        FALLBACK_CENTER_LON: '138.790936',
-        FALLBACK_RADIUS_M: '1500',
+        OSM_PLACE_NAME: '新潟県長岡市',
       },
     });
     this.dataBucket.grantPut(taskDefinition.taskRole, 'raw/osm/road-network/*');

@@ -38,8 +38,9 @@ manifests/data-ingestion/{run_id}.json
 | 項目 | 値 |
 |---|---|
 | 基準時刻 | `2026-01-23T12:00:00+09:00` |
-| 地点 | 新潟県長岡市石動南町 |
-| 緯度・経度 | `37.442762`, `138.790865` |
+| 対象範囲 | 新潟県長岡市全域 |
+| 市域bbox | `138.643056,37.176389,139.124444,37.710278` |
+| 気象地点 | bbox内を約9km間隔で覆う5列×7行の35地点 |
 | タイムゾーン | `Asia/Tokyo` |
 
 ## データ源
@@ -47,13 +48,13 @@ manifests/data-ingestion/{run_id}.json
 - `relative_hour=-3..0`: [Open-Meteo Historical Weather API](https://open-meteo.com/en/docs/historical-weather-api)
 - `relative_hour=1..3`: [Open-Meteo Historical Forecast API](https://open-meteo.com/en/docs/historical-forecast-api)
 
-取得したAPI応答を加工せず`response.json`の`sources.observation.response`と`sources.forecast.response`へ保存する。取得URL、取得時刻、基準時刻、地点、`run_id`、SHA-256を併記する。実APIのため`is_simulated`は`false`とする。
+取得したAPI応答を加工せず`response.json`の`locations[].sources.observation.response`と`locations[].sources.forecast.response`へ保存する。取得URL、取得時刻、基準時刻、全地点、対象bbox、`run_id`、SHA-256を併記する。実APIのため`is_simulated`は`false`とする。
 
 この予報は現在から見た未来予報ではなく、対象日付に対応する過去予報アーカイブである。
 
 ## 消雪パイプ仮データ
 
-道路Collectorが最後に保存する`manifests/data-ingestion/{run_id}.json`を入力とし、道路GeoJSONの`road_name`（なければ`name`）が空でない区間を`true`とする。これは設備実態を示すものではなく、必ず`source=simulated-road-name-rule`、`rule_version=road-name-v1`、`is_simulated=true`を保持する。出力は次へ不変保存する。
+道路Collectorが最後に保存する`manifests/data-ingestion/{run_id}.json`を入力とし、道路GeoJSONの`road_name`（なければ`name`）が空でない区間を`snow_pipe=true`、`operation_status=active`とする。名前がない区間は`snow_pipe=false`、`operation_status=inactive`とする。これは設備実態を示すものではなく、必ず`source=simulated-road-name-rule`、`rule_version=road-name-active-v2`、`is_simulated=true`を保持する。出力は次へ不変保存する。
 
 ```text
 raw/simulated/snow-pipe/scenario_date={date}/run_id={run_id}/snow_pipe.jsonl

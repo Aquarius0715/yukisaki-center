@@ -1,6 +1,6 @@
 # データ処理・PostgreSQLロードサービス
 
-S3 `raw/open-meteo/weather-window/`を読み、rawオブジェクトのSHA-256を検証してから、基準時刻の前後3時間を7件のレコードへ正規化し、S3 `normalized/`とAWS RDS PostgreSQLへ冪等保存する。外部APIからPostgreSQLへ直接書き込まない。
+S3 `raw/open-meteo/weather-window/`を読み、rawオブジェクトのSHA-256を検証してから、長岡市全域35地点について基準時刻の前後3時間を245件のレコードへ正規化し、S3 `normalized/`とAWS RDS PostgreSQLへ冪等保存する。外部APIからPostgreSQLへ直接書き込まない。
 
 ```text
 S3 raw response.json
@@ -20,7 +20,7 @@ S3 raw response.json
 - `src/data_processing/plow_gps/pipeline.py`: SQS配信GPSの道路マッチング、S3保存、SQS経由DBロード
 - `tests/plow_gps/test_pipeline.py`: 最近傍マッチングとS3出力契約
 
-道路処理は、道路Collectorの完了manifestをCloudTrail/EventBridgeで検知してStep Functionsを開始する。道路バケットからGeoJSONを読み、統合済みGeoJSONをSnow Pipe専用S3の`curated/road-segments/`へ保存してからSQSへロード要求を送る。private Loader Lambdaは気象と共通のRDS PostgreSQL `yukisaki`へ同じ認証情報で接続し、`road_segments`と`snow_pipe_history`へ冪等UPSERTする。
+道路処理は、道路Collectorの完了manifestをCloudTrail/EventBridgeで検知してStep Functionsを開始する。道路バケットからGeoJSONを読み、統合済みGeoJSONをSnow Pipe専用S3の`curated/road-segments/`へ保存してからSQSへロード要求を送る。private Loader Lambdaは気象と共通のRDS PostgreSQL `yukisaki`へ同じ認証情報で接続し、Geometryの外接矩形4列を含む`road_segments`と`snow_pipe_history`へ冪等UPSERTする。
 
 GPS処理はEventBridgeから専用SQSへfan-outされたイベントを購読し、curated道路へ最近傍マッチングした結果をS3 `normalized/simulated/plow-gps/`と`curated/snowplow-passages/`へ保存する。その後にSQS経由で`yukisaki`の最新位置と通過履歴へロードする。
 - `config/requirements-loader.txt`: LambdaのPostgreSQLドライバー

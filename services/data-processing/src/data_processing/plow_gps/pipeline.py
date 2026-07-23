@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -18,6 +19,22 @@ _SQS_CLIENT = None
 _SECRETS_CLIENT = None
 _DATABASE_SECRET = None
 _ROAD_INDEX = None
+ROAD_INDEX_CELL_DEGREES = 0.01
+
+RoadSegment = tuple[str, list[tuple[float, float]]]
+
+
+@dataclass(frozen=True)
+class RoadIndex:
+    segments: list[RoadSegment]
+    cells: dict[tuple[int, int], list[RoadSegment]]
+
+
+def _road_cell(longitude: float, latitude: float) -> tuple[int, int]:
+    return (
+        math.floor(longitude / ROAD_INDEX_CELL_DEGREES),
+        math.floor(latitude / ROAD_INDEX_CELL_DEGREES),
+    )
 
 
 def s3_client():
@@ -88,10 +105,11 @@ def point_to_line_distance_m(
     return math.hypot(px - (ax + ratio * dx), py - (ay + ratio * dy))
 
 
-def build_road_index(feature_collection: dict[str, Any]) -> list[tuple[str, list[tuple[float, float]]]]:
+def build_road_index(feature_collection: dict[str, Any]) -> RoadIndex:
     if feature_collection.get("type") != "FeatureCollection":
         raise ValueError("road data must be a GeoJSON FeatureCollection")
-    index = []
+    segments: list[RoadSegment] = []
+    cells: dict[tuple[int, int], list[RoadSegment]] = {}
     for feature in feature_collection.get("features", []):
         properties = feature.get("properties") or {}
         geometry = feature.get("geometry") or {}
@@ -99,18 +117,43 @@ def build_road_index(feature_collection: dict[str, Any]) -> list[tuple[str, list
         if properties.get("segment_id") and geometry.get("type") == "LineString" and coordinates:
             points = [(float(item[0]), float(item[1])) for item in coordinates if len(item) >= 2]
             if len(points) >= 2:
-                index.append((properties["segment_id"], points))
-    if not index:
+                segment = (properties["segment_id"], points)
+                segments.append(segment)
+                min_longitude = min(point[0] for point in points)
+                max_longitude = max(point[0] for point in points)
+                min_latitude = min(point[1] for point in points)
+                max_latitude = max(point[1] for point in points)
+                min_cell = _road_cell(min_longitude, min_latitude)
+                max_cell = _road_cell(max_longitude, max_latitude)
+                for longitude_cell in range(min_cell[0], max_cell[0] + 1):
+                    for latitude_cell in range(min_cell[1], max_cell[1] + 1):
+                        cells.setdefault((longitude_cell, latitude_cell), []).append(segment)
+    if not segments:
         raise ValueError("road data contains no valid LineString features")
-    return index
+    return RoadIndex(segments=segments, cells=cells)
 
 
 def match_segment(
-    latitude: float, longitude: float, road_index: list[tuple[str, list[tuple[float, float]]]],
+    latitude: float, longitude: float, road_index: RoadIndex | list[RoadSegment],
 ) -> tuple[str, float]:
     point = (longitude, latitude)
     best: tuple[str, float] | None = None
-    for segment_id, coordinates in road_index:
+    candidates: list[RoadSegment]
+    if isinstance(road_index, RoadIndex):
+        center = _road_cell(longitude, latitude)
+        candidates = [
+            segment
+            for longitude_offset in (-1, 0, 1)
+            for latitude_offset in (-1, 0, 1)
+            for segment in road_index.cells.get(
+                (center[0] + longitude_offset, center[1] + latitude_offset), []
+            )
+        ]
+        if not candidates:
+            candidates = road_index.segments
+    else:
+        candidates = road_index
+    for segment_id, coordinates in candidates:
         distance = min(
             point_to_line_distance_m(point, start, end)
             for start, end in zip(coordinates, coordinates[1:])
@@ -121,7 +164,7 @@ def match_segment(
     return best
 
 
-def _latest_road_index() -> list[tuple[str, list[tuple[float, float]]]]:
+def _latest_road_index() -> RoadIndex:
     global _ROAD_INDEX
     if _ROAD_INDEX is None:
         bucket = os.environ["ROAD_CURATED_BUCKET"]
@@ -149,7 +192,7 @@ def decode_eventbridge_records(records: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def process_events(
-    events: list[dict[str, Any]], *, bucket: str, road_index: list[tuple[str, list[tuple[float, float]]]],
+    events: list[dict[str, Any]], *, bucket: str, road_index: RoadIndex | list[RoadSegment],
 ) -> dict[str, Any]:
     matched = []
     for event in events:
@@ -218,6 +261,7 @@ CREATE TABLE IF NOT EXISTS snowplow_vehicles (
 CREATE TABLE IF NOT EXISTS snowplow_positions_latest (
   vehicle_id TEXT PRIMARY KEY REFERENCES snowplow_vehicles(vehicle_id),
   observed_at TIMESTAMPTZ NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL,
   latitude DOUBLE PRECISION NOT NULL,
   longitude DOUBLE PRECISION NOT NULL,
   speed_kmh NUMERIC NOT NULL,
@@ -235,6 +279,7 @@ CREATE TABLE IF NOT EXISTS snowplow_segment_passages (
   vehicle_id TEXT NOT NULL REFERENCES snowplow_vehicles(vehicle_id),
   segment_id TEXT NOT NULL REFERENCES road_segments(segment_id),
   observed_at TIMESTAMPTZ NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL,
   operation TEXT NOT NULL,
   speed_kmh NUMERIC NOT NULL,
   latitude DOUBLE PRECISION NOT NULL,
@@ -249,6 +294,18 @@ CREATE TABLE IF NOT EXISTS snowplow_segment_passages (
 );
 CREATE INDEX IF NOT EXISTS snowplow_passages_segment_time_idx
   ON snowplow_segment_passages (segment_id, observed_at DESC);
+ALTER TABLE snowplow_positions_latest
+  ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ;
+UPDATE snowplow_positions_latest
+  SET received_at = updated_at WHERE received_at IS NULL;
+ALTER TABLE snowplow_positions_latest
+  ALTER COLUMN received_at SET NOT NULL;
+ALTER TABLE snowplow_segment_passages
+  ADD COLUMN IF NOT EXISTS received_at TIMESTAMPTZ;
+UPDATE snowplow_segment_passages
+  SET received_at = ingested_at WHERE received_at IS NULL;
+ALTER TABLE snowplow_segment_passages
+  ALTER COLUMN received_at SET NOT NULL;
 """
 
 
@@ -281,19 +338,21 @@ def load_message(message: dict[str, Any]) -> dict[str, Any]:
                 )
                 cursor.execute(
                     """INSERT INTO snowplow_positions_latest (
-                         vehicle_id, observed_at, latitude, longitude, speed_kmh, heading_degrees,
+                         vehicle_id, observed_at, received_at, latitude, longitude, speed_kmh, heading_degrees,
                          accuracy_m, operation, matched_segment_id, match_distance_m, run_id, is_simulated
-                       ) VALUES (%s, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s, %s, %s, true)
+                       ) VALUES (%s, %s::timestamptz, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s, %s, %s, true)
                        ON CONFLICT (vehicle_id) DO UPDATE SET
-                         observed_at=EXCLUDED.observed_at, latitude=EXCLUDED.latitude,
+                         observed_at=EXCLUDED.observed_at, received_at=EXCLUDED.received_at,
+                         latitude=EXCLUDED.latitude,
                          longitude=EXCLUDED.longitude, speed_kmh=EXCLUDED.speed_kmh,
                          heading_degrees=EXCLUDED.heading_degrees, accuracy_m=EXCLUDED.accuracy_m,
                          operation=EXCLUDED.operation, matched_segment_id=EXCLUDED.matched_segment_id,
                          match_distance_m=EXCLUDED.match_distance_m, run_id=EXCLUDED.run_id,
                          is_simulated=true, updated_at=now()
-                       WHERE EXCLUDED.observed_at >= snowplow_positions_latest.observed_at""",
+                       WHERE EXCLUDED.received_at >= snowplow_positions_latest.received_at""",
                     (
-                        record["vehicle_id"], record["observed_at"], record["latitude"],
+                        record["vehicle_id"], record["observed_at"], record["received_at"],
+                        record["latitude"],
                         record["longitude"], record["speed_kmh"], record["heading_degrees"],
                         record["accuracy_m"], record["operation"], record["matched_segment_id"],
                         record["match_distance_m"], message["processingRunId"],
@@ -301,14 +360,15 @@ def load_message(message: dict[str, Any]) -> dict[str, Any]:
                 )
                 cursor.execute(
                     """INSERT INTO snowplow_segment_passages (
-                         event_id, vehicle_id, segment_id, observed_at, operation, speed_kmh,
+                         event_id, vehicle_id, segment_id, observed_at, received_at, operation, speed_kmh,
                          latitude, longitude, match_distance_m, ground_truth_segment_id,
                          ground_truth_match, source, run_id, is_simulated
-                       ) VALUES (%s, %s, %s, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s, %s, %s, true)
+                       ) VALUES (%s, %s, %s, %s::timestamptz, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s, %s, %s, true)
                        ON CONFLICT (event_id) DO NOTHING""",
                     (
                         record["event_id"], record["vehicle_id"], record["matched_segment_id"],
-                        record["observed_at"], record["operation"], record["speed_kmh"],
+                        record["observed_at"], record["received_at"], record["operation"],
+                        record["speed_kmh"],
                         record["latitude"], record["longitude"], record["match_distance_m"],
                         record.get("ground_truth_segment_id"), record.get("ground_truth_match"),
                         record["source"], message["processingRunId"],

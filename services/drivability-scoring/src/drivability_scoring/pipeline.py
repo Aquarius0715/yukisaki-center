@@ -65,7 +65,17 @@ LEFT JOIN LATERAL (
   SELECT temperature_c, snowfall_cm, snow_depth_m
   FROM weather_hourly_windows
   WHERE relative_hour = 0
-  ORDER BY reference_time DESC LIMIT 1
+    AND reference_time = (
+      SELECT max(reference_time) FROM weather_hourly_windows WHERE relative_hour = 0
+    )
+  ORDER BY
+    power(latitude - (r.geometry_geojson #>> '{coordinates,0,1}')::double precision, 2)
+    + power(
+        (longitude - (r.geometry_geojson #>> '{coordinates,0,0}')::double precision)
+        * cos(radians((r.geometry_geojson #>> '{coordinates,0,1}')::double precision)),
+        2
+      )
+  LIMIT 1
 ) w ON true
 LEFT JOIN latest_snow_pipe_status s ON s.segment_id = r.segment_id
 LEFT JOIN LATERAL (

@@ -5,6 +5,8 @@ from datetime import datetime
 
 from data_ingestion.weather.window_collector import (
     HOURLY_FIELDS,
+    NAGAOKA_BBOX,
+    build_nagaoka_weather_grid,
     build_source_url,
     fetch_json,
     parse_reference_time,
@@ -42,12 +44,34 @@ class WeatherWindowCollectorTest(unittest.TestCase):
         self.assertIn("start_date=2026-01-23", url)
         self.assertIn("timezone=Asia%2FTokyo", url)
 
+    def test_builds_multi_location_url_for_nagaoka_grid(self):
+        grid = build_nagaoka_weather_grid()
+        self.assertEqual(len(grid), 35)
+        west, south, east, north = NAGAOKA_BBOX
+        self.assertTrue(all(south < item["latitude"] < north for item in grid))
+        self.assertTrue(all(west < item["longitude"] < east for item in grid))
+        self.assertEqual(len({item["location_id"] for item in grid}), 35)
+        url = build_source_url(
+            "https://archive-api.open-meteo.com/v1/archive",
+            datetime.fromisoformat("2026-01-23T12:00:00+09:00"),
+            [item["latitude"] for item in grid],
+            [item["longitude"] for item in grid],
+        )
+        self.assertIn("%2C", url)
+
     def test_validates_hourly_series(self):
         hourly = {"time": ["2026-01-23T12:00"]}
         hourly.update({field: [1] for field in HOURLY_FIELDS})
         payload = json.dumps({"hourly": hourly}).encode()
         result = fetch_json("https://example.test", opener=lambda *_args, **_kwargs: Response(payload))
         self.assertEqual(result["hourly"]["temperature_2m"], [1])
+
+    def test_validates_multiple_location_responses(self):
+        hourly = {"time": ["2026-01-23T12:00"]}
+        hourly.update({field: [1] for field in HOURLY_FIELDS})
+        payload = json.dumps([{"hourly": hourly}, {"hourly": hourly}]).encode()
+        result = fetch_json("https://example.test", opener=lambda *_args, **_kwargs: Response(payload))
+        self.assertEqual(len(result), 2)
 
 
 if __name__ == "__main__":

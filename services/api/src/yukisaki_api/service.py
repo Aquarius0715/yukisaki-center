@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
-from typing import Any, Iterable
+from typing import Any
 
-DEMO_BBOX = (138.74, 37.40, 138.84, 37.49)
+DEMO_BBOX = (138.643056, 37.176389, 139.124444, 37.710278)
 MAX_FEATURES = 5000
 
 
@@ -58,25 +58,6 @@ def _number(value: Any) -> float | int | None:
     if isinstance(value, Decimal):
         return float(value)
     return value
-
-
-def _coordinates(geometry: dict[str, Any]) -> Iterable[tuple[float, float]]:
-    coordinates = geometry.get("coordinates", [])
-    if geometry.get("type") == "LineString":
-        yield from ((float(point[0]), float(point[1])) for point in coordinates)
-    elif geometry.get("type") == "MultiLineString":
-        for line in coordinates:
-            yield from ((float(point[0]), float(point[1])) for point in line)
-
-
-def _intersects(geometry: dict[str, Any], bbox: tuple[float, float, float, float]) -> bool:
-    points = list(_coordinates(geometry))
-    if not points:
-        return False
-    west, south, east, north = bbox
-    longitudes = [point[0] for point in points]
-    latitudes = [point[1] for point in points]
-    return min(longitudes) <= east and max(longitudes) >= west and min(latitudes) <= north and max(latitudes) >= south
 
 
 def _road_feature(row: dict[str, Any]) -> dict[str, Any]:
@@ -131,7 +112,7 @@ def _snowplow_feature(row: dict[str, Any]) -> dict[str, Any]:
             "matched_segment_id": row.get("matched_segment_id"),
             "match_distance_m": _number(row.get("match_distance_m")),
             "run_id": row.get("run_id"),
-            "data_timestamp": _iso(row.get("observed_at")),
+            "data_timestamp": _iso(row.get("received_at")),
             "confidence": 0.9,
             "is_simulated": bool(row.get("is_simulated")),
         },
@@ -143,12 +124,8 @@ class MapService:
         self.repository = repository
 
     def roads(self, query: MapQuery) -> dict[str, Any]:
-        matched = [
-            _road_feature(row)
-            for row in self.repository.road_segments()
-            if _intersects(row["geometry_geojson"], query.bbox)
-        ]
-        features = matched[: query.limit]
+        matched = self.repository.road_segments(query.bbox, query.limit)
+        features = [_road_feature(row) for row in matched[: query.limit]]
         timestamps = [item["properties"]["data_timestamp"] for item in features if item["properties"]["data_timestamp"]]
         return {
             "type": "FeatureCollection",
@@ -187,7 +164,7 @@ class MapService:
             "confidence": min(roads["confidence"], snowplows["confidence"]),
             "is_simulated": roads["is_simulated"] or snowplows["is_simulated"],
             "demo": {
-                "target_area": "新潟県長岡市石動南町",
+                "target_area": "新潟県長岡市",
                 "target_date": "2026-01-23",
             },
             "roads": roads,

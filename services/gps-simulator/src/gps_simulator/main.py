@@ -71,7 +71,14 @@ def run_forever() -> None:
     run_id = f"gps-sim-{uuid.uuid4()}"
     started = time.monotonic()
     route_lengths = [sum(edge.length_m for edge in route) for route in routes]
-    LOGGER.info("Starting %d simulated snowplows with run_id=%s", vehicle_count, run_id)
+    covered_segments = {edge.segment_id for route in routes for edge in route}
+    LOGGER.info(
+        "Starting %d simulated snowplows with run_id=%s across %d road segments; route_km=%s",
+        vehicle_count,
+        run_id,
+        len(covered_segments),
+        [round(length / 1000, 2) for length in route_lengths],
+    )
     while True:
         elapsed = time.monotonic() - started
         observed_at = scenario_start + timedelta(seconds=elapsed)

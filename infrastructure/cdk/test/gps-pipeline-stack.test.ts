@@ -44,7 +44,7 @@ describe('GpsPipelineStack', () => {
     template.resourceCountIs('AWS::Events::Rule', 2);
     template.hasResourceProperties('AWS::ECS::Service', { DesiredCount: 0 });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
-      Cpu: '256', Memory: '512', RuntimePlatform: Match.objectLike({ CpuArchitecture: 'ARM64' }),
+      Cpu: '1024', Memory: '2048', RuntimePlatform: Match.objectLike({ CpuArchitecture: 'ARM64' }),
     });
     template.resourcePropertiesCountIs('AWS::Lambda::Function', {
       PackageType: 'Image', ReservedConcurrentExecutions: 0,

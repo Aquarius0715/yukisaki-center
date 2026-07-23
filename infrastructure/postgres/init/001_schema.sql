@@ -43,6 +43,10 @@ CREATE INDEX IF NOT EXISTS weather_hourly_windows_lookup_idx
 CREATE TABLE IF NOT EXISTS road_segments (
   segment_id TEXT PRIMARY KEY,
   geometry_geojson JSONB NOT NULL,
+  min_longitude DOUBLE PRECISION,
+  min_latitude DOUBLE PRECISION,
+  max_longitude DOUBLE PRECISION,
+  max_latitude DOUBLE PRECISION,
   road_name TEXT,
   road_type TEXT,
   length_m NUMERIC,
@@ -52,6 +56,9 @@ CREATE TABLE IF NOT EXISTS road_segments (
   snapshot_date DATE NOT NULL,
   is_simulated BOOLEAN NOT NULL DEFAULT false
 );
+
+CREATE INDEX IF NOT EXISTS road_segments_bbox_idx
+  ON road_segments (min_longitude, max_longitude, min_latitude, max_latitude);
 
 CREATE TABLE IF NOT EXISTS snow_pipe_history (
   segment_id TEXT NOT NULL REFERENCES road_segments(segment_id),
@@ -74,11 +81,16 @@ SELECT DISTINCT ON (segment_id)
 FROM snow_pipe_history
 ORDER BY segment_id, valid_from DESC, ingested_at DESC;
 
-CREATE OR REPLACE VIEW road_segments_enriched AS
-SELECT r.*, s.snow_pipe, s.operation_status, s.effectiveness,
+DROP VIEW IF EXISTS road_segments_enriched;
+CREATE VIEW road_segments_enriched AS
+SELECT r.segment_id, r.geometry_geojson, r.road_name, r.road_type,
+       r.length_m, r.max_slope_percent, r.source, r.source_version,
+       r.snapshot_date, r.is_simulated,
+       s.snow_pipe, s.operation_status, s.effectiveness,
        s.valid_from AS snow_pipe_updated_at, s.source AS snow_pipe_source,
        s.rule_version AS snow_pipe_rule_version,
-       s.is_simulated AS snow_pipe_is_simulated
+       s.is_simulated AS snow_pipe_is_simulated,
+       r.min_longitude, r.min_latitude, r.max_longitude, r.max_latitude
 FROM road_segments r
 LEFT JOIN latest_snow_pipe_status s USING (segment_id);
 
@@ -92,6 +104,7 @@ CREATE TABLE IF NOT EXISTS snowplow_vehicles (
 CREATE TABLE IF NOT EXISTS snowplow_positions_latest (
   vehicle_id TEXT PRIMARY KEY REFERENCES snowplow_vehicles(vehicle_id),
   observed_at TIMESTAMPTZ NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL,
   latitude DOUBLE PRECISION NOT NULL,
   longitude DOUBLE PRECISION NOT NULL,
   speed_kmh NUMERIC NOT NULL,
@@ -110,6 +123,7 @@ CREATE TABLE IF NOT EXISTS snowplow_segment_passages (
   vehicle_id TEXT NOT NULL REFERENCES snowplow_vehicles(vehicle_id),
   segment_id TEXT NOT NULL REFERENCES road_segments(segment_id),
   observed_at TIMESTAMPTZ NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL,
   operation TEXT NOT NULL,
   speed_kmh NUMERIC NOT NULL,
   latitude DOUBLE PRECISION NOT NULL,

@@ -10,8 +10,9 @@ from yukisaki_api.service import MapQuery, MapService, RequestError
 
 
 class FakeRepository:
-    def road_segments(self):
-        return [{
+    @staticmethod
+    def _road():
+        return {
             "segment_id": "road-1",
             "geometry_geojson": {"type": "LineString", "coordinates": [[138.78, 37.44], [138.79, 37.45]]},
             "road_name": "長岡道路", "road_type": "primary", "length_m": Decimal("120.5"),
@@ -24,14 +25,21 @@ class FakeRepository:
             "confidence": Decimal("0.9"), "factors": {"plowed": True}, "rule_version": "v1",
             "score_is_simulated": True, "observed_at": datetime(2026, 1, 23, 3, tzinfo=timezone.utc),
             "vehicle_id": "plow-01",
-        }]
+        }
+
+    def road_segments(self, bbox, limit):
+        west, south, east, north = bbox
+        if not (west <= 138.79 and east >= 138.78 and south <= 37.45 and north >= 37.44):
+            return []
+        return [self._road()][: limit + 1]
 
     def road_segment(self, segment_id):
-        return self.road_segments()[0] if segment_id == "road-1" else None
+        return self._road() if segment_id == "road-1" else None
 
     def snowplows(self):
         return [{
             "vehicle_id": "plow-01", "display_name": "除雪車1", "observed_at": datetime(2026, 1, 23, 3, tzinfo=timezone.utc),
+            "received_at": datetime(2026, 7, 22, 2, tzinfo=timezone.utc),
             "latitude": 37.44, "longitude": 138.78, "speed_kmh": Decimal("18.0"),
             "heading_degrees": Decimal("90"), "accuracy_m": Decimal("3"), "operation": "plowing",
             "matched_segment_id": "road-1", "match_distance_m": Decimal("1.2"), "run_id": "run-1", "is_simulated": True,
@@ -59,6 +67,7 @@ class MapApiTest(unittest.TestCase):
         body = json.loads(handle(event("/v1/snowplows"), self.service)["body"])
         self.assertEqual([138.78, 37.44], body["features"][0]["geometry"]["coordinates"])
         self.assertEqual("road-1", body["features"][0]["properties"]["matched_segment_id"])
+        self.assertEqual("2026-07-22T02:00:00+00:00", body["features"][0]["properties"]["data_timestamp"])
 
     def test_snapshot_connects_roads_and_snowplows(self):
         body = json.loads(handle(event("/v1/map/snapshot", {"bbox": "138.7,37.4,138.9,37.5"}), self.service)["body"])

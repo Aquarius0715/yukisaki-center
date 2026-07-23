@@ -1,6 +1,6 @@
 # 雪対応ナビゲーション用道路データ生成
 
-新潟県長岡市石動南町の代表点（37.442959, 138.790936）から半径1500m以内の、OSMで自動車通行可能な道路（`network_type="drive"`）を取得し、積雪管理用の約25m区間GeoJSONへ変換します。歩道・自転車道・階段などはOSMnxのdriveネットワークから除外されます。上位データパイプラインのS3バケットへ不変保存します。
+新潟県長岡市のOSM行政界ポリゴン内にある、自動車通行可能な道路（`network_type="drive"`）を取得し、積雪管理用の約25m区間GeoJSONへ変換します。歩道・自転車道・階段などはOSMnxのdriveネットワークから除外されます。上位データパイプラインのS3バケットへ不変保存します。
 
 ## 構成
 
@@ -31,7 +31,7 @@ pytest
 
 CLIは `--place-name`、`--segment-length`、`--fallback-center-lat`、`--fallback-center-lon`、`--radius`、`--output`、`--attributes-output`、`--metadata-output`、`--aws-profile`、`--s3-bucket`、`--skip-upload`、`--log-level` を受けます。CLI値は環境変数より優先されます。
 
-地名ポリゴンの取得を最初に試し、失敗時は石動南町の代表点 `37.442959, 138.790936` と `FALLBACK_RADIUS_M=1500` を使います。座標は環境変数で変更できます。
+地名ポリゴンの取得を必須とし、AWSでは`OSM_PLACE_NAME=新潟県長岡市`を指定します。行政界取得に失敗した場合は狭い範囲へ黙って縮退せず、収集全体を失敗させます。ローカルで明示的に`FALLBACK_CENTER_LAT/LON`を設定した場合だけ点・半径方式へフォールバックできます。
 
 ## 分割と重複整理
 
@@ -53,4 +53,3 @@ aws s3 ls s3://{DATA_BUCKET}/raw/osm/road-network/ --profile snow-nav
 ```
 
 認証情報不足時はAWSアクセスキーの入力を求めず、AWS CLIプロファイル、IAMロール、または `--skip-upload` を案内します。よくある失敗は、地名検索失敗（フォールバック座標を設定）、道路0件（対象地域/半径を確認）、S3権限不足（バケット・IAMポリシーを確認）です。
-

@@ -63,52 +63,75 @@ def series_by_time(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return result
 
 
+def _location_sources(raw: dict[str, Any]) -> list[tuple[dict[str, Any], dict[str, Any]]]:
+    if "locations" in raw:
+        result = []
+        for item in raw["locations"]:
+            if not isinstance(item, dict) or not isinstance(item.get("location"), dict):
+                raise ValueError("weather location entry is invalid")
+            if not isinstance(item.get("sources"), dict):
+                raise ValueError("weather location sources are invalid")
+            result.append((item["location"], item["sources"]))
+        if not result:
+            raise ValueError("weather payload contains no locations")
+        return result
+    return [(raw["location"], raw["sources"])]
+
+
+def source_urls(raw: dict[str, Any]) -> list[str]:
+    if isinstance(raw.get("source_urls"), list):
+        return [str(url) for url in raw["source_urls"]]
+    return [raw["sources"]["observation"]["url"], raw["sources"]["forecast"]["url"]]
+
+
 def normalize_window(raw: dict[str, Any]) -> list[dict[str, Any]]:
     reference = datetime.fromisoformat(raw["reference_time"]).astimezone(ZoneInfo(TIMEZONE_NAME))
-    location = raw["location"]
-    observation = series_by_time(raw["sources"]["observation"]["response"])
-    forecast = series_by_time(raw["sources"]["forecast"]["response"])
     records: list[dict[str, Any]] = []
-    for relative_hour in range(-3, 4):
-        valid_at = reference + timedelta(hours=relative_hour)
-        key = valid_at.strftime("%Y-%m-%dT%H:00")
-        data_kind = "observed" if relative_hour <= 0 else "forecast"
-        source = observation if data_kind == "observed" else forecast
-        if key not in source:
-            raise ValueError(f"source does not contain required hour {key}")
-        values = source[key]
-        record_id_source = (
-            f"{location['location_id']}|{reference.isoformat()}|{valid_at.isoformat()}|{data_kind}"
-        )
-        records.append(
-            {
-                "weather_window_record_id": hashlib.sha256(record_id_source.encode()).hexdigest(),
-                "location_id": location["location_id"],
-                "location_name": location["name"],
-                "latitude": location["latitude"],
-                "longitude": location["longitude"],
-                "reference_time": reference.isoformat(),
-                "valid_time": valid_at.isoformat(),
-                "relative_hour": relative_hour,
-                "data_kind": data_kind,
-                "temperature_c": values["temperature_2m"],
-                "relative_humidity_percent": values["relative_humidity_2m"],
-                "precipitation_mm": values["precipitation"],
-                "snowfall_cm": values["snowfall"],
-                "snow_depth_m": values["snow_depth"],
-                "weather_code": values["weather_code"],
-                "wind_speed_kmh": values["wind_speed_10m"],
-                "wind_gusts_kmh": values["wind_gusts_10m"],
-                "source": "open-meteo-historical-weather"
-                if data_kind == "observed"
-                else "open-meteo-historical-forecast",
-                "source_url": raw["sources"]["observation" if data_kind == "observed" else "forecast"]["url"],
-                "fetched_at": raw["fetched_at"],
-                "run_id": raw["run_id"],
-                "schema_version": raw["schema_version"],
-                "is_simulated": False,
-            }
-        )
+    for location, sources in _location_sources(raw):
+        observation = series_by_time(sources["observation"]["response"])
+        forecast = series_by_time(sources["forecast"]["response"])
+        for relative_hour in range(-3, 4):
+            valid_at = reference + timedelta(hours=relative_hour)
+            key = valid_at.strftime("%Y-%m-%dT%H:00")
+            data_kind = "observed" if relative_hour <= 0 else "forecast"
+            source = observation if data_kind == "observed" else forecast
+            if key not in source:
+                raise ValueError(f"source does not contain required hour {key}")
+            values = source[key]
+            record_id_source = (
+                f"{location['location_id']}|{reference.isoformat()}|{valid_at.isoformat()}|{data_kind}"
+            )
+            records.append(
+                {
+                    "weather_window_record_id": hashlib.sha256(record_id_source.encode()).hexdigest(),
+                    "location_id": location["location_id"],
+                    "location_name": location["name"],
+                    "latitude": location["latitude"],
+                    "longitude": location["longitude"],
+                    "reference_time": reference.isoformat(),
+                    "valid_time": valid_at.isoformat(),
+                    "relative_hour": relative_hour,
+                    "data_kind": data_kind,
+                    "temperature_c": values["temperature_2m"],
+                    "relative_humidity_percent": values["relative_humidity_2m"],
+                    "precipitation_mm": values["precipitation"],
+                    "snowfall_cm": values["snowfall"],
+                    "snow_depth_m": values["snow_depth"],
+                    "weather_code": values["weather_code"],
+                    "wind_speed_kmh": values["wind_speed_10m"],
+                    "wind_gusts_kmh": values["wind_gusts_10m"],
+                    "source": "open-meteo-historical-weather"
+                    if data_kind == "observed"
+                    else "open-meteo-historical-forecast",
+                    "source_url": sources[
+                        "observation" if data_kind == "observed" else "forecast"
+                    ]["url"],
+                    "fetched_at": raw["fetched_at"],
+                    "run_id": raw["run_id"],
+                    "schema_version": raw["schema_version"],
+                    "is_simulated": False,
+                }
+            )
     return records
 
 
@@ -213,10 +236,21 @@ def parse_verified_raw(source_object: dict[str, Any]) -> tuple[dict[str, Any], s
     return json.loads(source_body), source_checksum
 
 
+def snapshot_scope(records: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    reference_times = {record["reference_time"] for record in records}
+    if len(reference_times) != 1:
+        raise ValueError("weather snapshot records must share one reference_time")
+    location_ids = sorted({record["location_id"] for record in records})
+    if not location_ids:
+        raise ValueError("weather snapshot contains no locations")
+    return reference_times.pop(), location_ids
+
+
 def process_object(bucket: str, key: str) -> dict[str, Any]:
     source_object = s3_client().get_object(Bucket=bucket, Key=key)
     raw, source_checksum = parse_verified_raw(source_object)
     records = normalize_window(raw)
+    reference_time, location_ids = snapshot_scope(records)
     reference_date = records[0]["reference_time"][:10]
     run_id = raw["run_id"]
     output_key = (
@@ -237,6 +271,12 @@ def process_object(bucket: str, key: str) -> dict[str, Any]:
             for record in records:
                 cursor.execute(UPSERT_SQL, record)
             cursor.execute(
+                """DELETE FROM weather_hourly_windows
+                   WHERE reference_time = %s::timestamptz
+                     AND NOT (location_id = ANY(%s))""",
+                (reference_time, location_ids),
+            )
+            cursor.execute(
                 """INSERT INTO data_load_runs (run_id, dataset, source_key, record_count)
                    VALUES (%s, %s, %s, %s)
                    ON CONFLICT (run_id) DO UPDATE SET
@@ -254,7 +294,7 @@ def process_object(bucket: str, key: str) -> dict[str, Any]:
             "pipeline": "weather-window-processing",
             "dataset": "weather-hourly-window",
             "source": "open-meteo",
-            "source_urls": [raw["sources"]["observation"]["url"], raw["sources"]["forecast"]["url"]],
+            "source_urls": source_urls(raw),
             "fetched_at": raw["fetched_at"],
             "target_start_at": raw["window_start"],
             "target_end_at": raw["window_end"],
@@ -277,17 +317,14 @@ def database_status() -> dict[str, Any]:
             if cursor.fetchone()[0] is None:
                 return {"table": "weather_hourly_windows", "recordCount": 0, "records": []}
             cursor.execute(
-                """SELECT relative_hour, data_kind, valid_time::text,
+                """SELECT location_id, location_name, relative_hour, data_kind, valid_time::text,
                           temperature_c::double precision, precipitation_mm::double precision,
                           snowfall_cm::double precision, snow_depth_m::double precision,
                           weather_code
                    FROM weather_hourly_windows
-                   WHERE location_id = %s AND reference_time = %s::timestamptz
-                   ORDER BY relative_hour""",
-                (
-                    "nagaoka-isuruginami-minami",
-                    os.environ.get("TARGET_REFERENCE_TIME", "2026-01-23T12:00:00+09:00"),
-                ),
+                   WHERE reference_time = %s::timestamptz
+                   ORDER BY location_id, relative_hour""",
+                (os.environ.get("TARGET_REFERENCE_TIME", "2026-01-23T12:00:00+09:00"),),
             )
             rows = cursor.fetchall()
     return {
@@ -295,14 +332,16 @@ def database_status() -> dict[str, Any]:
         "recordCount": len(rows),
         "records": [
             {
-                "relativeHour": row[0],
-                "dataKind": row[1],
-                "validTime": row[2],
-                "temperatureC": row[3],
-                "precipitationMm": row[4],
-                "snowfallCm": row[5],
-                "snowDepthM": row[6],
-                "weatherCode": row[7],
+                "locationId": row[0],
+                "locationName": row[1],
+                "relativeHour": row[2],
+                "dataKind": row[3],
+                "validTime": row[4],
+                "temperatureC": row[5],
+                "precipitationMm": row[6],
+                "snowfallCm": row[7],
+                "snowDepthM": row[8],
+                "weatherCode": row[9],
             }
             for row in rows
         ],

@@ -257,6 +257,7 @@ export class DataPipelineStack extends Stack {
       environment: {
         DATA_BUCKET: this.dataBucket.bucketName,
         TARGET_REFERENCE_TIME: props.targetReferenceTime,
+        WEATHER_SCOPE: 'nagaoka-city-grid',
         TARGET_LATITUDE: String(props.targetLatitude),
         TARGET_LONGITUDE: String(props.targetLongitude),
       },

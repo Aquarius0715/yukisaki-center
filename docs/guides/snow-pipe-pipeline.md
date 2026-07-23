@@ -19,12 +19,12 @@ Road Collector Fargate
 
 ## 判定ルール
 
-`road_name`（なければOSMの`name`）がNULL、空文字、空白だけでなければ`snow_pipe=true`とする。これはMVPの仮データ生成規則であり、設備の実在や稼働を示さない。全レコードへ次を保持する。
+`road_name`（なければOSMの`name`）がNULL、空文字、空白だけでなければ`snow_pipe=true`かつ`operation_status=active`とする。名前がない道路は`snow_pipe=false`かつ`operation_status=inactive`とする。これはMVPの仮データ生成規則であり、設備の実在や実際の稼働を示さない。全レコードへ次を保持する。
 
 ```text
 source=simulated-road-name-rule
-rule_version=road-name-v1
-operation_status=unknown
+rule_version=road-name-active-v2
+operation_status=active | inactive
 is_simulated=true
 ```
 
@@ -81,3 +81,5 @@ npm run deploy -- YukisakiDataPipeline-dev YukisakiRoadCollector-dev \
 3スタックは同じCDKアプリで合成し、Snow Pipeスタックは気象スタックのRDS・VPC・Secretと道路スタックのS3バケットを参照する。デプロイ直後はRule、Loaderとも停止状態である。`npm run env:start`後に道路収集を実行し、S3 raw/curated、SQS、DLQ、共通RDS件数を順に確認する。確認後は`npm run env:stop`で全実行系を停止する。
 
 2026-07-21にS3 curated正本から共通RDSへ4,944件を冪等再ロードし、旧消雪パイプ専用RDS・VPC・Secret・自動バックアップを削除済み。Snow Pipe用S3バケットは正本のため維持する。
+
+2026-07-23に長岡市全域133,013区間を再生成・ロードした。道路名あり36,383区間はすべて`snow_pipe=true`かつ`operation_status=active`、道路名なし96,630区間はすべて`inactive`である。大規模スナップショットはPostgreSQLの一時テーブルと`COPY`を使って一括UPSERTする。
