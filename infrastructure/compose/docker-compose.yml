@@ -29,6 +29,13 @@ services:
       context: ../../services/route-planning
       target: test
 
+  route-viewer:
+    build:
+      context: ../../services/route-planning
+      target: viewer
+    ports:
+      - "4173:80"
+
   ai-assistant-test:
     build:
       context: ../../services/ai-assistant

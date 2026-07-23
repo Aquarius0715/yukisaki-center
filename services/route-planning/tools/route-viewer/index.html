@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Yukisaki Route Viewer</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQ3ynleWC5tP3HflwLWHvcNopWf2xZE="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="control-panel">
+        <header>
+          <p class="eyebrow">LOCAL DIAGNOSTIC TOOL</p>
+          <h1>雪道経路ビューア</h1>
+          <p class="lead">AWSの経路APIを呼び出し、候補・指数・危険区間を地図上で比較します。</p>
+        </header>
+
+        <section class="form-section">
+          <label>
+            API URL
+            <input id="api-url" type="url" value="https://ird5uq7fr1.execute-api.ap-northeast-1.amazonaws.com" />
+          </label>
+
+          <div class="field-grid">
+            <fieldset>
+              <legend>出発地点</legend>
+              <label>緯度<input id="origin-lat" type="number" step="0.000001" value="37.4427" /></label>
+              <label>経度<input id="origin-lon" type="number" step="0.000001" value="138.7908" /></label>
+            </fieldset>
+            <fieldset>
+              <legend>目的地点</legend>
+              <label>緯度<input id="destination-lat" type="number" step="0.000001" value="37.4510" /></label>
+              <label>経度<input id="destination-lon" type="number" step="0.000001" value="138.8050" /></label>
+            </fieldset>
+          </div>
+
+          <label>
+            探索モード
+            <select id="mode">
+              <option value="time_priority">時間優先</option>
+              <option value="balanced" selected>バランス</option>
+              <option value="drivability_priority">走りやすさ優先</option>
+            </select>
+          </label>
+
+          <div class="option-grid">
+            <label class="check"><input id="avoid-steep" type="checkbox" /> 急勾配を避ける</label>
+            <label class="check"><input id="avoid-bridge" type="checkbox" /> 橋を避ける</label>
+            <label class="check"><input id="prefer-main" type="checkbox" /> 幹線道路を優先</label>
+            <label class="check"><input id="prefer-plowed" type="checkbox" checked /> 最近除雪済みを優先</label>
+          </div>
+
+          <label>
+            許容する遠回り
+            <span><input id="detour" type="range" min="0" max="30" value="10" /> <output id="detour-value">10分</output></span>
+          </label>
+
+          <div class="button-row">
+            <button id="fetch-route" class="primary-button" type="button">APIから経路を取得</button>
+            <button id="load-sample" class="secondary-button" type="button">デモJSONを表示</button>
+          </div>
+          <p id="request-status" class="status" data-kind="idle">未取得</p>
+        </section>
+
+        <details class="json-loader">
+          <summary>保存済みJSONを表示する</summary>
+          <textarea id="response-json" rows="8" placeholder="経路APIのレスポンスJSONを貼り付け"></textarea>
+          <button id="render-json" class="secondary-button" type="button">貼り付けたJSONを描画</button>
+        </details>
+
+        <section>
+          <div class="section-heading">
+            <h2>経路候補</h2>
+            <span id="route-count">0件</span>
+          </div>
+          <div id="route-cards" class="route-cards">
+            <p class="empty-state">経路を取得すると、ここに比較結果が表示されます。</p>
+          </div>
+        </section>
+
+        <details class="raw-json">
+          <summary>レスポンスJSON</summary>
+          <pre id="raw-json">未取得</pre>
+        </details>
+      </aside>
+
+      <section class="map-panel" aria-label="経路地図">
+        <div id="map"></div>
+        <div class="map-legend">
+          <span><i class="legend-line route-one"></i>候補1</span>
+          <span><i class="legend-line route-two"></i>候補2</span>
+          <span><i class="legend-line route-three"></i>候補3</span>
+          <span><i class="legend-line hazard"></i>危険区間</span>
+        </div>
+      </section>
+    </main>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

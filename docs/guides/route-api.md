@@ -2,7 +2,7 @@
 
 ## 現在の状態
 
-道路収集、curated DB Loader、PostGIS/pgRoutingスキーマ、Route Planning Docker Lambda、`POST /v1/routes`、CDK、`env:start|stop|status`統合はローカル実装済みである。AWSへのデプロイと、ルーティング属性を含む長岡市道路の再収集・再ロードは未実施である。
+道路収集、curated DB Loader、PostGIS/pgRoutingスキーマ、Route Planning Docker Lambda、`POST /v1/routes`、CDK、`env:start|stop|status`統合は実装済みである。Route PlanningとAPI GatewayはAWSへデプロイ済みだが、ルーティング属性を含む長岡市道路の再収集・再ロードは未完了である。この状態のAPIはDBに`routing_graph_state`がないため503を返す。
 
 既存AWSの道路には`source_node_key`、`target_node_key`等がないため、Route Planningスタックだけをデプロイしても経路APIは409を返す。次の順序を守る。
 
@@ -58,6 +58,16 @@ curl -X POST "${API_URL}/v1/routes" \
 ```
 
 レスポンスでは`graph_version`、`score_rule_version`、`cost_config_version`、地点スナップ距離、最大3経路、指数カバレッジ、危険区間、`is_simulated`を確認する。
+
+## ローカル地図で確認
+
+既存のWebアプリへ接続する前に、独立した診断用ビューアを起動できる。
+
+```bash
+docker compose -f infrastructure/compose/docker-compose.yml up route-viewer --build
+```
+
+Chromeで`http://localhost:4173`を開く。APIから直接取得するほか、保存済みレスポンスJSONを貼り付けて描画できる。候補1〜3、出発・目的スナップ地点、危険区間、距離、時間、平均・最低指数、指数カバレッジを確認する。
 
 ## DB確認
 

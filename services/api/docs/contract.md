@@ -9,9 +9,12 @@
 | GET | `/v1/road-segments/{id}` | 道路区間1件を取得 |
 | GET | `/v1/snowplows` | 除雪車の最新位置をPoint GeoJSONで取得 |
 | GET | `/v1/map/snapshot` | 初期表示用に道路と除雪車を一括取得 |
+| GET | `/v1/places/search` | Apple Mapsで長岡市内の名称を座標へ変換 |
+| GET | `/v1/places/autocomplete` | Apple Mapsで長岡市内の検索候補を取得 |
 | POST | `/v1/routes` | 始点・終点と選好から最大3件の経路候補を取得 |
 
 `POST /v1/routes`の詳細な入出力、固定デモ日時、エラー契約は[経路探索サービスAPI契約](../../route-planning/docs/contract.md)を正本とする。
+地点検索の認証・入出力・運用は[Apple Maps地点検索API](../../../docs/guides/place-search-api.md)を参照する。
 
 ## 道路のクエリ
 
@@ -58,4 +61,4 @@
 
 ## エラー
 
-入力不正は400、対象なしは404、DB停止・一時障害は503とし、`error.code`と安全な`error.message`を返す。DB接続情報や内部例外は返さない。
+入力不正は400、対象なしは404、Apple上流障害は502、DB停止・設定不備・一時障害は503とし、`error.code`と安全な`error.message`を返す。DB接続情報、Apple JWT、秘密鍵、内部例外は返さない。

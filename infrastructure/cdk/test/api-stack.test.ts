@@ -39,17 +39,33 @@ describe('ApiStack', () => {
   });
   const template = Template.fromStack(stack);
 
-  test('creates a paused container Lambda and HTTP API routes', () => {
+  test('creates paused database and internet-facing container Lambdas', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
       PackageType: 'Image',
       Architectures: ['arm64'],
       ReservedConcurrentExecutions: 0,
       Environment: { Variables: Match.objectLike({ DATABASE_NAME: 'yukisaki' }) },
     });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      PackageType: 'Image',
+      Architectures: ['arm64'],
+      ReservedConcurrentExecutions: 0,
+      Environment: {
+        Variables: Match.objectLike({
+          APPLE_MAPS_SECRET_ARN: Match.anyValue(),
+        }),
+      },
+    });
     template.resourceCountIs('AWS::ApiGatewayV2::Api', 1);
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 6);
+    template.resourceCountIs('AWS::ApiGatewayV2::Route', 8);
     template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
       RouteKey: 'POST /v1/routes',
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'GET /v1/places/search',
+    });
+    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
+      RouteKey: 'GET /v1/places/autocomplete',
     });
   });
 
