@@ -6,6 +6,7 @@ import { SnowPipePipelineStack } from '../lib/snow-pipe-pipeline-stack';
 import { GpsPipelineStack } from '../lib/gps-pipeline-stack';
 import { ApiStack } from '../lib/api-stack';
 import { AiAssistantStack } from '../lib/ai-assistant-stack';
+import { WebStack } from '../lib/web-stack';
 
 const app = new cdk.App();
 const environment = app.node.tryGetContext('environment') ?? 'dev';
@@ -112,4 +113,14 @@ new AiAssistantStack(app, `YukisakiAiAssistant-${environment}`, {
     region,
   },
   description: 'Bedrock route condition extraction and evidence-bound explanations',
+});
+
+new WebStack(app, `YukisakiWeb-${environment}`, {
+  environment,
+  apiEndpoint: apiStack.httpApi.apiEndpoint,
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region,
+  },
+  description: 'Private S3 and CloudFront delivery for the Yukisaki React frontend',
 });

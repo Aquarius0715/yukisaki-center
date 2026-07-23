@@ -6,8 +6,8 @@ export const appConfig = {
   demo: {
     dateTime: '2026-01-23T12:00:00+09:00',
     label: '2026年1月23日 12:00',
-    area: '新潟県長岡市石動南町',
-    position: { latitude: 37.442762, longitude: 138.790865 },
-    bounds: { minLongitude: 138.74, minLatitude: 37.40, maxLongitude: 138.84, maxLatitude: 37.49 },
+    area: '新潟県長岡市',
+    position: { latitude: 37.443334, longitude: 138.88375 },
+    bounds: { minLongitude: 138.643056, minLatitude: 37.176389, maxLongitude: 139.124444, maxLatitude: 37.710278 },
   },
 } as const

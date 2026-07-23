@@ -133,7 +133,7 @@ export function adaptSnowplows(collection: ApiSnowplowCollection): Snowplow[] {
       longitude,
       heading: feature.properties.heading_degrees ?? 0,
       speedKmh: feature.properties.speed_kmh ?? 0,
-      lastUpdatedAt: feature.properties.observed_at ?? feature.properties.data_timestamp ?? '',
+      lastUpdatedAt: feature.properties.data_timestamp ?? feature.properties.observed_at ?? '',
       todayDistanceKm: null,
       matchedSegmentId: feature.properties.matched_segment_id,
       confidence: feature.properties.confidence,

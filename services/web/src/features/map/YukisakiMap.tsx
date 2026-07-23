@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { appConfig } from '../../api/config'
-import type { Destination, RecommendedRoute, RoadCondition, RoadSegmentFeature, RoadSegmentFeatureCollection, Snowplow } from '../../api/contracts'
+import type { Destination, MapBounds, RecommendedRoute, RoadCondition, RoadSegmentFeature, RoadSegmentFeatureCollection, Snowplow } from '../../api/contracts'
 import { loadMapKit } from './loadMapKit'
 
 export type LayerVisibility = { drivability: boolean; snowmelt: boolean; plowing: boolean; plows: boolean; tracks: boolean; slopes: boolean; snowEffects: boolean }
@@ -15,6 +15,7 @@ type Props = {
   onRoadSelect: (feature: RoadSegmentFeature) => void
   onPlowSelect: (plow: Snowplow) => void
   onMapDestination: (destination: Destination) => void
+  onViewportChange: (bounds: MapBounds) => void
   animateSnowplows: boolean
 }
 
@@ -87,6 +88,24 @@ function dataOf(overlay: mapkit.Overlay | undefined): OverlayData | undefined {
   return overlay?.data as OverlayData | undefined
 }
 
+function boundsOfRegion(region: mapkit.CoordinateRegion): MapBounds {
+  const latitudeRadius = region.span.latitudeDelta / 2
+  const longitudeRadius = region.span.longitudeDelta / 2
+  return {
+    minLongitude: region.center.longitude - longitudeRadius,
+    minLatitude: region.center.latitude - latitudeRadius,
+    maxLongitude: region.center.longitude + longitudeRadius,
+    maxLatitude: region.center.latitude + latitudeRadius,
+  }
+}
+
+function viewportKey(bounds: MapBounds): string {
+  return [
+    bounds.minLongitude, bounds.minLatitude,
+    bounds.maxLongitude, bounds.maxLatitude,
+  ].map((value) => value.toFixed(5)).join(',')
+}
+
 export function YukisakiMap(props: Props) {
   const { roads, conditions, snowplows, layers, destination, routes, activeRouteId, animateSnowplows } = props
   const containerRef = useRef<HTMLDivElement>(null)
@@ -106,6 +125,8 @@ export function YukisakiMap(props: Props) {
 
   useEffect(() => {
     let cancelled = false
+    let viewportTimer: number | undefined
+    let lastViewport = ''
     const container = containerRef.current
     if (!container) return
 
@@ -120,6 +141,19 @@ export function YukisakiMap(props: Props) {
       })
     }
 
+    const handleRegionChange = () => {
+      if (viewportTimer) window.clearTimeout(viewportTimer)
+      viewportTimer = window.setTimeout(() => {
+        const map = mapRef.current
+        if (!map) return
+        const bounds = boundsOfRegion(map.region)
+        const viewport = viewportKey(bounds)
+        if (viewport === lastViewport) return
+        lastViewport = viewport
+        propsRef.current.onViewportChange(bounds)
+      }, 400)
+    }
+
     loadMapKit(appConfig.mapKitToken).then(() => {
       if (cancelled) return
       const map = new mapkit.Map(container, {
@@ -131,8 +165,10 @@ export function YukisakiMap(props: Props) {
         showsPointsOfInterest: true,
       })
       mapRef.current = map
+      lastViewport = viewportKey(boundsOfRegion(map.region))
       setMapReady(true)
       container.addEventListener('contextmenu', handleContextMenu)
+      map.addEventListener('region-change-end', handleRegionChange)
 
       map.addEventListener('select', ((event: Event & { overlay?: mapkit.Overlay; annotation?: mapkit.Annotation }) => {
         if (event.overlay) {
@@ -184,7 +220,9 @@ export function YukisakiMap(props: Props) {
     return () => {
       cancelled = true
       container.removeEventListener('contextmenu', handleContextMenu)
+      if (viewportTimer) window.clearTimeout(viewportTimer)
       if (animationFrameRef.current) window.cancelAnimationFrame(animationFrameRef.current)
+      mapRef.current?.removeEventListener('region-change-end', handleRegionChange)
       mapRef.current?.destroy()
       mapRef.current = undefined
     }

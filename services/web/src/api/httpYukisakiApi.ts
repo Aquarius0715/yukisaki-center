@@ -14,6 +14,9 @@ import type {
 } from './contracts'
 import { adaptRoads, adaptSnapshot, adaptSnowplows, isApiMapSnapshot, isApiRoadCollection, isApiSnowplowCollection } from './mapApiAdapter'
 
+const INITIAL_MAP_ROAD_LIMIT = '3000'
+const INITIAL_MAP_TIMEOUT_MS = 30_000
+
 const bbox = (bounds?: MapBounds) => bounds
   ? [bounds.minLongitude, bounds.minLatitude, bounds.maxLongitude, bounds.maxLatitude].join(',')
   : undefined
@@ -24,20 +27,29 @@ export class HttpYukisakiApi implements YukisakiApi {
   constructor(private readonly baseUrl: string) {}
 
   private url(path: string, query?: Record<string, string | undefined>) {
-    const url = new URL(`${this.baseUrl}${path}`)
+    const baseUrl = this.baseUrl || window.location.origin
+    const url = new URL(path, `${baseUrl.replace(/\/$/, '')}/`)
     Object.entries(query ?? {}).forEach(([key, value]) => { if (value !== undefined) url.searchParams.set(key, value) })
     return url.toString()
   }
 
   async getMapSnapshot(bounds?: MapBounds) {
-    const value = await requestJson<unknown>(this.url('/v1/map/snapshot', { bbox: bbox(bounds), limit: '5000' }))
+    const value = await requestJson<unknown>(
+      this.url('/v1/map/snapshot', { bbox: bbox(bounds), limit: INITIAL_MAP_ROAD_LIMIT }),
+      {},
+      INITIAL_MAP_TIMEOUT_MS,
+    )
     if (!isApiMapSnapshot(value)) throw new PublicApiError('地図APIの応答形式が正しくありません。')
     this.latestSnapshot = adaptSnapshot(value as ApiMapSnapshot)
     return this.latestSnapshot
   }
 
   async getRoadSegments(bounds?: MapBounds) {
-    const value = await requestJson<unknown>(this.url('/v1/road-segments', { bbox: bbox(bounds), limit: '5000' }))
+    const value = await requestJson<unknown>(
+      this.url('/v1/road-segments', { bbox: bbox(bounds), limit: INITIAL_MAP_ROAD_LIMIT }),
+      {},
+      INITIAL_MAP_TIMEOUT_MS,
+    )
     if (!isApiRoadCollection(value)) throw new PublicApiError('道路APIの応答形式が正しくありません。')
     return adaptRoads(value as ApiRoadCollection).roads
   }

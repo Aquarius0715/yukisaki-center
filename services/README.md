@@ -11,7 +11,7 @@ S3を全データの正本とする。各サービスは、別サービスの実
 | `route-planning/` | 指数をコストとして経路探索 | PostgreSQL/PostGIS | 経路候補 | 設計済み |
 | `ai-assistant/` | Bedrockによる自然言語解析、経路比較、危険説明 | REST APIが返す確定済み根拠 | 構造化条件、説明文 | AWSデプロイ済み（既定停止・Anthropic用途申請待ち） |
 | `api/` | REST API、CORS、入力検証 | PostgreSQLの配信用投影 | 道路・指数・除雪車JSON / GeoJSON | 実装済み（既定停止） |
-| `web/` | 地図・経路・説明の利用者画面 | REST API | ブラウザ画面 | 設計済み |
+| `web/` | 地図・経路・説明の利用者画面 | REST API | CloudFront配信のブラウザ画面 | 実装済み（AWSデプロイ待ち・既定停止） |
 
 ## 正本と派生データ
 

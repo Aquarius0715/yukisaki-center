@@ -23,9 +23,13 @@ declare namespace mapkit {
   }
   class CoordinateSpan {
     constructor(latitudeDelta: number, longitudeDelta: number)
+    latitudeDelta: number
+    longitudeDelta: number
   }
   class CoordinateRegion {
     constructor(center: CoordinateData, span: CoordinateSpan)
+    center: Coordinate
+    span: CoordinateSpan
   }
   class Style {
     constructor(options?: {
@@ -72,6 +76,7 @@ declare namespace mapkit {
   }
   class Map extends EventTarget {
     constructor(parent: string | HTMLElement, options?: MapOptions)
+    region: CoordinateRegion
     overlays: Overlay[]
     annotations: Annotation[]
     addOverlay(overlay: Overlay): Overlay | null

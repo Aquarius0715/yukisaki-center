@@ -23,6 +23,7 @@ RUN --mount=type=secret,id=mapkit_token,env=VITE_MAPKIT_TOKEN \
     pnpm typecheck && pnpm build
 
 FROM build AS test
+CMD ["pnpm", "typecheck"]
 
 FROM nginx:1.27-alpine AS runtime
 COPY --from=build /app/dist /usr/share/nginx/html

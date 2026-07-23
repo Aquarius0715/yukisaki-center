@@ -42,6 +42,6 @@ corepack pnpm preview
 
 `.env.example` を `.env.local` へコピーして設定します。`VITE_MAPKIT_TOKEN`にはApple Developerで発行したMapKit JS用のドメイン制限付きトークンを設定します。ローカル確認ではトークンの許可ドメインに`localhost`も追加してください。`VITE_DATA_MODE=api` と `VITE_YUKISAKI_API_URL` で公開Map APIへ接続します。初回は `/v1/map/snapshot`、除雪車は `/v1/snowplows` を5秒間隔で取得します。API停止時に `VITE_ENABLE_MOCK_FALLBACK=true` ならモック表示へ切り替わります。
 
-デモ条件は2026年1月23日・新潟県長岡市石動南町です。道路付加情報、指数、消雪パイプ、GPSはAPIでも `is_simulated` を明示したデモデータです。現在のMap API対象外である経路候補、目的地検索、天気、走行軌跡はWebモックを使用します。
+デモ条件は2026年1月23日・新潟県長岡市全域で、石動南町を初期確認地点として扱います。道路付加情報、指数、消雪パイプ、GPSはAPIでも `is_simulated` を明示したデモデータです。現在のMap API対象外である経路候補、目的地検索、天気、走行軌跡はWebモックを使用します。
 
-API仕様は [docs/API_CONTRACT.md](docs/API_CONTRACT.md)、S3・CloudFront配備は [docs/AWS_DEPLOY.md](docs/AWS_DEPLOY.md) を参照してください。AWSへの配備は明示的に実行した場合だけ行われます。
+API仕様は [docs/API_CONTRACT.md](docs/API_CONTRACT.md)、S3・CloudFront配備は [docs/AWS_DEPLOY.md](docs/AWS_DEPLOY.md) を参照してください。AWSではCDKが非公開S3、CloudFront OAC、SPAフォールバック、API Gatewayへの同一オリジン転送、静的成果物の配備を管理します。AWSへの配備は明示的に実行した場合だけ行われます。
