@@ -21,3 +21,4 @@
 - [除雪車GPS仮データ・走りやすさ指数パイプライン](guides/gps-pipeline.md)
 - [フロントエンドから地図・除雪車APIを使う](guides/frontend-map-api.md)
 - [Bedrock AIアシスタント](guides/bedrock-ai-assistant.md)
+- [経路APIの実装・検証](guides/route-api.md)

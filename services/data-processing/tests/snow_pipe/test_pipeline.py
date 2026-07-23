@@ -6,11 +6,15 @@ from unittest.mock import Mock
 
 from data_processing.snow_pipe import pipeline
 from data_processing.snow_pipe.pipeline import (
+    access_status,
     database_rows,
     deterministic_processing_run_id,
+    effective_speed_kmh,
     merge_feature_collection,
     merge_objects,
     parse_jsonl,
+    speed_limit_kmh,
+    stable_bigint,
 )
 
 
@@ -24,6 +28,8 @@ class SnowPipePipelineTest(unittest.TestCase):
                 "properties": {
                     "segment_id": "segment-1", "road_name": "国道8号", "highway": "primary",
                     "length_m": 25.0, "source_edge_id": "edge-1",
+                    "source_node_key": "osm:1", "target_node_key": "osm:2",
+                    "routing_oneway": False, "maxspeed": "50 km/h", "access": "yes",
                 },
             }],
         }
@@ -43,6 +49,17 @@ class SnowPipePipelineTest(unittest.TestCase):
         self.assertEqual("segment-1", rows[0][0][0])
         self.assertEqual((138.7, 37.4, 138.8, 37.5), rows[0][0][2:6])
         self.assertEqual("processing-1", rows[0][1][7])
+        self.assertEqual(stable_bigint("osm:1"), rows[0][0][11])
+        self.assertEqual(50.0, rows[0][0][17])
+        self.assertGreater(rows[0][0][18], 0)
+
+    def test_builds_deterministic_routing_values(self):
+        self.assertEqual(stable_bigint("osm:1"), stable_bigint("osm:1"))
+        self.assertGreaterEqual(stable_bigint("osm:1"), 0)
+        self.assertEqual(40.0, speed_limit_kmh("40 km/h"))
+        self.assertIsNone(speed_limit_kmh("signals"))
+        self.assertEqual(30.0, effective_speed_kmh("residential", None))
+        self.assertEqual("closed", access_status("private", None))
 
     def test_rejects_unknown_segment(self):
         self.snow[0]["segment_id"] = "unknown"

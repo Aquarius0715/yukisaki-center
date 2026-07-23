@@ -1,5 +1,8 @@
 -- S3 is the source of truth.  These tables are a rebuildable serving projection.
 
+CREATE EXTENSION IF NOT EXISTS postgis;
+CREATE EXTENSION IF NOT EXISTS pgrouting;
+
 CREATE TABLE IF NOT EXISTS data_load_runs (
   run_id TEXT PRIMARY KEY,
   dataset TEXT NOT NULL,
@@ -51,6 +54,20 @@ CREATE TABLE IF NOT EXISTS road_segments (
   road_type TEXT,
   length_m NUMERIC,
   max_slope_percent NUMERIC,
+  routing_edge_id BIGINT,
+  source_node_id BIGINT,
+  target_node_id BIGINT,
+  source_node_key TEXT,
+  target_node_key TEXT,
+  routing_oneway BOOLEAN NOT NULL DEFAULT false,
+  speed_limit_kmh NUMERIC,
+  effective_speed_kmh NUMERIC,
+  base_travel_time_s NUMERIC,
+  reverse_travel_time_s NUMERIC,
+  access_status TEXT NOT NULL DEFAULT 'unknown',
+  bridge BOOLEAN NOT NULL DEFAULT false,
+  tunnel BOOLEAN NOT NULL DEFAULT false,
+  graph_version TEXT,
   source TEXT NOT NULL,
   source_version TEXT,
   snapshot_date DATE NOT NULL,
@@ -59,6 +76,51 @@ CREATE TABLE IF NOT EXISTS road_segments (
 
 CREATE INDEX IF NOT EXISTS road_segments_bbox_idx
   ON road_segments (min_longitude, max_longitude, min_latitude, max_latitude);
+
+CREATE TABLE IF NOT EXISTS routing_nodes (
+  node_id BIGINT PRIMARY KEY,
+  source_node_key TEXT UNIQUE NOT NULL,
+  geometry geometry(Point, 4326) NOT NULL,
+  graph_version TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS routing_nodes_geometry_idx
+  ON routing_nodes USING GIST (geometry);
+
+CREATE TABLE IF NOT EXISTS routing_edges (
+  edge_id BIGINT PRIMARY KEY,
+  segment_id TEXT UNIQUE NOT NULL REFERENCES road_segments(segment_id),
+  source BIGINT NOT NULL REFERENCES routing_nodes(node_id),
+  target BIGINT NOT NULL REFERENCES routing_nodes(node_id),
+  geometry geometry(LineString, 4326) NOT NULL,
+  length_m NUMERIC NOT NULL CHECK (length_m > 0),
+  road_type TEXT,
+  speed_limit_kmh NUMERIC,
+  effective_speed_kmh NUMERIC NOT NULL CHECK (effective_speed_kmh > 0),
+  base_travel_time_s NUMERIC NOT NULL CHECK (base_travel_time_s > 0),
+  reverse_travel_time_s NUMERIC,
+  oneway BOOLEAN NOT NULL,
+  access_status TEXT NOT NULL CHECK (access_status IN ('open', 'closed', 'unknown')),
+  bridge BOOLEAN NOT NULL,
+  tunnel BOOLEAN NOT NULL,
+  max_slope_percent NUMERIC,
+  graph_version TEXT NOT NULL,
+  is_simulated BOOLEAN NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS routing_edges_geometry_idx
+  ON routing_edges USING GIST (geometry);
+CREATE INDEX IF NOT EXISTS routing_edges_source_idx ON routing_edges (source);
+CREATE INDEX IF NOT EXISTS routing_edges_target_idx ON routing_edges (target);
+CREATE INDEX IF NOT EXISTS routing_edges_graph_version_idx ON routing_edges (graph_version);
+
+CREATE TABLE IF NOT EXISTS routing_graph_state (
+  singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
+  graph_version TEXT NOT NULL,
+  activated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  node_count INTEGER NOT NULL,
+  edge_count INTEGER NOT NULL
+);
 
 CREATE TABLE IF NOT EXISTS snow_pipe_history (
   segment_id TEXT NOT NULL REFERENCES road_segments(segment_id),

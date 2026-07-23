@@ -9,6 +9,9 @@
 | GET | `/v1/road-segments/{id}` | 道路区間1件を取得 |
 | GET | `/v1/snowplows` | 除雪車の最新位置をPoint GeoJSONで取得 |
 | GET | `/v1/map/snapshot` | 初期表示用に道路と除雪車を一括取得 |
+| POST | `/v1/routes` | 始点・終点と選好から最大3件の経路候補を取得 |
+
+`POST /v1/routes`の詳細な入出力、固定デモ日時、エラー契約は[経路探索サービスAPI契約](../../route-planning/docs/contract.md)を正本とする。
 
 ## 道路のクエリ
 

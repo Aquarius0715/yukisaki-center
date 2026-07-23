@@ -62,7 +62,7 @@ def deduplicate_edges(edges: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
             keep.append(index)
             continue
         # One-way edges are never collapsed: direction is semantically meaningful.
-        if str(row.get("oneway", False)).strip().lower() in {"true", "yes", "1"}:
+        if _oneway(row.get("oneway", False))[0]:
             keep.append(index)
             continue
         endpoints = sorted((str(row.get("u")), str(row.get("v"))))
@@ -98,6 +98,16 @@ def _segment_id(source_id: str, osm_id: Any, index: int, line: LineString) -> st
     return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
 
+def _oneway(value: Any) -> tuple[bool, bool]:
+    """Return (is_oneway, reverse_source_geometry) for common OSM values."""
+    normalized = str(json_value(value)).strip().lower()
+    return normalized in {"true", "yes", "1", "-1", "reverse"}, normalized in {"-1", "reverse"}
+
+
+def _osm_node_key(value: Any) -> str:
+    return f"osm:{json_value(value)}"
+
+
 def segment_edges(edges_metric: gpd.GeoDataFrame, target_m: float) -> tuple[gpd.GeoDataFrame, int]:
     """Split metric edge geometries into near-target, equal-length LineStrings."""
     if target_m <= 0:
@@ -110,6 +120,11 @@ def segment_edges(edges_metric: gpd.GeoDataFrame, target_m: float) -> tuple[gpd.
             skipped += 1
             LOGGER.warning("Skipping empty or unsupported edge geometry")
             continue
+        routing_oneway, reverse_geometry = _oneway(row.get("oneway", False))
+        source_u = row.get("v") if reverse_geometry else row.get("u")
+        source_v = row.get("u") if reverse_geometry else row.get("v")
+        if reverse_geometry:
+            line = LineString(list(reversed(line.coords)))
         count = segment_count_for_length(line.length, target_m)
         if not count:
             skipped += 1
@@ -123,6 +138,14 @@ def segment_edges(edges_metric: gpd.GeoDataFrame, target_m: float) -> tuple[gpd.
             record = {column: json_value(row.get(column)) for column in KEEP_COLUMNS}
             record.update({
                 "source_edge_id": edge_id, "osm_id": json_value(row.get("osmid")),
+                "source_u": json_value(source_u), "source_v": json_value(source_v),
+                "source_key": json_value(row.get("key")), "routing_oneway": routing_oneway,
+                "source_node_key": (
+                    _osm_node_key(source_u) if index == 0 else f"split:{edge_id}:{index}"
+                ),
+                "target_node_key": (
+                    _osm_node_key(source_v) if index == count - 1 else f"split:{edge_id}:{index + 1}"
+                ),
                 "road_name": json_value(row.get("name")),
                 "lanes_forward": json_value(row.get("lanes:forward")),
                 "lanes_backward": json_value(row.get("lanes:backward")),
@@ -145,4 +168,3 @@ def add_wgs84_endpoints(segments_metric: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
     result["end_lon"] = result.geometry.map(lambda line: round(line.coords[-1][0], 7))
     result["end_lat"] = result.geometry.map(lambda line: round(line.coords[-1][1], 7))
     return result
-

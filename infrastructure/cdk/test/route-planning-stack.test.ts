@@ -3,12 +3,11 @@ import { Match, Template } from 'aws-cdk-lib/assertions';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
-import * as lambda from 'aws-cdk-lib/aws-lambda';
-import { ApiStack } from '../lib/api-stack';
+import { RoutePlanningStack } from '../lib/route-planning-stack';
 
-describe('ApiStack', () => {
+describe('RoutePlanningStack', () => {
   const app = new App();
-  const shared = new Stack(app, 'ApiSharedTestStack');
+  const shared = new Stack(app, 'RouteSharedTestStack');
   const vpc = ec2.Vpc.fromVpcAttributes(shared, 'Vpc', {
     vpcId: 'vpc-0123456789abcdef0',
     availabilityZones: ['ap-northeast-1a', 'ap-northeast-1c'],
@@ -28,32 +27,24 @@ describe('ApiStack', () => {
     shared, 'Secret',
     'arn:aws:secretsmanager:ap-northeast-1:123456789012:secret:unified-ABC123',
   );
-  const routePlanningFunction = lambda.Function.fromFunctionArn(
-    shared,
-    'RoutePlanningFunction',
-    'arn:aws:lambda:ap-northeast-1:123456789012:function:route-planning',
-  );
-  const stack = new ApiStack(app, 'ApiTestStack', {
+  const stack = new RoutePlanningStack(app, 'RoutePlanningTestStack', {
     environment: 'test', databaseVpc: vpc, database,
-    databaseSecret: secret, databaseName: 'yukisaki', routePlanningFunction,
+    databaseSecret: secret, databaseName: 'yukisaki',
+    targetReferenceTime: '2026-01-23T12:00:00+09:00',
   });
   const template = Template.fromStack(stack);
 
-  test('creates a paused container Lambda and HTTP API routes', () => {
+  test('creates a paused ARM container Lambda', () => {
     template.hasResourceProperties('AWS::Lambda::Function', {
       PackageType: 'Image',
       Architectures: ['arm64'],
       ReservedConcurrentExecutions: 0,
+      Timeout: 20,
       Environment: { Variables: Match.objectLike({ DATABASE_NAME: 'yukisaki' }) },
-    });
-    template.resourceCountIs('AWS::ApiGatewayV2::Api', 1);
-    template.resourceCountIs('AWS::ApiGatewayV2::Route', 6);
-    template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
-      RouteKey: 'POST /v1/routes',
     });
   });
 
-  test('allows database access only from the API security group', () => {
+  test('allows database access only from route planning', () => {
     template.hasResourceProperties('AWS::EC2::SecurityGroupIngress', {
       IpProtocol: 'tcp', FromPort: 5432, ToPort: 5432,
     });

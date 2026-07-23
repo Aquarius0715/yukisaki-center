@@ -23,6 +23,7 @@ export interface ApiStackProps extends StackProps {
   readonly database: rds.IDatabaseInstance;
   readonly databaseSecret: secretsmanager.ISecret;
   readonly databaseName: string;
+  readonly routePlanningFunction?: lambda.IFunction;
 }
 
 /** Public read-only map API backed by the unified PostgreSQL serving projection. */
@@ -103,8 +104,19 @@ export class ApiStack extends Stack {
         integration,
       });
     }
+    if (props.routePlanningFunction) {
+      this.httpApi.addRoutes({
+        path: '/v1/routes',
+        methods: [apigateway.HttpMethod.POST],
+        integration: new integrations.HttpLambdaIntegration(
+          'RoutePlanningIntegration',
+          props.routePlanningFunction,
+        ),
+      });
+    }
 
     new CfnOutput(this, 'ApiFunctionName', { value: this.apiFunction.functionName });
     new CfnOutput(this, 'ApiUrl', { value: this.httpApi.apiEndpoint });
+    new CfnOutput(this, 'RouteApiUrl', { value: `${this.httpApi.apiEndpoint}/v1/routes` });
   }
 }

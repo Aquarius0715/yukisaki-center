@@ -7,6 +7,7 @@ import { GpsPipelineStack } from '../lib/gps-pipeline-stack';
 import { ApiStack } from '../lib/api-stack';
 import { AiAssistantStack } from '../lib/ai-assistant-stack';
 import { WebStack } from '../lib/web-stack';
+import { RoutePlanningStack } from '../lib/route-planning-stack';
 
 const app = new cdk.App();
 const environment = app.node.tryGetContext('environment') ?? 'dev';
@@ -87,17 +88,33 @@ new GpsPipelineStack(app, `YukisakiGpsPipeline-${environment}`, {
   description: 'Three simulated snowplows streamed through EventBridge, S3, PostgreSQL, and scoring',
 });
 
+const routePlanningStack = new RoutePlanningStack(app, `YukisakiRoutePlanning-${environment}`, {
+  environment,
+  databaseVpc: dataPipelineStack.databaseVpc,
+  database: dataPipelineStack.database,
+  databaseSecret: dataPipelineStack.database.secret!,
+  databaseName: 'yukisaki',
+  targetReferenceTime:
+    app.node.tryGetContext('targetReferenceTime') ?? '2026-01-23T12:00:00+09:00',
+  env: {
+    account: process.env.CDK_DEFAULT_ACCOUNT,
+    region,
+  },
+  description: 'PostGIS and pgRouting route planning with dynamic drivability costs',
+});
+
 const apiStack = new ApiStack(app, `YukisakiApi-${environment}`, {
   environment,
   databaseVpc: dataPipelineStack.databaseVpc,
   database: dataPipelineStack.database,
   databaseSecret: dataPipelineStack.database.secret!,
   databaseName: 'yukisaki',
+  routePlanningFunction: routePlanningStack.routeFunction,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,
   },
-  description: 'Public GeoJSON API for road segments and simulated snowplow positions',
+  description: 'Public GeoJSON API for roads, snowplows, and route planning',
 });
 
 new AiAssistantStack(app, `YukisakiAiAssistant-${environment}`, {
