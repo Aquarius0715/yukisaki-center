@@ -24,8 +24,12 @@ type OverlayData = { kind: OverlayKind; segmentId?: string; originalWidth?: numb
 type AnnotationData = { kind: 'plow' | 'destination' | 'current'; id?: string }
 type PlowCoordinate = [number, number]
 type PlowMotion = { from: PlowCoordinate; to: PlowCoordinate; startedAt: number }
+type OverviewChain = { coordinates: number[][]; color: string }
 const PLOW_INTERPOLATION_MS = 5_000
 const PLOW_FRAME_INTERVAL_MS = 200
+const DETAIL_SPAN_THRESHOLD = 0.035
+const NAMED_ROAD_BRIDGE_METRES = 180
+const UNNAMED_ROAD_BRIDGE_METRES = 60
 
 function motionPosition(motion: PlowMotion, now: number, animate: boolean): PlowCoordinate {
   if (!animate) return motion.to
@@ -36,16 +40,10 @@ function motionPosition(motion: PlowMotion, now: number, animate: boolean): Plow
 
 function colorForScore(score: number | undefined): string {
   if (score === undefined || !Number.isFinite(score)) return '#9cabb8'
-  const stops: Array<[number, [number, number, number]]> = [
-    [0, [215, 48, 39]], [50, [246, 201, 69]], [75, [106, 174, 214]], [100, [23, 111, 192]],
-  ]
-  const bounded = Math.max(0, Math.min(100, score))
-  const upperIndex = stops.findIndex(([value]) => value >= bounded)
-  if (upperIndex <= 0) return `rgb(${stops[0][1].join(',')})`
-  const [lowerValue, lowerColor] = stops[upperIndex - 1]
-  const [upperValue, upperColor] = stops[upperIndex]
-  const ratio = (bounded - lowerValue) / (upperValue - lowerValue)
-  return `rgb(${lowerColor.map((channel, index) => Math.round(channel + (upperColor[index] - channel) * ratio)).join(',')})`
+  if (score < 60) return '#d73027'
+  if (score < 75) return '#f0a72f'
+  if (score < 85) return '#55a9d6'
+  return '#176fc0'
 }
 
 function linesOf(feature: RoadSegmentFeature): number[][][] {
@@ -58,6 +56,85 @@ function coordinatesOf(line: number[][]): mapkit.Coordinate[] {
       ? [new mapkit.Coordinate(latitude, longitude)]
       : [],
   )
+}
+
+function offsetLine(line: number[][], metres = 3.5): number[][] {
+  if (line.length < 2) return line
+  return line.map(([longitude, latitude], index) => {
+    const before = line[Math.max(0, index - 1)]
+    const after = line[Math.min(line.length - 1, index + 1)]
+    const dx = (after[0] - before[0]) * Math.cos(latitude * Math.PI / 180)
+    const dy = after[1] - before[1]
+    const length = Math.hypot(dx, dy)
+    if (!length) return [longitude, latitude]
+    const degrees = metres / 111_320
+    return [
+      longitude - (dy / length) * degrees / Math.max(0.2, Math.cos(latitude * Math.PI / 180)),
+      latitude + (dx / length) * degrees,
+    ]
+  })
+}
+
+function distanceMetres([longitudeA, latitudeA]: number[], [longitudeB, latitudeB]: number[]): number {
+  const latitude = (latitudeA + latitudeB) / 2 * Math.PI / 180
+  const x = (longitudeB - longitudeA) * Math.cos(latitude)
+  const y = latitudeB - latitudeA
+  return Math.hypot(x, y) * 111_320
+}
+
+function overviewChains(
+  roads: RoadSegmentFeatureCollection,
+  conditionsById: Map<string, RoadCondition>,
+): OverviewChain[] {
+  const grouped = new Map<string, OverviewChain[]>()
+
+  roads.features.forEach((feature) => {
+    const condition = conditionsById.get(feature.properties.segment_id)
+    const score = condition?.hasDrivabilityScore === false ? undefined : condition?.drivabilityScore
+    const color = colorForScore(score)
+    const roadName = (feature.properties.road_name || feature.properties.name || '').trim()
+    const named = roadName.length > 0
+    const identity = named ? roadName : feature.properties.highway || 'road'
+    const groupKey = `${color}|${identity}`
+    const chains = grouped.get(groupKey) ?? []
+    if (!grouped.has(groupKey)) grouped.set(groupKey, chains)
+
+    linesOf(feature).forEach((sourceLine) => {
+      const line = sourceLine.filter(([longitude, latitude]) => Number.isFinite(longitude) && Number.isFinite(latitude))
+      if (line.length < 2) return
+      const maximumGap = named ? NAMED_ROAD_BRIDGE_METRES : UNNAMED_ROAD_BRIDGE_METRES
+      let best: { chain: OverviewChain; mode: 'append' | 'append-reversed' | 'prepend' | 'prepend-reversed'; distance: number } | undefined
+
+      chains.forEach((chain) => {
+        const first = chain.coordinates[0]
+        const last = chain.coordinates[chain.coordinates.length - 1]
+        const candidates = [
+          { mode: 'append' as const, distance: distanceMetres(last, line[0]) },
+          { mode: 'append-reversed' as const, distance: distanceMetres(last, line[line.length - 1]) },
+          { mode: 'prepend' as const, distance: distanceMetres(first, line[line.length - 1]) },
+          { mode: 'prepend-reversed' as const, distance: distanceMetres(first, line[0]) },
+        ]
+        candidates.forEach((candidate) => {
+          if (candidate.distance <= maximumGap && (!best || candidate.distance < best.distance)) {
+            best = { chain, ...candidate }
+          }
+        })
+      })
+
+      if (!best) {
+        chains.push({ coordinates: line, color })
+        return
+      }
+
+      const target = best.chain
+      if (best.mode === 'append') target.coordinates = [...target.coordinates, ...line]
+      if (best.mode === 'append-reversed') target.coordinates = [...target.coordinates, ...[...line].reverse()]
+      if (best.mode === 'prepend') target.coordinates = [...line, ...target.coordinates]
+      if (best.mode === 'prepend-reversed') target.coordinates = [...[...line].reverse(), ...target.coordinates]
+    })
+  })
+
+  return [...grouped.values()].flat()
 }
 
 function coordinateOf(latitude: number, longitude: number): mapkit.Coordinate {
@@ -103,6 +180,13 @@ function viewportKey(bounds: MapBounds): string {
   ].map((value) => value.toFixed(5)).join(',')
 }
 
+function isOverviewRegion(region: mapkit.CoordinateRegion): boolean {
+  return Math.max(
+    Math.abs(region.span.latitudeDelta),
+    Math.abs(region.span.longitudeDelta),
+  ) > DETAIL_SPAN_THRESHOLD
+}
+
 export function YukisakiMap(props: Props) {
   const { roads, conditions, snowplows, layers, destination, routes, activeRouteId, animateSnowplows } = props
   const containerRef = useRef<HTMLDivElement>(null)
@@ -117,6 +201,13 @@ export function YukisakiMap(props: Props) {
   const lastAnimationPaintRef = useRef(0)
   const [mapError, setMapError] = useState<string | undefined>(undefined)
   const [mapReady, setMapReady] = useState(false)
+  const [overviewMode, setOverviewMode] = useState(() => {
+    const bounds = appConfig.demo.initialBounds
+    return Math.max(
+      bounds.maxLongitude - bounds.minLongitude,
+      bounds.maxLatitude - bounds.minLatitude,
+    ) > DETAIL_SPAN_THRESHOLD
+  })
   propsRef.current = props
 
   const conditionsById = useMemo(() => new Map(conditions.map((condition) => [condition.segmentId, condition])), [conditions])
@@ -144,6 +235,7 @@ export function YukisakiMap(props: Props) {
       viewportTimer = window.setTimeout(() => {
         const map = mapRef.current
         if (!map) return
+        setOverviewMode(isOverviewRegion(map.region))
         const bounds = boundsOfRegion(map.region)
         const viewport = viewportKey(bounds)
         if (viewport === lastViewport) return
@@ -223,6 +315,28 @@ export function YukisakiMap(props: Props) {
     if (old.length) map.removeOverlays(old)
     kinds.forEach((kind) => { overlayGroupsRef.current[kind] = [] })
 
+    if (overviewMode) {
+      overlayGroupsRef.current.road = overviewChains(roads, conditionsById).flatMap((chain) => {
+        const points = coordinatesOf(chain.coordinates)
+        if (points.length < 2) return []
+        return [new mapkit.PolylineOverlay(points, {
+          data: { kind: 'road', originalWidth: 3.5 } satisfies OverlayData,
+          enabled: false,
+          style: new mapkit.Style({
+            strokeColor: chain.color,
+            strokeOpacity: 0.92,
+            lineWidth: 3.5,
+            lineCap: 'round',
+            lineJoin: 'round',
+          }),
+        })]
+      })
+      if (layers.drivability && overlayGroupsRef.current.road.length) {
+        map.addOverlays(overlayGroupsRef.current.road)
+      }
+      return
+    }
+
     roads.features.forEach((feature) => {
       const segmentId = feature.properties.segment_id
       const condition = conditionsById.get(segmentId)
@@ -235,20 +349,20 @@ export function YukisakiMap(props: Props) {
         // Snow animation is a CSS layer and does not need a road overlay.
         if (layers.drivability) {
           overlayGroupsRef.current.road.push(new mapkit.PolylineOverlay(points, {
-            data: { kind: 'road', segmentId, originalWidth: 5 } satisfies OverlayData,
+            data: { kind: 'road', segmentId, originalWidth: overviewMode ? 3.5 : 5 } satisfies OverlayData,
             enabled: true,
-            style: new mapkit.Style({ strokeColor: colorForScore(score), strokeOpacity: 0.96, lineWidth: 5, lineCap: 'round', lineJoin: 'round' }),
+            style: new mapkit.Style({ strokeColor: colorForScore(score), strokeOpacity: 0.96, lineWidth: overviewMode ? 3.5 : 5, lineCap: 'round', lineJoin: 'round' }),
           }))
         }
-        if (layers.plowing && (condition?.status === 'recently_plowed' || condition?.status === 'plowed')) {
+        if (!overviewMode && layers.plowing && (condition?.status === 'recently_plowed' || condition?.status === 'plowed')) {
           overlayGroupsRef.current.plowing.push(new mapkit.PolylineOverlay(points, {
             data: { kind: 'plowing', segmentId } satisfies OverlayData,
             enabled: false,
             style: new mapkit.Style({ strokeColor: '#142839', strokeOpacity: 0.45, lineWidth: 1.5, lineDash: [5, 5] }),
           }))
         }
-        if (layers.snowmelt && condition?.hasSnowmeltPipe) {
-          overlayGroupsRef.current.pipe.push(new mapkit.PolylineOverlay(points, {
+        if (!overviewMode && layers.snowmelt && condition?.hasSnowmeltPipe) {
+          overlayGroupsRef.current.pipe.push(new mapkit.PolylineOverlay(coordinatesOf(offsetLine(line)), {
             data: { kind: 'pipe', segmentId } satisfies OverlayData,
             enabled: false,
             style: new mapkit.Style({
@@ -259,7 +373,7 @@ export function YukisakiMap(props: Props) {
             }),
           }))
         }
-        if (layers.slopes && (condition?.slopePercent ?? 0) >= 7) {
+        if (!overviewMode && layers.slopes && (condition?.slopePercent ?? 0) >= 7) {
           overlayGroupsRef.current.slope.push(new mapkit.PolylineOverlay(points, {
             data: { kind: 'slope', segmentId } satisfies OverlayData,
             enabled: false,
@@ -276,7 +390,7 @@ export function YukisakiMap(props: Props) {
       ...overlayGroupsRef.current.pipe,
       ...overlayGroupsRef.current.slope,
     ])
-  }, [roads, conditionsById, layers.drivability, layers.plowing, layers.slopes, layers.snowmelt, mapReady])
+  }, [roads, conditionsById, layers.drivability, layers.plowing, layers.slopes, layers.snowmelt, mapReady, overviewMode])
 
   useEffect(() => {
     const map = mapRef.current
@@ -406,6 +520,7 @@ export function YukisakiMap(props: Props) {
     <div className="map-canvas mapkit-canvas" aria-label="長岡市石動南町の道路状態地図">
       <div ref={containerRef} className="mapkit-host" />
       {mapError && <div className="map-error" role="alert"><b>Apple Mapsを表示できません</b><span>{mapError}</span></div>}
+      {overviewMode && <small className="map-overview-note">広域・タイル表示</small>}
       <small className="osm-attribution">道路データ © OpenStreetMap contributors</small>
     </div>
   )

@@ -195,7 +195,7 @@ export type ApiMapSnapshot = {
 
 export interface YukisakiApi {
   getMapSnapshot(bounds?: MapBounds, signal?: AbortSignal): Promise<MapSnapshot>
-  getMapRoadPage(bounds?: MapBounds, cursor?: string, signal?: AbortSignal): Promise<MapRoadPage>
+  getMapRoadPage(bounds?: MapBounds, cursor?: string, signal?: AbortSignal, limit?: number): Promise<MapRoadPage>
   getRoadSegments(bounds?: MapBounds, signal?: AbortSignal): Promise<RoadSegmentFeatureCollection>
   getRoadConditions(segmentIds?: string[]): Promise<RoadCondition[]>
   getSnowmeltPipes(bounds?: MapBounds): Promise<SnowmeltPipeStatus[]>

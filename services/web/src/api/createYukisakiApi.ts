@@ -20,12 +20,13 @@ class FallbackApi implements YukisakiApi {
     bounds?: Parameters<YukisakiApi['getMapRoadPage']>[0],
     cursor?: Parameters<YukisakiApi['getMapRoadPage']>[1],
     signal?: Parameters<YukisakiApi['getMapRoadPage']>[2],
+    limit?: Parameters<YukisakiApi['getMapRoadPage']>[3],
   ) {
     try {
-      const page = await this.primary.getMapRoadPage(bounds, cursor, signal)
+      const page = await this.primary.getMapRoadPage(bounds, cursor, signal, limit)
       return page
     } catch {
-      return this.fallback.getMapRoadPage(bounds, cursor, signal)
+      return this.fallback.getMapRoadPage(bounds, cursor, signal, limit)
     }
   }
   getRoadSegments(bounds?: Parameters<YukisakiApi['getRoadSegments']>[0], signal?: AbortSignal) { return this.call((api) => api.getRoadSegments(bounds, signal)) }

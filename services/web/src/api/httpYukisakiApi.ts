@@ -13,15 +13,25 @@ import type {
 } from './contracts'
 import { adaptRoadPage, adaptSnowplows, isApiRoadCollection, isApiSnowplowCollection } from './mapApiAdapter'
 
-// MapKit creates one or more native overlay objects for every road feature.
-// Keep a viewport page deliberately small; additional roads are fetched after
-// the user moves the map instead of accumulating every cursor page in memory.
-const MAP_PAGE_LIMIT = '75'
+// Use a larger overview sample so roads do not appear as isolated fragments,
+// while keeping MapKit far below the previous 5,000-feature crash case.
+const OVERVIEW_PAGE_LIMIT = '800'
+const DETAIL_PAGE_LIMIT = '1200'
+const DETAIL_SPAN_THRESHOLD = 0.035
 const MAP_PAGE_TIMEOUT_MS = 10_000
 
 const bbox = (bounds?: MapBounds) => bounds
   ? [bounds.minLongitude, bounds.minLatitude, bounds.maxLongitude, bounds.maxLatitude].join(',')
   : undefined
+
+const pageLimit = (bounds?: MapBounds) => {
+  if (!bounds) return OVERVIEW_PAGE_LIMIT
+  const span = Math.max(
+    bounds.maxLongitude - bounds.minLongitude,
+    bounds.maxLatitude - bounds.minLatitude,
+  )
+  return span <= DETAIL_SPAN_THRESHOLD ? DETAIL_PAGE_LIMIT : OVERVIEW_PAGE_LIMIT
+}
 
 export class HttpYukisakiApi implements YukisakiApi {
   private latestSnapshot?: MapSnapshot
@@ -44,9 +54,9 @@ export class HttpYukisakiApi implements YukisakiApi {
     return this.latestSnapshot
   }
 
-  async getMapRoadPage(bounds?: MapBounds, cursor?: string, signal?: AbortSignal) {
+  async getMapRoadPage(bounds?: MapBounds, cursor?: string, signal?: AbortSignal, limit?: number) {
     const value = await requestJson<unknown>(
-      this.url('/v1/road-segments', { bbox: bbox(bounds), limit: MAP_PAGE_LIMIT, cursor }),
+      this.url('/v1/road-segments', { bbox: bbox(bounds), limit: limit ? String(limit) : pageLimit(bounds), cursor }),
       { signal },
       MAP_PAGE_TIMEOUT_MS,
     )
