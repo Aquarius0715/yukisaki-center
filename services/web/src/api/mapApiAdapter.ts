@@ -49,7 +49,7 @@ function factorMessages(factors: ApiRoadProperties['score_factors']) {
   }))
 }
 
-function adaptRoadFeature(feature: ApiRoadCollection['features'][number]): RoadSegmentFeature {
+export function adaptRoadFeature(feature: ApiRoadCollection['features'][number]): RoadSegmentFeature {
   const input = feature.properties
   const points = coordinates(feature.geometry)
   const start = points[0] ?? [0, 0]
@@ -89,7 +89,7 @@ function adaptRoadFeature(feature: ApiRoadCollection['features'][number]): RoadS
   }
 }
 
-function adaptCondition(properties: ApiRoadProperties): RoadCondition {
+export function adaptCondition(properties: ApiRoadProperties): RoadCondition {
   const score = properties.drivability_score ?? 0
   const messages = factorMessages(properties.score_factors)
   const warnings = messages.filter(({ key, value }) => key === 'no_plow_history' || key === 'steep_slope' || (typeof value === 'number' && value < 0)).map(({ label }) => label)
