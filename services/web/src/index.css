@@ -11,3 +11,78 @@
 @media(min-width:900px){.stage{display:block;padding:0;background:#e9f0f7}.phone{width:100vw;height:100dvh;max-height:none;border-radius:0;box-shadow:none}.phone:before,.demo-caption{display:none}.topbar{height:72px;padding:18px 24px;background:linear-gradient(90deg,#ffff 0 440px,#ffffffc7 60%,transparent)}.search-wrap{top:86px;left:24px;right:auto;width:390px}.map-actions{top:86px;right:24px}.legend{left:auto;right:24px;bottom:24px}.home-card{left:24px;right:auto;bottom:24px;width:390px;min-height:184px}.osm-attribution{bottom:5px}.sheet-backdrop{justify-content:flex-end;align-items:stretch;background:#09182c2e}.bottom-sheet{width:440px;max-height:none;height:100%;border-radius:24px 0 0 24px}.sheet-handle{display:none}.bottom-sheet>header{padding-top:20px}.route-panel{left:auto;right:24px;bottom:24px;width:420px;height:calc(100% - 120px);border-radius:26px}.nav-instruction{left:24px;right:auto;top:90px;width:430px;border-radius:22px}.arrival{left:auto;right:24px;bottom:24px;width:430px;border-radius:22px}.map-data-loading{top:28px}}
 .inline-error{color:#b33f31!important;background:#fff0ed;padding:7px 9px!important;border-radius:9px}.home-actions{display:block!important;max-width:none!important}.home-actions .primary{width:100%}.route-error{top:138px!important;bottom:auto!important}.ai-explanation,.danger-explanation{border-radius:13px;padding:10px;margin-bottom:8px;font-size:9px}.ai-explanation{background:#e9f4fc;color:#254e73}.danger-explanation{background:#fff0e9;color:#8f422c}.ai-explanation p,.danger-explanation p{margin:4px 0;line-height:1.5}.ai-explanation small{color:#6b8195}
 .detail-loading{display:flex;align-items:center;justify-content:center;gap:10px;min-height:130px;color:#4f657d;font-size:11px;font-weight:700}.detail-loading .spinner{width:24px;height:24px;border-width:3px}.detail-error{display:flex;flex-direction:column;gap:4px;margin:14px 0;padding:12px;border-radius:12px;background:#fff0ed;color:#8f3d32;font-size:10px}
+
+/* Yukisaki brand and snow-clearing opening sequence */
+.mini-logo{width:116px;height:27px;display:flex;align-items:center;overflow:hidden}
+.mini-logo img{width:116px;height:65px;object-fit:contain;display:block}
+.splash{
+  isolation:isolate;
+  background:
+    radial-gradient(circle at 74% 8%,#dff7ff 0 5%,transparent 28%),
+    linear-gradient(168deg,#ecfaff 0%,#c5e5f6 38%,#83bbdf 72%,#5d94c5 100%);
+  color:#173c68;
+}
+.splash:after{content:'';position:absolute;z-index:-1;inset:0;background:linear-gradient(120deg,transparent 25%,#ffffff35 45%,transparent 66%);transform:translateX(-100%);animation:splash-shimmer 3.8s .15s ease-in-out both}
+.splash-glow{position:absolute;z-index:-1;top:-170px;left:50%;width:430px;height:430px;border-radius:50%;background:#fff9;filter:blur(18px);transform:translateX(-50%)}
+.splash-mountains{position:absolute;z-index:-1;left:-20%;right:-20%;bottom:272px;height:250px;opacity:.48;filter:drop-shadow(0 -8px 18px #fff4)}
+.splash-mountains i{position:absolute;bottom:0;width:62%;height:100%;background:linear-gradient(145deg,#c9e5f3,#74a9cf);clip-path:polygon(0 100%,44% 16%,55% 35%,66% 23%,100% 100%)}
+.splash-mountains i:nth-child(1){left:-5%;transform:scale(.78);transform-origin:bottom}
+.splash-mountains i:nth-child(2){left:27%;background:linear-gradient(145deg,#dff1f8,#80afd1)}
+.splash-mountains i:nth-child(3){right:-12%;transform:scale(.7);transform-origin:bottom;background:linear-gradient(145deg,#e8f7fb,#9cc4dd)}
+.splash-brand{position:absolute;z-index:4;top:104px;left:50%;width:min(82%,360px);transform:translateX(-50%);animation:brand-arrive .75s cubic-bezier(.2,.9,.2,1) both}
+.splash-brand img{display:block;width:100%;height:auto;filter:drop-shadow(0 12px 18px #255c9130)}
+.splash-brand p{margin:-8px 0 0;font-size:13px;font-weight:700;letter-spacing:.13em;color:#315f88}
+.splash-road{position:absolute;z-index:2;left:0;right:0;bottom:178px;height:148px;filter:drop-shadow(0 13px 18px #173f6540)}
+.snow-blanket{position:absolute;inset:14px 0;background:linear-gradient(180deg,#fafdff,#e8f4fa);box-shadow:inset 0 1px #fff}
+.revealed-road{position:absolute;left:0;top:29px;width:100%;height:116px;border:0;background:linear-gradient(180deg,#435567,#2b3d50 55%,#213244);clip-path:none;transform:scaleX(0);transform-origin:left;animation:road-reveal 3.25s .45s cubic-bezier(.2,.68,.25,1) both;box-shadow:inset 0 5px 0 #d5e7ef,inset 0 -5px 0 #d5e7ef}
+.revealed-road:before,.revealed-road:after{content:'';position:absolute;left:0;right:0;height:2px;background:#a9c0d166}
+.revealed-road:before{top:28px}.revealed-road:after{bottom:28px}
+.revealed-road i{position:absolute;top:56px;width:47px;height:5px;border-radius:4px;background:#f7e59c;box-shadow:0 0 8px #fff5b969}
+.revealed-road i:nth-child(1){left:4%}.revealed-road i:nth-child(2){left:27%}.revealed-road i:nth-child(3){left:50%}.revealed-road i:nth-child(4){left:73%}.revealed-road i:nth-child(5){left:96%}
+.plowed-bank{position:absolute;left:0;width:100%;height:30px;transform:scaleX(0);transform-origin:left;animation:bank-reveal 3.2s .52s cubic-bezier(.2,.68,.25,1) both;background:
+  radial-gradient(ellipse at 12px 100%,#fff 0 14px,transparent 15px) 0 0/42px 30px repeat-x,
+  linear-gradient(#fff,#dcecf4)}
+.bank-top{top:8px;transform-origin:left bottom}
+.bank-bottom{bottom:-8px;transform-origin:left top;scale:1 -1}
+.moving-plow{position:absolute;z-index:5;top:20px;left:-235px;width:220px;animation:plow-ride 3.45s .36s cubic-bezier(.18,.66,.28,1) both}
+.plow-art{position:relative;z-index:2;display:block;width:220px;filter:drop-shadow(0 6px 5px #112b4250)}
+.plow-shadow{position:absolute;z-index:1;left:35px;bottom:4px;width:150px;height:17px;border-radius:50%;background:#0a1d2e66;filter:blur(5px)}
+.cast-snow{position:absolute;z-index:3;left:193px;top:43px;width:88px;height:55px;pointer-events:none}
+.cast-snow i{position:absolute;width:var(--flake,9px);height:var(--flake,9px);border-radius:54% 46% 61% 39%;background:#fff;filter:drop-shadow(0 2px 2px #75a5c277);animation:snow-cast .72s ease-out infinite}
+.cast-snow i:nth-child(1){left:2px;top:19px;--flake:14px}.cast-snow i:nth-child(2){left:15px;top:8px;animation-delay:-.12s}.cast-snow i:nth-child(3){left:28px;top:23px;--flake:12px;animation-delay:-.35s}.cast-snow i:nth-child(4){left:40px;top:2px;animation-delay:-.48s}.cast-snow i:nth-child(5){left:53px;top:18px;--flake:7px;animation-delay:-.2s}.cast-snow i:nth-child(6){left:64px;top:6px;--flake:11px;animation-delay:-.58s}.cast-snow i:nth-child(7){left:74px;top:26px;--flake:6px;animation-delay:-.08s}.cast-snow i:nth-child(8){left:31px;top:39px;--flake:8px;animation-delay:-.65s}.cast-snow i:nth-child(9){left:57px;top:42px;--flake:5px;animation-delay:-.4s}
+.cast-top{transform:rotate(-28deg);transform-origin:0 50%}
+.cast-bottom{top:64px;transform:scaleY(-1) rotate(-26deg);transform-origin:0 50%}
+.snow-particles{z-index:1}
+.snow-particles i{top:-20px;opacity:.85;box-shadow:0 0 5px #fff;animation:snowfall 5.5s var(--d) linear infinite}
+.splash-status{position:absolute;z-index:6;left:50%;bottom:104px;display:flex;align-items:center;gap:8px;min-width:236px;padding:10px 15px;border:1px solid #ffffffaa;border-radius:99px;background:#ffffffa8;color:#315a7f;box-shadow:0 8px 24px #214d7430;backdrop-filter:blur(12px);transform:translateX(-50%);font-size:10px}
+.splash-status span{width:8px;height:8px;border-radius:50%;background:#6fdd7f;box-shadow:0 0 0 5px #6fdd7f25;animation:pulse 1.2s infinite}
+.splash-status b{white-space:nowrap}.splash-status i{overflow:hidden;width:17px;color:#4e78a0;font-style:normal;letter-spacing:2px;animation:status-dots 1.2s steps(3,end) infinite}
+.splash>small{z-index:6;bottom:51px;color:#365e82;font-size:10px;letter-spacing:.08em;animation:pulse 2.1s infinite}
+.snow-spray{display:none}
+
+@keyframes brand-arrive{from{opacity:0;transform:translate(-50%,-18px) scale(.96)}to{opacity:1;transform:translate(-50%,0) scale(1)}}
+@keyframes splash-shimmer{0%{transform:translateX(-110%)}70%,100%{transform:translateX(110%)}}
+@keyframes road-reveal{to{transform:scaleX(1)}}
+@keyframes bank-reveal{to{transform:scaleX(1)}}
+@keyframes plow-ride{0%{left:-235px}100%{left:calc(100% + 25px)}}
+@keyframes snow-cast{from{opacity:1;translate:0 0;rotate:0deg}to{opacity:0;translate:42px -22px;rotate:160deg}}
+@keyframes status-dots{0%{width:0}100%{width:17px}}
+@keyframes snowfall{to{transform:translate(var(--drift),900px) rotate(180deg);opacity:.15}}
+
+@media(min-width:900px){
+  .mini-logo{width:132px;height:32px}.mini-logo img{width:132px;height:74px}
+  .splash-brand{top:9%;width:min(42vw,470px)}
+  .splash-brand p{font-size:15px}
+  .splash-mountains{bottom:28%;height:42%}
+  .splash-road{bottom:20%;height:160px}
+  .splash-status{bottom:10%}
+  .splash>small{bottom:5%}
+}
+@media(max-height:700px){
+  .splash-brand{top:58px;width:70%}.splash-road{bottom:132px}.splash-status{bottom:76px}.splash>small{bottom:35px}
+}
+@media(prefers-reduced-motion:reduce){
+  .moving-plow{left:calc(50% - 110px)}
+  .revealed-road,.plowed-bank{transform:scaleX(1)}
+  .cast-snow{display:none}
+}
