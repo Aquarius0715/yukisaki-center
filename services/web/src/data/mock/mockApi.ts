@@ -143,9 +143,9 @@ export class MockYukisakiApi implements YukisakiApi {
   async recommendRoutes(request: RouteRecommendationRequest) {
     const destination = destinations.find((item) => item.latitude === request.destination.latitude && item.longitude === request.destination.longitude) ?? { id: 'map', name: '地図で指定した地点', address: 'デモ道路内', ...request.destination }
     const specs: Omit<RecommendedRoute, 'geometry'>[] = [
-      { id: 'fastest', label: '最速ルート', durationMinutes: 15, distanceKm: 5.4, drivabilityScore: 58, plowedRatio: .54, snowmeltPipeRatio: .18, noPlowRecordSegmentCount: 8, hasNarrowRoad: true, hasSteepSlope: false, warnings: ['狭い道路があります','除雪車の走行実績を確認できない区間があります'], reasons: ['所要時間を優先しています'] },
-      { id: 'recommended', label: 'おすすめルート', durationMinutes: 18, distanceKm: 6.2, drivabilityScore: 86, plowedRatio: .92, snowmeltPipeRatio: .64, noPlowRecordSegmentCount: 0, hasNarrowRoad: false, hasSteepSlope: false, warnings: [], reasons: ['直近に除雪車が通過した道路を優先','消雪パイプ区間を多く利用'] },
-      { id: 'snow-priority', label: '雪道優先ルート', durationMinutes: 22, distanceKm: 7.1, drivabilityScore: 93, plowedRatio: .97, snowmeltPipeRatio: .78, noPlowRecordSegmentCount: 0, hasNarrowRoad: false, hasSteepSlope: false, warnings: [], reasons: ['消雪パイプ区間を最優先','幹線道路を優先'] },
+      { id: 'recommended', label: 'AIおすすめ', durationMinutes: 18, distanceKm: 6.2, drivabilityScore: 86, plowedRatio: .92, snowmeltPipeRatio: .64, noPlowRecordSegmentCount: 0, hasNarrowRoad: false, hasSteepSlope: false, warnings: [], reasons: ['時間と走りやすさの総合評価','AIが確定済みの根拠を説明'] },
+      { id: 'snow-priority', label: '走りやすさ優先', durationMinutes: 22, distanceKm: 7.1, drivabilityScore: 93, plowedRatio: .97, snowmeltPipeRatio: .78, noPlowRecordSegmentCount: 0, hasNarrowRoad: false, hasSteepSlope: false, warnings: [], reasons: ['走りやすさ指数を優先','幹線道路を優先'] },
+      { id: 'distance-priority', label: '距離優先', durationMinutes: 15, distanceKm: 5.4, drivabilityScore: 58, plowedRatio: .54, snowmeltPipeRatio: .18, noPlowRecordSegmentCount: 8, hasNarrowRoad: true, hasSteepSlope: false, warnings: ['狭い道路があります','除雪車の走行実績を確認できない区間があります'], reasons: ['走行距離を優先しています'] },
     ]
     return { routes: specs.map((route, index) => ({ ...route, geometry: routeGeometry(destination, index) })), generatedAt, isSimulated: true }
   }

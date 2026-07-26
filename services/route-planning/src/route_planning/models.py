@@ -76,7 +76,7 @@ class RouteRequest:
         if not isinstance(value, dict):
             raise RequestValidationError("request body must be an object")
         mode = value.get("mode", "balanced")
-        if mode not in COST_PROFILES:
+        if mode not in {*COST_PROFILES, "comparison"}:
             raise RequestValidationError("mode is unsupported")
         reference_text = value.get("reference_time", DEMO_REFERENCE_TIME)
         if reference_text != DEMO_REFERENCE_TIME:
@@ -87,4 +87,3 @@ class RouteRequest:
         if origin == destination:
             raise RequestValidationError("origin and destination must be different")
         return cls(origin, destination, mode, RouteOptions.parse(value.get("options")), reference_time)
-

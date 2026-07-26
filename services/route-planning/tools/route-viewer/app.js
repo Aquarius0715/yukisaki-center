@@ -1,8 +1,9 @@
 const ROUTE_COLORS = ["#08785f", "#da781c", "#5267c9"];
 const LABELS = {
   fastest: "最短時間",
-  balanced: "バランス",
+  balanced: "AIおすすめ",
   most_drivable: "走りやすさ優先",
+  distance_priority: "距離優先",
   alternative: "代替経路",
 };
 

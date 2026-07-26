@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { appConfig } from '../../api/config'
-import type { Destination, MapBounds, RecommendedRoute, RoadCondition, RoadSegmentFeature, RoadSegmentFeatureCollection, Snowplow } from '../../api/contracts'
+import type { Destination, MapBounds, Position, RecommendedRoute, RoadCondition, RoadSegmentFeature, RoadSegmentFeatureCollection, Snowplow } from '../../api/contracts'
 import { loadMapKit } from './loadMapKit'
 
 export type LayerVisibility = { drivability: boolean; snowmelt: boolean; plowing: boolean; plows: boolean; tracks: boolean; slopes: boolean; snowEffects: boolean }
@@ -9,6 +9,7 @@ type Props = {
   conditions: RoadCondition[]
   snowplows: Snowplow[]
   layers: LayerVisibility
+  currentPosition?: Position
   destination?: Destination
   routes?: RecommendedRoute[]
   activeRouteId?: string
@@ -309,6 +310,7 @@ export function YukisakiMap(props: Props) {
   const managedMapOverlaysRef = useRef(new Map<string, ManagedMapOverlay>())
   const plowAnnotationsRef = useRef(new Map<string, mapkit.Annotation>())
   const destinationAnnotationRef = useRef<mapkit.Annotation | undefined>(undefined)
+  const currentLocationAnnotationRef = useRef<mapkit.Annotation | undefined>(undefined)
   const plowMotionsRef = useRef(new Map<string, PlowMotion>())
   const selectedOverlayRef = useRef<mapkit.Overlay | undefined>(undefined)
   const animationFrameRef = useRef<number | undefined>(undefined)
@@ -400,16 +402,6 @@ export function YukisakiMap(props: Props) {
         }
       }) as EventListener)
 
-      const current = new mapkit.Annotation(
-        coordinateOf(appConfig.demo.position.latitude, appConfig.demo.position.longitude),
-        annotationElement('current-location-marker'),
-        { data: { kind: 'current' } satisfies AnnotationData, enabled: false, accessibilityLabel: '現在地' },
-      )
-      map.addAnnotation(current)
-      navigator.geolocation?.getCurrentPosition((position) => {
-        current.coordinate = coordinateOf(position.coords.latitude, position.coords.longitude)
-      }, () => undefined, { timeout: 5_000, maximumAge: 60_000 })
-
     }).catch((error: unknown) => {
       if (!cancelled) setMapError(error instanceof Error ? error.message : 'Apple Mapsを初期化できませんでした')
     })
@@ -422,9 +414,27 @@ export function YukisakiMap(props: Props) {
       mapRef.current?.removeEventListener('region-change-end', handleRegionChange)
       mapRef.current?.destroy()
       mapRef.current = undefined
+      currentLocationAnnotationRef.current = undefined
       managedMapOverlaysRef.current.clear()
     }
   }, [])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map || !props.currentPosition) return
+    const coordinate = coordinateOf(props.currentPosition.latitude, props.currentPosition.longitude)
+    if (currentLocationAnnotationRef.current) {
+      currentLocationAnnotationRef.current.coordinate = coordinate
+      return
+    }
+    const annotation = new mapkit.Annotation(
+      coordinate,
+      annotationElement('current-location-marker'),
+      { data: { kind: 'current' } satisfies AnnotationData, enabled: false, accessibilityLabel: '現在地' },
+    )
+    currentLocationAnnotationRef.current = annotation
+    map.addAnnotation(annotation)
+  }, [mapReady, props.currentPosition])
 
   useEffect(() => {
     const map = mapRef.current
@@ -643,7 +653,7 @@ export function YukisakiMap(props: Props) {
       data: { kind: 'route' } satisfies OverlayData,
       enabled: false,
       style: new mapkit.Style({
-        strokeColor: route.id === 'fastest' ? '#ef6a3a' : route.id === 'recommended' ? '#236cc4' : '#168755',
+        strokeColor: route.label === '距離優先' ? '#ef6a3a' : route.label === 'AIおすすめ' ? '#236cc4' : '#168755',
         strokeOpacity: route.id === activeRouteId ? 0.95 : 0.28,
         lineWidth: route.id === activeRouteId ? 8 : 3,
       }),

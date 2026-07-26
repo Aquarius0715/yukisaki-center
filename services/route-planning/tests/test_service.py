@@ -3,10 +3,11 @@ import unittest
 from datetime import datetime
 from unittest.mock import Mock, patch
 
+from route_planning.config import K_SHORTEST_PATHS
 from route_planning.handler import handler
 from route_planning.models import Point, RequestValidationError, RouteRequest
 from route_planning.repository import PointNotOnRoadError, RoutingRepository
-from route_planning.service import RoutePlanningService
+from route_planning.service import RoutePlanningService, _pick_profile_route
 
 
 def request_payload():
@@ -82,6 +83,40 @@ class SimilarRoutesRepository:
         }
 
 
+class ComparisonRepository:
+    def __init__(self):
+        self.modes = []
+
+    def plan(self, request, max_snap_distance_m):
+        self.modes.append(request.mode)
+        profile = {
+            "balanced": ("balanced-path", 75, 20),
+            "drivability_priority": ("drivable-path", 92, 24),
+            "distance_priority": ("distance-path", 68, 18),
+        }[request.mode]
+        segment_id, score, cost = profile
+        return {
+            "graph_version": "graph-v1",
+            "score_rule_version": "score-v1",
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "origin": {"node_id": 1, "distance_m": 5},
+            "destination": {"node_id": 2, "distance_m": 7},
+            "rows": [
+                edge(
+                    1,
+                    0,
+                    segment_id,
+                    1,
+                    2,
+                    1,
+                    [[138.79, 37.44], [138.81, 37.46]],
+                    score=score,
+                    cost=cost,
+                ),
+            ],
+        }
+
+
 class PlaceholderCheckingCursor:
     def __init__(self):
         self.executed = []
@@ -103,6 +138,9 @@ class RouteServiceTest(unittest.TestCase):
     def test_validates_public_request_allow_lists(self):
         parsed = RouteRequest.parse(request_payload())
         self.assertEqual("balanced", parsed.mode)
+        comparison = request_payload()
+        comparison["mode"] = "comparison"
+        self.assertEqual("comparison", RouteRequest.parse(comparison).mode)
         invalid = request_payload()
         invalid["options"] = {"avoid": ["arbitrary_sql"]}
         with self.assertRaises(RequestValidationError):
@@ -232,7 +270,7 @@ class RouteServiceTest(unittest.TestCase):
         self.assertIn("ST_MakeEnvelope", projection_sql)
         self.assertIn("FROM route_cost_edges", path_sql)
         self.assertNotIn("format(", path_sql)
-        self.assertEqual(3, path_parameters[2])
+        self.assertEqual(K_SHORTEST_PATHS, path_parameters[2])
         self.assertEqual(
             2,
             sum("CREATE TEMP TABLE route_cost_edges" in sql for sql, _ in cursor.executed),
@@ -247,6 +285,60 @@ class RouteServiceTest(unittest.TestCase):
             {"finish-a", "finish-b", "finish-c"},
             {route["segment_ids"][-1] for route in result["routes"]},
         )
+
+    def test_comparison_returns_three_profiled_routes_and_fixed_recommendation(self):
+        repository = ComparisonRepository()
+        payload = request_payload()
+        payload["mode"] = "comparison"
+
+        result = RoutePlanningService(repository).plan(payload)
+
+        self.assertEqual(
+            ["balanced", "drivability_priority", "distance_priority"],
+            repository.modes,
+        )
+        self.assertEqual(
+            ["balanced", "most_drivable", "distance_priority"],
+            [route["label"] for route in result["routes"]],
+        )
+        self.assertEqual(
+            ["balanced-path", "drivable-path", "distance-path"],
+            [route["segment_ids"][0] for route in result["routes"]],
+        )
+        self.assertEqual(result["routes"][0]["route_id"], result["recommended_route_id"])
+        self.assertEqual("comparison", result["mode"])
+
+    def test_profile_selection_skips_visually_similar_paths(self):
+        selected = {"segment_ids": [f"shared-{index}" for index in range(20)]}
+        similar = {
+            "segment_ids": [f"shared-{index}" for index in range(18)]
+            + ["similar-a", "similar-b"],
+        }
+        distinct = {
+            "segment_ids": ["shared-0", "shared-19"]
+            + [f"distinct-{index}" for index in range(18)],
+        }
+
+        result = _pick_profile_route([similar, distinct], [selected])
+
+        self.assertIs(result, distinct)
+        self.assertIsNone(_pick_profile_route([similar], [selected]))
+
+    def test_distance_priority_cost_uses_length_basis(self):
+        payload = request_payload()
+        payload["mode"] = "distance_priority"
+        cursor = PlaceholderCheckingCursor()
+
+        RoutingRepository._prepare_cost_edges(
+            cursor,
+            RouteRequest.parse(payload),
+            "graph-v1",
+            "score-v1",
+            "2026-01-23T12:00:00+09:00",
+        )
+
+        cost_sql = next(sql for sql, _ in cursor.executed if "latest_scores" in sql)
+        self.assertIn("e.length_m::float8 / 13.8888888889", cost_sql)
 
     def test_handler_returns_http_response(self):
         planned = RoutePlanningService(FakeRepository()).plan(request_payload())

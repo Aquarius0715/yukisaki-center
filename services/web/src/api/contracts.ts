@@ -129,7 +129,7 @@ export type ApiHazardGroup = {
 export type ApiRoute = {
   route_id: string
   rank: number
-  label: 'fastest' | 'balanced' | 'most_drivable' | 'alternative'
+  label: 'fastest' | 'balanced' | 'most_drivable' | 'distance_priority' | 'alternative'
   geometry: LineString
   segment_ids: string[]
   distance_m: number
@@ -148,13 +148,14 @@ export type ApiRoute = {
 
 export type ApiRouteResponse = {
   request_id: string
-  mode: 'time_priority' | 'balanced' | 'drivability_priority'
+  mode: 'time_priority' | 'balanced' | 'drivability_priority' | 'distance_priority' | 'comparison'
   reference_time: string
   graph_version: string
   score_rule_version: string
   cost_config_version: string
   data_timestamp: string
   is_simulated: boolean
+  recommended_route_id?: string
   routes: ApiRoute[]
   warnings: string[]
 }

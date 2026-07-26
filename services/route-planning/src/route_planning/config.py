@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-COST_CONFIG_VERSION = "route-cost-v1"
+COST_CONFIG_VERSION = "route-cost-v2"
 DEMO_REFERENCE_TIME = "2026-01-23T12:00:00+09:00"
 NAGAOKA_BOUNDS = (138.643056, 37.176389, 139.124444, 37.710278)
 # Place-search results can point to the centre of a large facility or parcel
@@ -10,7 +10,7 @@ NAGAOKA_BOUNDS = (138.643056, 37.176389, 139.124444, 37.710278)
 # allowing those representative coordinates to reach the nearest road.
 MAX_SNAP_DISTANCE_M = 500.0
 MAX_CANDIDATES = 3
-K_SHORTEST_PATHS = 3
+K_SHORTEST_PATHS = 8
 # Restrict pgRouting to a rectangle around the two snapped points. The second,
 # wider margin is only used when the normal urban corridor has no connected
 # route, such as when a river or mountain requires a larger detour.
@@ -19,11 +19,18 @@ ROUTE_CORRIDOR_MARGIN_DEGREES = (0.03, 0.08)
 # one junction. Treating 80% overlap as duplicate was too aggressive for the
 # Nagaoka graph, so require 95% overlap before the diversity pass rejects one.
 SIMILARITY_THRESHOLD = 0.95
+COMPARISON_OVERLAP_LIMITS = (
+    (0.75, 0.60),
+    (0.85, 0.75),
+)
 
 COST_PROFILES = {
-    "time_priority": {"alpha": 0.2, "beta": 0.2},
-    "balanced": {"alpha": 1.0, "beta": 0.5},
-    "drivability_priority": {"alpha": 3.0, "beta": 1.0},
+    "time_priority": {"alpha": 0.2, "beta": 0.2, "basis": "time"},
+    "balanced": {"alpha": 1.0, "beta": 0.5, "basis": "time"},
+    "drivability_priority": {"alpha": 3.0, "beta": 1.0, "basis": "time"},
+    # Convert distance to seconds at a fixed 50km/h only to keep the public
+    # weighted_cost_s unit stable. Actual road speeds do not affect this mode.
+    "distance_priority": {"alpha": 0.2, "beta": 0.2, "basis": "distance"},
 }
 
 MISSING_SCORE_PENALTY_RATIO = 0.75

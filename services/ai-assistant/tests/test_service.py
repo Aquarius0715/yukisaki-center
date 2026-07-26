@@ -92,6 +92,8 @@ class AssistantTest(unittest.TestCase):
 
     def test_route_fallback_is_detailed_without_simulated_wording(self):
         payload = {
+            "mode": "comparison",
+            "recommended_route_id": "route-a",
             "data_timestamp": "2026-01-23T12:00:00+09:00",
             "is_simulated": True,
             "routes": [
@@ -113,7 +115,7 @@ class AssistantTest(unittest.TestCase):
                 {
                     "route_id": "route-b",
                     "rank": 2,
-                    "label": "fastest",
+                    "label": "distance_priority",
                     "distance_m": 1900,
                     "duration_s": 360,
                     "average_drivability_score": 70,
@@ -137,6 +139,7 @@ class AssistantTest(unittest.TestCase):
         self.assertIn("第2候補と比べると", response["result"]["recommendation_reason"])
         self.assertIn("1分長い", response["result"]["recommendation_reason"])
         self.assertIn("2.1km", response["result"]["routes"][0]["summary"])
+        self.assertIn("距離を重視", response["result"]["routes"][1]["summary"])
         self.assertGreaterEqual(len(response["result"]["routes"][0]["advantages"]), 2)
         self.assertGreaterEqual(len(response["result"]["routes"][0]["cautions"]), 2)
         self.assertTrue(response["metadata"]["is_simulated"])

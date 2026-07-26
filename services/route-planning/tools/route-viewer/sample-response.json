@@ -1,12 +1,13 @@
 {
   "request_id": "route-request-local-viewer-sample",
-  "mode": "balanced",
+  "mode": "comparison",
   "reference_time": "2026-01-23T12:00:00+09:00",
   "graph_version": "local-viewer-fixture-v1",
   "score_rule_version": "drivability-v1",
-  "cost_config_version": "route-cost-v1",
+  "cost_config_version": "route-cost-v2",
   "data_timestamp": "2026-01-23T12:00:00+09:00",
   "is_simulated": true,
+  "recommended_route_id": "route-local-balanced",
   "snapped_points": {
     "origin": {
       "node_id": 1001,
@@ -66,9 +67,9 @@
       "is_simulated": true
     },
     {
-      "route_id": "route-local-fastest",
+      "route_id": "route-local-distance",
       "rank": 2,
-      "label": "fastest",
+      "label": "distance_priority",
       "geometry": {
         "type": "LineString",
         "coordinates": [

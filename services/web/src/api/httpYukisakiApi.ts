@@ -195,7 +195,7 @@ export class HttpYukisakiApi implements YukisakiApi {
   async recommendRoutes(request: RouteRecommendationRequest): Promise<RouteRecommendationResponse> {
     const mode = {
       fastest: 'time_priority',
-      recommended: 'balanced',
+      recommended: 'comparison',
       'snow-priority': 'drivability_priority',
     }[request.preference]
     const value = await this.post('/v1/routes', {
@@ -391,8 +391,9 @@ function assistantMetadata(value: Record<string, any>): AssistantMetadata {
 function routeLabel(label: string) {
   return {
     fastest: '時間優先',
-    balanced: 'バランス',
+    balanced: 'AIおすすめ',
     most_drivable: '走りやすさ優先',
+    distance_priority: '距離優先',
     alternative: '代替経路',
   }[label] ?? label
 }

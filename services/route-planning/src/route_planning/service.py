@@ -5,17 +5,19 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
 from .config import (
+    COMPARISON_OVERLAP_LIMITS,
     COST_CONFIG_VERSION,
     MAX_CANDIDATES,
     MAX_SNAP_DISTANCE_M,
     SIMILARITY_THRESHOLD,
 )
 from .models import RouteRequest
-from .repository import RoutingRepository
+from .repository import GraphUnavailableError, RoutingRepository
 
 
 def _path_groups(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -137,12 +139,7 @@ def _select_candidates(
     max_detour_minutes: int,
 ) -> list[dict[str, Any]]:
     """Prefer diverse routes, then fill remaining slots with distinct KSP paths."""
-    fastest_duration = min(route["duration_s"] for route in candidates)
-    eligible = [
-        route
-        for route in candidates
-        if route["duration_s"] <= fastest_duration + max_detour_minutes * 60
-    ]
+    eligible = _eligible_candidates(candidates, max_detour_minutes)
     selected: list[dict[str, Any]] = []
     for route in eligible:
         if any(_overlap(route, current) >= SIMILARITY_THRESHOLD for current in selected):
@@ -165,6 +162,23 @@ def _select_candidates(
     return selected
 
 
+def _eligible_candidates(
+    candidates: list[dict[str, Any]],
+    max_detour_minutes: int,
+) -> list[dict[str, Any]]:
+    fastest_duration = min(route["duration_s"] for route in candidates)
+    maximum_duration = fastest_duration + max_detour_minutes * 60
+    eligible: list[dict[str, Any]] = []
+    paths: set[tuple[str, ...]] = set()
+    for route in candidates:
+        path = tuple(route["segment_ids"])
+        if route["duration_s"] > maximum_duration or path in paths:
+            continue
+        eligible.append(route)
+        paths.add(path)
+    return eligible
+
+
 def _labels(routes: list[dict[str, Any]], mode: str) -> None:
     if not routes:
         return
@@ -172,6 +186,7 @@ def _labels(routes: list[dict[str, Any]], mode: str) -> None:
         "time_priority": "fastest",
         "balanced": "balanced",
         "drivability_priority": "most_drivable",
+        "distance_priority": "distance_priority",
     }[mode]
     for route in routes:
         route["label"] = "alternative"
@@ -190,12 +205,53 @@ def _labels(routes: list[dict[str, Any]], mode: str) -> None:
         drivable["label"] = "most_drivable"
 
 
+def _path_key(route: dict[str, Any]) -> tuple[str, ...]:
+    return tuple(route["segment_ids"])
+
+
+def _middle_path(route: dict[str, Any]) -> dict[str, Any]:
+    segment_ids = route["segment_ids"]
+    trim = max(1, round(len(segment_ids) * 0.1))
+    middle = segment_ids[trim:-trim]
+    return {"segment_ids": middle or segment_ids}
+
+
+def _pick_profile_route(
+    routes: list[dict[str, Any]],
+    selected: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    selected_paths = {_path_key(route) for route in selected}
+    for overall_limit, middle_limit in COMPARISON_OVERLAP_LIMITS:
+        for route in routes:
+            if _path_key(route) in selected_paths:
+                continue
+            if all(
+                _overlap(route, current) <= overall_limit
+                and _overlap(_middle_path(route), _middle_path(current)) <= middle_limit
+                for current in selected
+            ):
+                return route
+    return None
+
+
 class RoutePlanningService:
     def __init__(self, repository: RoutingRepository | None = None):
         self.repository = repository or RoutingRepository()
 
     def plan(self, payload: Any) -> dict[str, Any]:
         request = RouteRequest.parse(payload)
+        if request.mode == "comparison":
+            return self._plan_comparison(payload, request)
+        result, diverse, versions = self._plan_mode(request)
+        _labels(diverse, request.mode)
+        return self._response(payload, request, result, diverse, versions)
+
+    def _plan_mode(
+        self,
+        request: RouteRequest,
+        *,
+        comparison_pool: bool = False,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, str]]:
         result = self.repository.plan(request, MAX_SNAP_DISTANCE_M)
         versions = {
             "graph_version": result["graph_version"],
@@ -207,10 +263,62 @@ class RoutePlanningService:
             for path in _path_groups(result["rows"])
         ]
         candidates.sort(key=lambda route: (route["weighted_cost_s"], route["duration_s"], route["route_id"]))
+        if comparison_pool:
+            return (
+                result,
+                _eligible_candidates(candidates, request.options.max_detour_minutes),
+                versions,
+            )
         diverse = _select_candidates(candidates, request.options.max_detour_minutes)
         if not diverse:
             diverse = [candidates[0]]
-        _labels(diverse, request.mode)
+        return result, diverse, versions
+
+    def _plan_comparison(self, payload: Any, request: RouteRequest) -> dict[str, Any]:
+        planned = {
+            mode: self._plan_mode(replace(request, mode=mode), comparison_pool=True)
+            for mode in ("balanced", "drivability_priority", "distance_priority")
+        }
+        balanced_result, balanced_routes, versions = planned["balanced"]
+        for mode, (result, _, profile_versions) in planned.items():
+            if (
+                profile_versions != versions
+                or result["data_timestamp"] != balanced_result["data_timestamp"]
+                or result["origin"]["node_id"] != balanced_result["origin"]["node_id"]
+                or result["destination"]["node_id"] != balanced_result["destination"]["node_id"]
+            ):
+                raise GraphUnavailableError(
+                    f"route comparison inputs changed during planning mode={mode}"
+                )
+        selected: list[dict[str, Any]] = []
+        recommended_route_id: str | None = None
+        profiles = (
+            ("balanced", balanced_routes),
+            ("most_drivable", planned["drivability_priority"][1]),
+            ("distance_priority", planned["distance_priority"][1]),
+        )
+        for label, routes in profiles:
+            route = routes[0] if not selected else _pick_profile_route(routes, selected)
+            if route is None:
+                continue
+            route = dict(route)
+            route["label"] = label
+            selected.append(route)
+            if label == "balanced":
+                recommended_route_id = route["route_id"]
+
+        response = self._response(payload, request, balanced_result, selected, versions)
+        response["recommended_route_id"] = recommended_route_id or selected[0]["route_id"]
+        return response
+
+    @staticmethod
+    def _response(
+        payload: Any,
+        request: RouteRequest,
+        result: dict[str, Any],
+        diverse: list[dict[str, Any]],
+        versions: dict[str, str],
+    ) -> dict[str, Any]:
         for rank, route in enumerate(diverse, start=1):
             route["rank"] = rank
         warnings = []

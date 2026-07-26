@@ -309,6 +309,7 @@ def _route_summary(route: dict[str, Any]) -> str:
         "fastest": "所要時間を重視した",
         "balanced": "所要時間と走りやすさのバランスを重視した",
         "most_drivable": "走りやすさを重視した",
+        "distance_priority": "距離を重視した",
         "alternative": "比較用の",
     }.get(route.get("label"), "比較用の")
     facts = []
@@ -418,10 +419,7 @@ def _recommendation_reason(
     recommended: dict[str, Any],
     routes: list[dict[str, Any]],
 ) -> str:
-    reason = (
-        f"経路探索で第{recommended['rank']}候補として確定しているため、"
-        "この経路を推奨します。"
-    )
+    reason = "経路探索の総合バランス評価で確定した経路として、この経路を推奨します。"
     facts = []
     if recommended.get("duration_s") is not None:
         facts.append(f"所要時間は{_format_duration(recommended['duration_s'])}")
@@ -563,7 +561,7 @@ def _normalize_route_result(payload: dict[str, Any]) -> dict[str, Any]:
                 else index,
                 "label": route.get("label")
                 if route.get("label")
-                in {"fastest", "balanced", "most_drivable", "alternative"}
+                in {"fastest", "balanced", "most_drivable", "distance_priority", "alternative"}
                 else "alternative",
                 "distance_m": _number(route.get("distance_m")),
                 "duration_s": _number(route.get("duration_s")),
@@ -613,7 +611,13 @@ def _normalize_route_result(payload: dict[str, Any]) -> dict[str, Any]:
         "recommended_route_id": recommended_route_id,
         "mode": payload.get("mode")
         if payload.get("mode")
-        in {"time_priority", "balanced", "drivability_priority"}
+        in {
+            "time_priority",
+            "balanced",
+            "drivability_priority",
+            "distance_priority",
+            "comparison",
+        }
         else None,
         "reference_time": payload.get("reference_time")
         if isinstance(payload.get("reference_time"), str)

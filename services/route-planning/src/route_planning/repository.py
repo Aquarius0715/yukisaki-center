@@ -11,6 +11,7 @@ from typing import Any
 
 from .config import (
     BRIDGE_PENALTY_S,
+    COST_CONFIG_VERSION,
     COST_PROFILES,
     K_SHORTEST_PATHS,
     MISSING_SCORE_PENALTY_RATIO,
@@ -147,6 +148,7 @@ class RoutingRepository:
             "graph_version": graph_version,
             "score_rule_version": score_rule_version,
             "score_data_timestamp": score_data_timestamp,
+            "cost_config_version": COST_CONFIG_VERSION,
             "reference_time": request.reference_time.isoformat(),
             "mode": request.mode,
             "avoid": sorted(request.options.avoid),
@@ -235,6 +237,16 @@ class RoutingRepository:
                ) passage ON true
             """
             passage_parameters = ()
+        forward_basis = (
+            "e.length_m::float8 / 13.8888888889"
+            if profile["basis"] == "distance"
+            else "e.base_travel_time_s::float8"
+        )
+        reverse_basis = (
+            "e.length_m::float8 / 13.8888888889"
+            if profile["basis"] == "distance"
+            else "e.reverse_travel_time_s::float8"
+        )
         cache_key = cls._cost_cache_key(
             request,
             graph_version,
@@ -286,7 +298,7 @@ class RoutingRepository:
                )
                SELECT %s, e.edge_id, e.source, e.target,
                  CASE WHEN e.access_status = 'closed' THEN -1::float8 ELSE
-                   e.base_travel_time_s::float8
+                   {forward_basis}
                    * (1
                       + %s * COALESCE((100 - score.score) / 100.0, %s)
                       + %s * COALESCE(1 - score.confidence, 1)
@@ -300,7 +312,7 @@ class RoutingRepository:
                        THEN %s ELSE 0 END
                  END AS cost,
                  CASE WHEN e.reverse_travel_time_s IS NULL OR e.access_status = 'closed' THEN -1::float8 ELSE
-                   e.reverse_travel_time_s::float8
+                   {reverse_basis}
                    * (1
                       + %s * COALESCE((100 - score.score) / 100.0, %s)
                       + %s * COALESCE(1 - score.confidence, 1)

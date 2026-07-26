@@ -26,7 +26,7 @@
 - REST APIはAPI Gateway HTTP APIとDockerイメージLambdaで実装し、共通RDSの道路・指数・消雪パイプ・最新除雪車位置をGeoJSONで返す。道路Geometryの外接矩形をRDSへ保持し、GiST式インデックスを使う`bbox`条件、任意の`min_road_rank`、SQL件数上限の順で絞る。最新の指数と消雪パイプ状態は一覧向けインデックスから参照し、Web地図は`view=map`の軽量道路投影を使う。指数根拠・勾配・除雪履歴等は道路選択時の詳細APIで取得し、GPSは別エンドポイントから更新できる
 - 地点名称検索はApple Maps Server API専用のVPC外Docker Lambdaへ分離し、長岡市内の検索・入力補完だけを公開する。`server_api`秘密鍵はSecrets Managerへ置き、ブラウザ用MapKit JSトークンと分離する。Webへの接続は未実施
 - 2026-07-24にApple Maps地点名称検索をAWSへデプロイ済み。署名JWTをToken APIでaccess tokenへ交換し、`GET /v1/places/search`と`GET /v1/places/autocomplete`で長岡市内の実検索結果を確認済み
-- 経路探索は道路収集時のOSMノード・分割ノード・方向・速度・accessをS3 curatedからPostGIS/pgRoutingへ投影し、最寄りedge距離で検証する地点スナップ、版付き動的コストキャッシュ、二段階の探索回廊内でのK最短候補、危険区間集計を行うDocker Lambdaと`POST /v1/routes`をAWSへデプロイ済み。道路グラフもロード済みで、公開APIから最大3候補を利用できる
+- 経路探索は道路収集時のOSMノード・分割ノード・方向・速度・accessをS3 curatedからPostGIS/pgRoutingへ投影し、最寄りedge距離で検証する地点スナップ、版付き動的コストキャッシュ、二段階の探索回廊内でのK最短候補、危険区間集計を行うDocker Lambdaと`POST /v1/routes`をAWSへデプロイ済み。道路グラフもロード済みで、公開APIから最大3候補を利用できる。総合バランス、走りやすさ、距離の各上位20候補から全体・中間区間の重複率上限を満たす候補だけを返す`comparison`モードはローカル実装済み・AWS未デプロイ
 - AIサービスはAmazon BedrockのStructured Outputsを使うDocker Lambdaとして実装し、自然言語の条件抽出、確定済み経路の比較説明、確定済み危険要因の説明を別APIで提供する。`POST /v1/ai/explain-routes`は従来の経路APIレスポンスを直接受け取り、Geometry等を除いた根拠だけをLLMへ渡す。詳細な自然文説明とフォールバック改善をAWSへデプロイ済み。識別子変更、根拠外推測、Bedrock失敗時は定型文へフォールバックし、指数・順位・通行可否は決定しない
 - WebはReactとApple MapKit JSで実装し、非公開S3とCloudFront OACで配信するCDKスタックを持つ。CloudFrontからAPI Gatewayへ`/v1/*`を同一オリジン転送し、道路一覧・道路詳細・snapshotは固定表示タイルと全クエリをキーに90秒間共有キャッシュする。除雪車やPOST APIはキャッシュしない。道路は広域を含めて最大2並列・1,500件単位で段階取得し、広域では縮尺別の`min_road_rank`で絞ってからページングする。MapKit Overlayは差分更新し、デプロイ直後はCloudFrontを無効とする
 - MapKit JSトークンはGit管理外の`services/web/env.local`からSecrets Managerへ同期し、CDKデプロイ時だけ取得する。トークンはCloudFrontドメインへ制限し、ログやCloudFormationへ直接出力しない

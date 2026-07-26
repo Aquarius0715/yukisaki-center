@@ -40,7 +40,7 @@ corepack pnpm preview
 
 ## データモード
 
-`.env.example` を `.env.local` へコピーして設定します。`VITE_MAPKIT_TOKEN`にはApple Developerで発行するMapKit JS用のドメイン制限付きトークンを設定します。ローカル確認ではトークンの許可ドメインに`localhost`も追加してください。`VITE_DATA_MODE=api` と `VITE_YUKISAKI_API_URL` で公開APIへ接続します。初回は`/healthz`と`/v1/map/snapshot`、道路選択時は`/v1/road-segments/{id}`、除雪車は`/v1/snowplows`を5秒間隔で取得します。地点検索はApple Mapsの入力補完・名称検索、経路画面は`/v1/routes`へ接続し、確定済み経路の比較・注意説明だけAIアシスタントAPIへ接続します。自然言語条件抽出はWeb画面へ公開しません。
+`.env.example` を `.env.local` へコピーして設定します。`VITE_MAPKIT_TOKEN`にはApple Developerで発行するMapKit JS用のドメイン制限付きトークンを設定します。ローカル確認ではトークンの許可ドメインに`localhost`も追加してください。`VITE_DATA_MODE=api` と `VITE_YUKISAKI_API_URL` で公開APIへ接続します。初回は`/healthz`と`/v1/map/snapshot`、道路選択時は`/v1/road-segments/{id}`、除雪車は`/v1/snowplows`を5秒間隔で取得します。地点検索はApple Mapsの入力補完・名称検索、経路画面はブラウザで取得した現在地を出発座標として`/v1/routes`の比較モードへ接続し、「AIおすすめ」「走りやすさ優先」「距離優先」を表示します。AIはルールで確定した総合おすすめの理由と候補差だけを説明します。現在地を取得できない場合は固定座標へ黙って切り替えず、位置情報の許可を案内します。自然言語条件抽出はWeb画面へ公開しません。
 
 `VITE_ENABLE_MOCK_FALLBACK=true`でも、道路一覧・snapshot、地点検索・経路探索・AI説明のエラーはモック成功へ置き換えません。道路更新失敗時は最後の実API値またはキャッシュを保持します。モックへ切り替わるのは除雪車の表示データと、公開天気APIが未実装のための固定天気表示だけです。Claude実推論を利用できない場合はAI APIが返す`fallback_used: true`の定型説明を明示します。
 
