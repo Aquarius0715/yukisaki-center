@@ -24,9 +24,20 @@ type OverlayData = { kind: OverlayKind; segmentId?: string; originalWidth?: numb
 type AnnotationData = { kind: 'plow' | 'destination' | 'current'; id?: string }
 type PlowCoordinate = [number, number]
 type PlowMotion = { from: PlowCoordinate; to: PlowCoordinate; startedAt: number }
-type OverviewChain = { coordinates: number[][]; color: string; segmentId?: string }
+type OverviewChain = { key: string; coordinates: number[][]; color: string; segmentId?: string }
 type ChainEndpoint = { chain: OverviewChain; coordinate: number[]; end: 'first' | 'last' }
 type ChainGroup = { chains: OverviewChain[]; endpoints: Map<string, ChainEndpoint[]> }
+type DesiredMapOverlay = {
+  key: string
+  kind: OverlayKind
+  signature: string
+  create: () => mapkit.Overlay
+}
+type ManagedMapOverlay = {
+  kind: OverlayKind
+  signature: string
+  overlay: mapkit.Overlay
+}
 type RoadDisplay = {
   key: 'all' | 'local' | 'arterial' | 'primary' | 'trunk'
   minimumRank: number
@@ -177,7 +188,12 @@ function overviewChains(
       })
 
       if (!best) {
-        const chain = { coordinates: line, color, segmentId: feature.properties.segment_id }
+        const chain = {
+          key: feature.properties.segment_id,
+          coordinates: line,
+          color,
+          segmentId: feature.properties.segment_id,
+        }
         group.chains.push(chain)
         indexEndpoint(group, chain, 'first')
         indexEndpoint(group, chain, 'last')
@@ -223,6 +239,45 @@ function dataOf(overlay: mapkit.Overlay | undefined): OverlayData | undefined {
   return overlay?.data as OverlayData | undefined
 }
 
+function lineSignature(line: number[][]): string {
+  const first = line[0] ?? []
+  const last = line[line.length - 1] ?? []
+  return `${line.length}:${first.join(',')}:${last.join(',')}`
+}
+
+function reconcileMapOverlays(
+  map: mapkit.Map,
+  managed: Map<string, ManagedMapOverlay>,
+  desired: DesiredMapOverlay[],
+): { removed: mapkit.Overlay[]; groups: Partial<Record<OverlayKind, mapkit.Overlay[]>> } {
+  const desiredByKey = new Map(desired.map((item) => [item.key, item]))
+  const removed: mapkit.Overlay[] = []
+  managed.forEach((current, key) => {
+    const next = desiredByKey.get(key)
+    if (next && next.signature === current.signature && next.kind === current.kind) return
+    removed.push(current.overlay)
+    managed.delete(key)
+  })
+  if (removed.length) map.removeOverlays(removed)
+
+  const added: mapkit.Overlay[] = []
+  desired.forEach((item) => {
+    if (managed.has(item.key)) return
+    const overlay = item.create()
+    managed.set(item.key, { kind: item.kind, signature: item.signature, overlay })
+    added.push(overlay)
+  })
+  if (added.length) map.addOverlays(added)
+
+  const groups: Partial<Record<OverlayKind, mapkit.Overlay[]>> = {}
+  managed.forEach(({ kind, overlay }) => {
+    const overlays = groups[kind] ?? []
+    overlays.push(overlay)
+    groups[kind] = overlays
+  })
+  return { removed, groups }
+}
+
 function boundsOfRegion(region: mapkit.CoordinateRegion): MapBounds {
   const latitudeRadius = region.span.latitudeDelta / 2
   const longitudeRadius = region.span.longitudeDelta / 2
@@ -251,6 +306,7 @@ export function YukisakiMap(props: Props) {
   const mapRef = useRef<mapkit.Map | undefined>(undefined)
   const propsRef = useRef(props)
   const overlayGroupsRef = useRef<Record<OverlayKind, mapkit.Overlay[]>>({ road: [], snow: [], pipe: [], plowing: [], slope: [], track: [], route: [] })
+  const managedMapOverlaysRef = useRef(new Map<string, ManagedMapOverlay>())
   const plowAnnotationsRef = useRef(new Map<string, mapkit.Annotation>())
   const destinationAnnotationRef = useRef<mapkit.Annotation | undefined>(undefined)
   const plowMotionsRef = useRef(new Map<string, PlowMotion>())
@@ -303,7 +359,7 @@ export function YukisakiMap(props: Props) {
         if (viewport === lastViewport) return
         lastViewport = viewport
         propsRef.current.onViewportChange(bounds)
-      }, 400)
+      }, 750)
     }
 
     loadMapKit(appConfig.mapKitToken).then(() => {
@@ -366,6 +422,7 @@ export function YukisakiMap(props: Props) {
       mapRef.current?.removeEventListener('region-change-end', handleRegionChange)
       mapRef.current?.destroy()
       mapRef.current = undefined
+      managedMapOverlaysRef.current.clear()
     }
   }, [])
 
@@ -373,9 +430,7 @@ export function YukisakiMap(props: Props) {
     const map = mapRef.current
     if (!map) return
     const kinds: OverlayKind[] = ['road', 'snow', 'pipe', 'plowing', 'slope']
-    const old = kinds.flatMap((kind) => overlayGroupsRef.current[kind])
-    if (old.length) map.removeOverlays(old)
-    kinds.forEach((kind) => { overlayGroupsRef.current[kind] = [] })
+    const desired: DesiredMapOverlay[] = []
 
     const useChains = roadDisplay.key !== 'all' || visibleRoads.features.length > MAX_INDIVIDUAL_ROAD_OVERLAYS
     if (useChains) {
@@ -385,98 +440,122 @@ export function YukisakiMap(props: Props) {
           (feature.properties.road_name || feature.properties.name || '').trim().length > 0
         )),
       }
-      const continuityOverlays = roadDisplay.key === 'all'
-        ? []
-        : overviewChains(namedRoads, conditionsById, roadDisplay.continuityBridgeMetres, '#536879').flatMap((chain) => {
-          const points = coordinatesOf(chain.coordinates)
-          if (points.length < 2) return []
-          return [new mapkit.PolylineOverlay(points, {
-            data: { kind: 'road' } satisfies OverlayData,
-            enabled: false,
-            style: new mapkit.Style({
-              strokeColor: chain.color,
-              strokeOpacity: 0.42,
-              lineWidth: roadDisplay.lineWidth + 2,
-              lineCap: 'round',
-              lineJoin: 'round',
+      if (layers.drivability && roadDisplay.key !== 'all') {
+        overviewChains(namedRoads, conditionsById, roadDisplay.continuityBridgeMetres, '#536879').forEach((chain) => {
+          if (chain.coordinates.length < 2) return
+          desired.push({
+            key: `road:continuity:${chain.key}`,
+            kind: 'road',
+            signature: `${lineSignature(chain.coordinates)}:${chain.color}:${roadDisplay.lineWidth}`,
+            create: () => new mapkit.PolylineOverlay(coordinatesOf(chain.coordinates), {
+              data: { kind: 'road' } satisfies OverlayData,
+              enabled: false,
+              style: new mapkit.Style({
+                strokeColor: chain.color,
+                strokeOpacity: 0.42,
+                lineWidth: roadDisplay.lineWidth + 2,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }),
             }),
-          })]
+          })
         })
-      const scoreOverlays = overviewChains(visibleRoads, conditionsById, roadDisplay.bridgeMetres).flatMap((chain) => {
-        const points = coordinatesOf(chain.coordinates)
-        if (points.length < 2) return []
-        return [new mapkit.PolylineOverlay(points, {
-          data: { kind: 'road', segmentId: chain.segmentId, originalWidth: roadDisplay.lineWidth } satisfies OverlayData,
-          enabled: Boolean(chain.segmentId),
-          style: new mapkit.Style({
-            strokeColor: chain.color,
-            strokeOpacity: 0.92,
-            lineWidth: roadDisplay.lineWidth,
-            lineCap: 'round',
-            lineJoin: 'round',
-          }),
-        })]
-      })
-      overlayGroupsRef.current.road = [...continuityOverlays, ...scoreOverlays]
-      if (layers.drivability && overlayGroupsRef.current.road.length) {
-        map.addOverlays(overlayGroupsRef.current.road)
       }
-      return
+      if (layers.drivability) {
+        overviewChains(visibleRoads, conditionsById, roadDisplay.bridgeMetres).forEach((chain) => {
+          if (chain.coordinates.length < 2) return
+          desired.push({
+            key: `road:score:${chain.key}`,
+            kind: 'road',
+            signature: `${lineSignature(chain.coordinates)}:${chain.color}:${roadDisplay.lineWidth}:${chain.segmentId ?? ''}`,
+            create: () => new mapkit.PolylineOverlay(coordinatesOf(chain.coordinates), {
+              data: { kind: 'road', segmentId: chain.segmentId, originalWidth: roadDisplay.lineWidth } satisfies OverlayData,
+              enabled: Boolean(chain.segmentId),
+              style: new mapkit.Style({
+                strokeColor: chain.color,
+                strokeOpacity: 0.92,
+                lineWidth: roadDisplay.lineWidth,
+                lineCap: 'round',
+                lineJoin: 'round',
+              }),
+            }),
+          })
+        })
+      }
+    } else {
+      visibleRoads.features.forEach((feature) => {
+        const segmentId = feature.properties.segment_id
+        const condition = conditionsById.get(segmentId)
+        const score = condition?.hasDrivabilityScore === false ? undefined : condition?.drivabilityScore
+        linesOf(feature).forEach((line, lineIndex) => {
+          if (line.length < 2) return
+          const geometrySignature = lineSignature(line)
+          if (layers.drivability) {
+            const color = colorForScore(score)
+            desired.push({
+              key: `road:${segmentId}:${lineIndex}`,
+              kind: 'road',
+              signature: `${geometrySignature}:${color}:${roadDisplay.lineWidth}`,
+              create: () => new mapkit.PolylineOverlay(coordinatesOf(line), {
+                data: { kind: 'road', segmentId, originalWidth: roadDisplay.lineWidth } satisfies OverlayData,
+                enabled: true,
+                style: new mapkit.Style({ strokeColor: color, strokeOpacity: 0.96, lineWidth: roadDisplay.lineWidth, lineCap: 'round', lineJoin: 'round' }),
+              }),
+            })
+          }
+          if (layers.plowing && (condition?.status === 'recently_plowed' || condition?.status === 'plowed')) {
+            desired.push({
+              key: `plowing:${segmentId}:${lineIndex}`,
+              kind: 'plowing',
+              signature: geometrySignature,
+              create: () => new mapkit.PolylineOverlay(coordinatesOf(line), {
+                data: { kind: 'plowing', segmentId } satisfies OverlayData,
+                enabled: false,
+                style: new mapkit.Style({ strokeColor: '#142839', strokeOpacity: 0.45, lineWidth: 1.5, lineDash: [5, 5] }),
+              }),
+            })
+          }
+          if (layers.snowmelt && condition?.hasSnowmeltPipe) {
+            const operating = condition.snowmeltPipeOperating
+            desired.push({
+              key: `pipe:${segmentId}:${lineIndex}`,
+              kind: 'pipe',
+              signature: `${geometrySignature}:${operating}`,
+              create: () => new mapkit.PolylineOverlay(coordinatesOf(offsetLine(line)), {
+                data: { kind: 'pipe', segmentId } satisfies OverlayData,
+                enabled: false,
+                style: new mapkit.Style({
+                  strokeColor: operating ? '#13bde9' : '#1686c5',
+                  strokeOpacity: 0.95,
+                  lineWidth: 2.5,
+                  lineDash: operating ? [4, 3] : [8, 5],
+                }),
+              }),
+            })
+          }
+          if (layers.slopes && (condition?.slopePercent ?? 0) >= 7) {
+            desired.push({
+              key: `slope:${segmentId}:${lineIndex}`,
+              kind: 'slope',
+              signature: geometrySignature,
+              create: () => new mapkit.PolylineOverlay(coordinatesOf(line), {
+                data: { kind: 'slope', segmentId } satisfies OverlayData,
+                enabled: false,
+                style: new mapkit.Style({ strokeColor: '#dc4838', strokeOpacity: 1, lineWidth: 3, lineDash: [4, 4] }),
+              }),
+            })
+          }
+        })
+      })
     }
 
-    visibleRoads.features.forEach((feature) => {
-      const segmentId = feature.properties.segment_id
-      const condition = conditionsById.get(segmentId)
-      const score = condition?.hasDrivabilityScore === false ? undefined : condition?.drivabilityScore
-      linesOf(feature).forEach((line) => {
-        const points = coordinatesOf(line)
-        if (points.length < 2) return
-        // Hidden MapKit overlays consume the same native resources as visible
-        // ones. Create only the layers that the user is currently displaying.
-        // Snow animation is a CSS layer and does not need a road overlay.
-        if (layers.drivability) {
-          overlayGroupsRef.current.road.push(new mapkit.PolylineOverlay(points, {
-            data: { kind: 'road', segmentId, originalWidth: roadDisplay.lineWidth } satisfies OverlayData,
-            enabled: true,
-            style: new mapkit.Style({ strokeColor: colorForScore(score), strokeOpacity: 0.96, lineWidth: roadDisplay.lineWidth, lineCap: 'round', lineJoin: 'round' }),
-          }))
-        }
-        if (roadDisplay.key === 'all' && layers.plowing && (condition?.status === 'recently_plowed' || condition?.status === 'plowed')) {
-          overlayGroupsRef.current.plowing.push(new mapkit.PolylineOverlay(points, {
-            data: { kind: 'plowing', segmentId } satisfies OverlayData,
-            enabled: false,
-            style: new mapkit.Style({ strokeColor: '#142839', strokeOpacity: 0.45, lineWidth: 1.5, lineDash: [5, 5] }),
-          }))
-        }
-        if (roadDisplay.key === 'all' && layers.snowmelt && condition?.hasSnowmeltPipe) {
-          overlayGroupsRef.current.pipe.push(new mapkit.PolylineOverlay(coordinatesOf(offsetLine(line)), {
-            data: { kind: 'pipe', segmentId } satisfies OverlayData,
-            enabled: false,
-            style: new mapkit.Style({
-              strokeColor: condition.snowmeltPipeOperating ? '#13bde9' : '#1686c5',
-              strokeOpacity: 0.95,
-              lineWidth: 2.5,
-              lineDash: condition.snowmeltPipeOperating ? [4, 3] : [8, 5],
-            }),
-          }))
-        }
-        if (roadDisplay.key === 'all' && layers.slopes && (condition?.slopePercent ?? 0) >= 7) {
-          overlayGroupsRef.current.slope.push(new mapkit.PolylineOverlay(points, {
-            data: { kind: 'slope', segmentId } satisfies OverlayData,
-            enabled: false,
-            style: new mapkit.Style({ strokeColor: '#dc4838', strokeOpacity: 1, lineWidth: 3, lineDash: [4, 4] }),
-          }))
-        }
-      })
+    const { removed, groups } = reconcileMapOverlays(map, managedMapOverlaysRef.current, desired)
+    if (selectedOverlayRef.current && removed.includes(selectedOverlayRef.current)) {
+      selectedOverlayRef.current = undefined
+    }
+    kinds.forEach((kind) => {
+      if (kind !== 'snow') overlayGroupsRef.current[kind] = groups[kind] ?? []
     })
-
-    map.addOverlays([
-      ...overlayGroupsRef.current.snow,
-      ...overlayGroupsRef.current.road,
-      ...overlayGroupsRef.current.plowing,
-      ...overlayGroupsRef.current.pipe,
-      ...overlayGroupsRef.current.slope,
-    ])
   }, [visibleRoads, conditionsById, layers.drivability, layers.plowing, layers.slopes, layers.snowmelt, mapReady, roadDisplay])
 
   useEffect(() => {

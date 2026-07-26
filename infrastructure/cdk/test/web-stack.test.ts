@@ -32,19 +32,14 @@ describe('WebStack', () => {
   });
 
   test('creates a disabled CloudFront distribution with SPA and API routing', () => {
-    template.hasResourceProperties('AWS::CloudFront::CachePolicy', {
-      CachePolicyConfig: Match.objectLike({
-        DefaultTTL: 60,
-        MinTTL: 60,
-        MaxTTL: 60,
-      }),
-    });
     template.hasResourceProperties('AWS::CloudFront::Distribution', {
       DistributionConfig: Match.objectLike({
         Enabled: false,
         DefaultRootObject: 'index.html',
         CacheBehaviors: Match.arrayWith([
-          Match.objectLike({ PathPattern: 'v1/road-segments*' }),
+          Match.objectLike({ PathPattern: 'v1/road-segments' }),
+          Match.objectLike({ PathPattern: 'v1/road-segments/*' }),
+          Match.objectLike({ PathPattern: 'v1/map/snapshot' }),
           Match.objectLike({ PathPattern: 'v1/*' }),
           Match.objectLike({ PathPattern: 'healthz' }),
         ]),
@@ -55,5 +50,19 @@ describe('WebStack', () => {
       }),
     });
     template.resourceCountIs('Custom::CDKBucketDeployment', 1);
+  });
+
+  test('caches public map reads by all query-string parameters', () => {
+    template.hasResourceProperties('AWS::CloudFront::CachePolicy', {
+      CachePolicyConfig: Match.objectLike({
+        DefaultTTL: 30,
+        MinTTL: 1,
+        MaxTTL: 60,
+        ParametersInCacheKeyAndForwardedToOrigin: Match.objectLike({
+          QueryStringsConfig: { QueryStringBehavior: 'all' },
+          CookiesConfig: { CookieBehavior: 'none' },
+        }),
+      }),
+    });
   });
 });

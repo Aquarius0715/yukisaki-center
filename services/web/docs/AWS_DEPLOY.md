@@ -15,7 +15,7 @@ pnpm build
 
 ## CDKによる配備
 
-正規のAWS構成は`infrastructure/cdk/lib/web-stack.ts`で管理する。CDK synth時にDockerでWebを本番ビルドし、非公開S3、CloudFront Origin Access Control、SPAフォールバック、API Gatewayへの`/v1/*`・`/healthz`転送、成果物アップロードとキャッシュ無効化を作成する。CloudFrontはデプロイ直後に無効である。
+正規のAWS構成は`infrastructure/cdk/lib/web-stack.ts`で管理する。CDK synth時にDockerでWebを本番ビルドし、非公開S3、CloudFront Origin Access Control、SPAフォールバック、API Gatewayへの`/v1/*`・`/healthz`転送、成果物アップロードとキャッシュ無効化を作成する。道路一覧・道路詳細・snapshotのGETは全クエリ文字列をキーに短時間共有キャッシュし、除雪車とPOST APIはキャッシュしない。CloudFrontはデプロイ直後に無効である。
 
 MapKit JSトークンは`yukisaki/<environment>/web/mapkit-js-token`という名前でSecrets Managerへ保存する。トークン自体はブラウザへ配信される公開値だが、GitやCloudFormationへ直接記録せず、Apple Developer側でCloudFrontドメインへ制限する。初回またはローテーション時だけ、Git管理外の`services/web/env.local`から同期する。
 

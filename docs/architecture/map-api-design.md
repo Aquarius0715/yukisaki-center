@@ -189,18 +189,19 @@ APIスキーマのバージョンは、一括レスポンスの`schema_version: 
 
 ```text
 画面表示
-  -> GET /v1/road-segments?bbox=...&limit=75
-     とGET /v1/snowplowsを並列実行
-  -> 現在の表示範囲の道路75件を即時描画
-  -> next_cursorのページはブラウザへ自動蓄積しない
+  -> IndexedDBの最終道路を先行描画
+  -> 固定タイルごとにGET /v1/road-segments?bbox=...&limit=1500&view=map
+     とGET /v1/snowplowsを実行
+  -> 先頭ページを即時描画
+  -> next_cursorを300ミリ秒間隔、最大2並列で段階補完
   -> 除雪車マーカー3台生成
   -> 5秒ごとにGET /v1/snowplows
   -> 同じvehicle_idのマーカー位置・向きだけ更新
 
 地図移動
-  -> debounce後に進行中の道路リクエストを中断
-  -> GET /v1/road-segments?bbox=...&limit=75
-  -> 現在の1ページで道路レイヤーを差し替え
+  -> region-change-endから750ミリ秒待って最新範囲を確定
+  -> 進行中の道路取得へ新しい取得を重ねず、完了後に最新タイルだけ取得
+  -> MapKit Overlayを道路キーで差分更新
 ```
 
 - 除雪車マーカーのキーには`vehicle_id`を使う
@@ -246,8 +247,8 @@ APIスキーマのバージョンは、一括レスポンスの`schema_version: 
 | PostgreSQL connect timeout | 5秒 |
 | PostgreSQL statement timeout | 12秒 |
 | 道路API上限 | 5,000件/ページ |
-| Webページサイズ | 表示範囲ごとに75件、MapKitへは1ページだけ描画 |
-| HTTPキャッシュ | `Cache-Control: no-store` |
+| Webページサイズ | 近距離は固定タイルごとに1,500件を先行描画し、間隔を空けて後続ページを補完 |
+| HTTPキャッシュ | 道路・snapshotは`public`かつCloudFrontで通常30秒、除雪車・エラーは`no-store` |
 | 除雪車ポーリング | 約5秒 |
 
 RDS停止中はAPIデータを提供しない。S3は正本として維持されるため、RDSは再ロード可能である。外部データの欠損時にAPIやLLMが値を推定してはならない。
@@ -255,10 +256,9 @@ RDS停止中はAPIデータを提供しない。S3は正本として維持され
 今後、閲覧数が増えた場合は次の順で改善する。
 
 1. PostGIS/GiSTでbbox検索を高度化
-2. ETagまたは短時間キャッシュを道路レスポンスへ追加
-3. 道路をMVT化してS3・CloudFrontから配信
-4. 除雪車位置だけをWebSocket差分配信へ変更
-5. RDS Proxyまたは接続プールを導入
+2. 道路をMVT化してS3・CloudFrontから配信
+3. 除雪車位置だけをWebSocket差分配信へ変更
+4. RDS Proxyまたは接続プールを導入
 
 ## 13. 監視・テスト
 

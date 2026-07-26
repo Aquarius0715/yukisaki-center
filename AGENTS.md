@@ -28,7 +28,7 @@
 - 2026-07-24にApple Maps地点名称検索をAWSへデプロイ済み。署名JWTをToken APIでaccess tokenへ交換し、`GET /v1/places/search`と`GET /v1/places/autocomplete`で長岡市内の実検索結果を確認済み
 - 経路探索は道路収集時のOSMノード・分割ノード・方向・速度・accessをS3 curatedからPostGIS/pgRoutingへ投影し、最寄りedge距離で検証する地点スナップ、版付き動的コストキャッシュ、二段階の探索回廊内でのK最短候補、危険区間集計を行うDocker Lambdaと`POST /v1/routes`をAWSへデプロイ済み。道路グラフもロード済みで、公開APIから最大3候補を利用できる
 - AIサービスはAmazon BedrockのStructured Outputsを使うDocker Lambdaとして実装し、自然言語の条件抽出、確定済み経路の比較説明、確定済み危険要因の説明を別APIで提供する。`POST /v1/ai/explain-routes`は従来の経路APIレスポンスを直接受け取り、Geometry等を除いた根拠だけをLLMへ渡す。詳細な自然文説明とフォールバック改善をAWSへデプロイ済み。識別子変更、根拠外推測、Bedrock失敗時は定型文へフォールバックし、指数・順位・通行可否は決定しない
-- WebはReactとApple MapKit JSで実装し、非公開S3とCloudFront OACで配信するCDKスタックを持つ。CloudFrontからAPI Gatewayへ`/v1/*`を同一オリジン転送し、デプロイ直後は無効とする
+- WebはReactとApple MapKit JSで実装し、非公開S3とCloudFront OACで配信するCDKスタックを持つ。CloudFrontからAPI Gatewayへ`/v1/*`を同一オリジン転送し、道路一覧・道路詳細・snapshotは固定表示タイルと全クエリをキーに短時間共有キャッシュする。除雪車やPOST APIはキャッシュしない。近距離道路は最大2並列・1,500件単位で段階取得し、MapKit Overlayは差分更新する。デプロイ直後はCloudFrontを無効とする
 - MapKit JSトークンはGit管理外の`services/web/env.local`からSecrets Managerへ同期し、CDKデプロイ時だけ取得する。トークンはCloudFrontドメインへ制限し、ログやCloudFormationへ直接出力しない
 - AWS CDKでは気象データパイプライン、道路収集、消雪パイプ処理、GPS・指数処理、経路探索、公開API、AIアシスタント、Web配信を別スタックとして管理。経路探索スタックと公開API経路はAWSへデプロイ済み
 - Weather、道路、消雪パイプmanifestはEventBridge Ruleを共通の入口とし、3つのRuleはデプロイ時に`DISABLED`。単一RDS、3つのRule、関連Lambda（Map APIを含む）、道路Fargate、GPS Fargate、Web CloudFrontは`env:start|stop|status`でまとめて管理する

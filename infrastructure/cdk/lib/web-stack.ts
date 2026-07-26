@@ -59,10 +59,10 @@ export class WebStack extends Stack {
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       compress: true,
     };
-    const roadApiCachePolicy = new cloudfront.CachePolicy(this, 'RoadApiCachePolicy', {
-      comment: `Yukisaki road API cache (${props.environment})`,
-      defaultTtl: Duration.seconds(60),
-      minTtl: Duration.seconds(60),
+    const mapApiCachePolicy = new cloudfront.CachePolicy(this, 'MapApiCachePolicy', {
+      comment: `Shared map API cache (${props.environment})`,
+      defaultTtl: Duration.seconds(30),
+      minTtl: Duration.seconds(1),
       maxTtl: Duration.seconds(60),
       queryStringBehavior: cloudfront.CacheQueryStringBehavior.all(),
       cookieBehavior: cloudfront.CacheCookieBehavior.none(),
@@ -70,14 +70,10 @@ export class WebStack extends Stack {
       enableAcceptEncodingBrotli: true,
       enableAcceptEncodingGzip: true,
     });
-    const roadApiBehavior: cloudfront.BehaviorOptions = {
-      origin: apiOrigin,
+    const cachedMapApiBehavior: cloudfront.BehaviorOptions = {
+      ...apiBehavior,
       allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
-      cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
-      cachePolicy: roadApiCachePolicy,
-      originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
-      viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-      compress: true,
+      cachePolicy: mapApiCachePolicy,
     };
 
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
@@ -93,7 +89,9 @@ export class WebStack extends Stack {
         compress: true,
       },
       additionalBehaviors: {
-        'v1/road-segments*': roadApiBehavior,
+        'v1/road-segments': cachedMapApiBehavior,
+        'v1/road-segments/*': cachedMapApiBehavior,
+        'v1/map/snapshot': cachedMapApiBehavior,
         'v1/*': apiBehavior,
         healthz: apiBehavior,
       },
