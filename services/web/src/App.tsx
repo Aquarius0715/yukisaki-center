@@ -305,7 +305,16 @@ function PlowSheet({ plow, close }: { plow: Snowplow; close: () => void }) {
   </div></BottomSheet>
 }
 
-function Header({ weather }: { weather?: ReturnType<typeof useYukisakiData>['weather'] }) { return <header className="topbar"><div className="mini-logo"><img src="/brand/yukisaki-logo.png" alt="Yukisaki"/></div><div className="weather"><span><svg className="weather-symbol" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M3.1 6l13.8 8M3.1 14l13.8-8M7.6 3.4 10 5.8l2.4-2.4M7.6 16.6l2.4-2.4 2.4 2.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>{weather?.temperatureC ?? '--'}°</span><small>{weather?.condition ?? '読込中'}</small></div></header> }
+function HazardSheet({ hazard, close }: { hazard: HazardPoint; close: () => void }) {
+  return <BottomSheet title="注意箇所の詳細" onClose={close}><div className="sheet-content">
+    <div className="road-title"><div><small>最低走りやすさ指数</small><h3>{hazard.minimumScore ?? '未算出'}</h3></div></div>
+    {hazard.explanation ? <p>{hazard.explanation}</p> : <div className="detail-loading" role="status"><div className="spinner"/>AIによる説明を生成しています</div>}
+    {hazard.cautions.length > 0 && <div className="reason-list">{hazard.cautions.map((caution) => <span className="warn" key={caution}>△ {caution}</span>)}</div>}
+    <p className="data-note">判定要因: {hazard.factors.map((factor) => scoreLabels[factor] ?? factor).join('、') || '情報なし'}</p>
+  </div></BottomSheet>
+}
+
+function Header({ weather }: { weather?: ReturnType<typeof useYukisakiData>['weather'] }) { return <header className="topbar"><div className="mini-logo"><img src="/brand/yukisaki-logo.png" alt="Yukisaki"/></div><div className="weather"><span>❄ {weather?.temperatureC ?? '--'}°</span><small>{weather?.condition ?? '読込中'}</small></div></header> }
 
 function Search({ onChoose }: { onChoose: (destination: Destination) => void }) {
   const [query, setQuery] = useState('')
@@ -530,7 +539,7 @@ function AppContent() {
 function RoutePanel({ routes,active,setActive,explanation,aiLoading,back,start }: { routes: RecommendedRoute[]; active: string; setActive: (id:string) => void; explanation?: RouteExplanation; aiLoading: boolean; back: () => void; start: () => void }) {
   const selectedExplanation = explanation?.routes.find((item) => item.routeId === active)
   return <section className="route-panel"><header><button className="icon-button" onClick={back} aria-label="ホームへ戻る">‹</button><div><b>ルートを選択</b><small>走りやすさの根拠を比較</small></div></header><div className="route-list">
-    {explanation && <div className="ai-explanation"><b>AIによる比較説明</b><p>{explanation.recommendationReason}</p>{selectedExplanation && <p>{selectedExplanation.summary}</p>}<small>{explanation.metadata.fallback_used ? '定型フォールバック' : explanation.metadata.model_id}</small></div>}
+    {explanation && <div className="ai-explanation"><b>AIによる比較説明</b><p>{explanation.recommendationReason}</p>{selectedExplanation && (selectedExplanation.advantages.length > 0 || selectedExplanation.cautions.length > 0) && <div className="reason-list">{selectedExplanation.advantages.map((item) => <span key={item}>✓ {item}</span>)}{selectedExplanation.cautions.map((item) => <span className="warn" key={item}>△ {item}</span>)}</div>}<small>{explanation.metadata.fallback_used ? '定型フォールバック' : explanation.metadata.model_id}</small></div>}
     {!explanation && aiLoading && <div className="ai-explanation ai-loading" role="status"><div className="spinner"/>AIが経路とルート上の注意箇所を分析しています</div>}
     {routes.map((route) => <button className={`route-card ${active === route.id ? 'active' : ''}`} key={route.id} onClick={() => setActive(route.id)}><div><em>{route.label}</em>{route.label === 'AIおすすめ' && <mark>総合推薦</mark>}<h3>{route.durationMinutes}<small>分</small> <span>{route.distanceKm} km</span></h3></div><Score value={route.drivabilityScore}/><dl><div><dt>直近の除雪実績</dt><dd>{Math.round(route.plowedRatio * 100)}%</dd></div><div><dt>消雪パイプ区間</dt><dd>{Math.round(route.snowmeltPipeRatio * 100)}%</dd></div><div><dt>実績未確認区間</dt><dd>{route.noPlowRecordSegmentCount ?? 'API提供なし'}</dd></div></dl><p>{route.reasons.join('・')}</p>{route.warnings.map((warning) => <span className="route-warning" key={warning}>△ {warning}</span>)}</button>)}
   </div><button className="primary start" onClick={start}>経路の全体を確認</button></section>

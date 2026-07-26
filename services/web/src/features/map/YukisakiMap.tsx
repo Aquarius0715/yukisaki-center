@@ -39,15 +39,30 @@ type PlowMotion = { from: PlowCoordinate; to: PlowCoordinate; startedAt: number 
 type OverviewChain = { key: string; coordinates: number[][]; color: string; segmentId?: string }
 type ChainEndpoint = { chain: OverviewChain; coordinate: number[]; end: 'first' | 'last' }
 type ChainGroup = { chains: OverviewChain[]; endpoints: Map<string, ChainEndpoint[]> }
+type OverlayStyleProps = {
+  strokeColor: string
+  strokeOpacity: number
+  lineWidth: number
+  lineCap?: 'butt' | 'round' | 'square'
+  lineJoin?: 'miter' | 'round' | 'bevel'
+  lineDash?: number[]
+}
+// Geometry changes (a road entering/leaving view, chains re-grouping) require a new
+// overlay. Style-only changes (a score-driven color update) must not: removing and
+// re-adding the overlay causes a visible blink, so those are applied in place instead.
 type DesiredMapOverlay = {
   key: string
   kind: OverlayKind
-  signature: string
-  create: () => mapkit.Overlay
+  geometrySignature: string
+  coordinates: mapkit.Coordinate[]
+  data: OverlayData
+  enabled: boolean
+  style: OverlayStyleProps
 }
 type ManagedMapOverlay = {
   kind: OverlayKind
-  signature: string
+  geometrySignature: string
+  styleSignature: string
   overlay: mapkit.Overlay
 }
 type RoadDisplay = {
@@ -169,7 +184,14 @@ function overviewChains(
     })
   }
 
-  roads.features.forEach((feature) => {
+  // Deterministic order so the same set of segments always groups into the same
+  // chains with the same representative segmentId, regardless of fetch/pagination
+  // order. Without this, the overlay key drifts between refreshes and every chain
+  // gets torn down and rebuilt even when nothing actually changed.
+  const orderedFeatures = [...roads.features].sort((a, b) => (
+    a.properties.segment_id < b.properties.segment_id ? -1 : a.properties.segment_id > b.properties.segment_id ? 1 : 0
+  ))
+  orderedFeatures.forEach((feature) => {
     const condition = conditionsById.get(feature.properties.segment_id)
     const score = condition?.hasDrivabilityScore === false ? undefined : condition?.drivabilityScore
     const color = fixedColor ?? colorForScore(score)
@@ -213,7 +235,9 @@ function overviewChains(
       }
 
       const target = best.chain
-      target.segmentId = undefined
+      // Keep the representative segmentId from whichever segment started this
+      // chain so the whole merged stretch stays tappable for road detail, instead
+      // of only single-segment chains responding to taps.
       if (best.mode === 'append') target.coordinates = [...target.coordinates, ...line]
       if (best.mode === 'append-reversed') target.coordinates = [...target.coordinates, ...[...line].reverse()]
       if (best.mode === 'prepend') target.coordinates = [...line, ...target.coordinates]
@@ -266,6 +290,21 @@ function lineSignature(line: number[][]): string {
   return `${line.length}:${first.join(',')}:${last.join(',')}`
 }
 
+function styleSignatureOf(style: OverlayStyleProps): string {
+  return `${style.strokeColor}:${style.strokeOpacity}:${style.lineWidth}:${style.lineCap ?? ''}:${style.lineJoin ?? ''}:${(style.lineDash ?? []).join(',')}`
+}
+
+function applyOverlayStyle(overlay: mapkit.Overlay, style: OverlayStyleProps) {
+  overlay.style = new mapkit.Style({
+    strokeColor: style.strokeColor,
+    strokeOpacity: style.strokeOpacity,
+    lineWidth: style.lineWidth,
+    lineCap: style.lineCap,
+    lineJoin: style.lineJoin,
+    lineDash: style.lineDash,
+  })
+}
+
 function reconcileMapOverlays(
   map: mapkit.Map,
   managed: Map<string, ManagedMapOverlay>,
@@ -275,7 +314,7 @@ function reconcileMapOverlays(
   const removed: mapkit.Overlay[] = []
   managed.forEach((current, key) => {
     const next = desiredByKey.get(key)
-    if (next && next.signature === current.signature && next.kind === current.kind) return
+    if (next && next.kind === current.kind && next.geometrySignature === current.geometrySignature) return
     removed.push(current.overlay)
     managed.delete(key)
   })
@@ -283,9 +322,23 @@ function reconcileMapOverlays(
 
   const added: mapkit.Overlay[] = []
   desired.forEach((item) => {
-    if (managed.has(item.key)) return
-    const overlay = item.create()
-    managed.set(item.key, { kind: item.kind, signature: item.signature, overlay })
+    const styleSignature = styleSignatureOf(item.style)
+    const existing = managed.get(item.key)
+    if (existing) {
+      existing.overlay.data = item.data
+      existing.overlay.enabled = item.enabled
+      if (existing.styleSignature !== styleSignature) {
+        applyOverlayStyle(existing.overlay, item.style)
+        existing.styleSignature = styleSignature
+      }
+      return
+    }
+    const overlay = new mapkit.PolylineOverlay(item.coordinates, {
+      data: item.data,
+      enabled: item.enabled,
+      style: new mapkit.Style(item.style),
+    })
+    managed.set(item.key, { kind: item.kind, geometrySignature: item.geometrySignature, styleSignature, overlay })
     added.push(overlay)
   })
   if (added.length) map.addOverlays(added)
@@ -482,18 +535,17 @@ export function YukisakiMap(props: Props) {
           desired.push({
             key: `road:continuity:${chain.key}`,
             kind: 'road',
-            signature: `${lineSignature(chain.coordinates)}:${chain.color}:${roadDisplay.lineWidth}`,
-            create: () => new mapkit.PolylineOverlay(coordinatesOf(chain.coordinates), {
-              data: { kind: 'road' } satisfies OverlayData,
-              enabled: false,
-              style: new mapkit.Style({
-                strokeColor: chain.color,
-                strokeOpacity: 0.42,
-                lineWidth: roadDisplay.lineWidth + 2,
-                lineCap: 'round',
-                lineJoin: 'round',
-              }),
-            }),
+            geometrySignature: lineSignature(chain.coordinates),
+            coordinates: coordinatesOf(chain.coordinates),
+            data: { kind: 'road' } satisfies OverlayData,
+            enabled: false,
+            style: {
+              strokeColor: chain.color,
+              strokeOpacity: 0.42,
+              lineWidth: roadDisplay.lineWidth + 2,
+              lineCap: 'round',
+              lineJoin: 'round',
+            },
           })
         })
       }
@@ -503,18 +555,17 @@ export function YukisakiMap(props: Props) {
           desired.push({
             key: `road:score:${chain.key}`,
             kind: 'road',
-            signature: `${lineSignature(chain.coordinates)}:${chain.color}:${roadDisplay.lineWidth}:${chain.segmentId ?? ''}`,
-            create: () => new mapkit.PolylineOverlay(coordinatesOf(chain.coordinates), {
-              data: { kind: 'road', segmentId: chain.segmentId, originalWidth: roadDisplay.lineWidth } satisfies OverlayData,
-              enabled: Boolean(chain.segmentId),
-              style: new mapkit.Style({
-                strokeColor: chain.color,
-                strokeOpacity: 0.92,
-                lineWidth: roadDisplay.lineWidth,
-                lineCap: 'round',
-                lineJoin: 'round',
-              }),
-            }),
+            geometrySignature: lineSignature(chain.coordinates),
+            coordinates: coordinatesOf(chain.coordinates),
+            data: { kind: 'road', segmentId: chain.segmentId, originalWidth: roadDisplay.lineWidth } satisfies OverlayData,
+            enabled: Boolean(chain.segmentId),
+            style: {
+              strokeColor: chain.color,
+              strokeOpacity: 0.92,
+              lineWidth: roadDisplay.lineWidth,
+              lineCap: 'round',
+              lineJoin: 'round',
+            },
           })
         })
       }
@@ -531,24 +582,22 @@ export function YukisakiMap(props: Props) {
             desired.push({
               key: `road:${segmentId}:${lineIndex}`,
               kind: 'road',
-              signature: `${geometrySignature}:${color}:${roadDisplay.lineWidth}`,
-              create: () => new mapkit.PolylineOverlay(coordinatesOf(line), {
-                data: { kind: 'road', segmentId, originalWidth: roadDisplay.lineWidth } satisfies OverlayData,
-                enabled: true,
-                style: new mapkit.Style({ strokeColor: color, strokeOpacity: 0.96, lineWidth: roadDisplay.lineWidth, lineCap: 'round', lineJoin: 'round' }),
-              }),
+              geometrySignature,
+              coordinates: coordinatesOf(line),
+              data: { kind: 'road', segmentId, originalWidth: roadDisplay.lineWidth } satisfies OverlayData,
+              enabled: true,
+              style: { strokeColor: color, strokeOpacity: 0.96, lineWidth: roadDisplay.lineWidth, lineCap: 'round', lineJoin: 'round' },
             })
           }
           if (layers.plowing && (condition?.status === 'recently_plowed' || condition?.status === 'plowed')) {
             desired.push({
               key: `plowing:${segmentId}:${lineIndex}`,
               kind: 'plowing',
-              signature: geometrySignature,
-              create: () => new mapkit.PolylineOverlay(coordinatesOf(line), {
-                data: { kind: 'plowing', segmentId } satisfies OverlayData,
-                enabled: false,
-                style: new mapkit.Style({ strokeColor: '#142839', strokeOpacity: 0.45, lineWidth: 1.5, lineDash: [5, 5] }),
-              }),
+              geometrySignature,
+              coordinates: coordinatesOf(line),
+              data: { kind: 'plowing', segmentId } satisfies OverlayData,
+              enabled: false,
+              style: { strokeColor: '#142839', strokeOpacity: 0.45, lineWidth: 1.5, lineDash: [5, 5] },
             })
           }
           if (layers.snowmelt && condition?.hasSnowmeltPipe) {
@@ -556,29 +605,27 @@ export function YukisakiMap(props: Props) {
             desired.push({
               key: `pipe:${segmentId}:${lineIndex}`,
               kind: 'pipe',
-              signature: `${geometrySignature}:${operating}`,
-              create: () => new mapkit.PolylineOverlay(coordinatesOf(offsetLine(line)), {
-                data: { kind: 'pipe', segmentId } satisfies OverlayData,
-                enabled: false,
-                style: new mapkit.Style({
-                  strokeColor: operating ? '#13bde9' : '#1686c5',
-                  strokeOpacity: 0.95,
-                  lineWidth: 2.5,
-                  lineDash: operating ? [4, 3] : [8, 5],
-                }),
-              }),
+              geometrySignature,
+              coordinates: coordinatesOf(offsetLine(line)),
+              data: { kind: 'pipe', segmentId } satisfies OverlayData,
+              enabled: false,
+              style: {
+                strokeColor: operating ? '#13bde9' : '#1686c5',
+                strokeOpacity: 0.95,
+                lineWidth: 2.5,
+                lineDash: operating ? [4, 3] : [8, 5],
+              },
             })
           }
           if (layers.slopes && (condition?.slopePercent ?? 0) >= 7) {
             desired.push({
               key: `slope:${segmentId}:${lineIndex}`,
               kind: 'slope',
-              signature: geometrySignature,
-              create: () => new mapkit.PolylineOverlay(coordinatesOf(line), {
-                data: { kind: 'slope', segmentId } satisfies OverlayData,
-                enabled: false,
-                style: new mapkit.Style({ strokeColor: '#dc4838', strokeOpacity: 1, lineWidth: 3, lineDash: [4, 4] }),
-              }),
+              geometrySignature,
+              coordinates: coordinatesOf(line),
+              data: { kind: 'slope', segmentId } satisfies OverlayData,
+              enabled: false,
+              style: { strokeColor: '#dc4838', strokeOpacity: 1, lineWidth: 3, lineDash: [4, 4] },
             })
           }
         })
