@@ -3,7 +3,7 @@
   "language": "ja",
   "description": "Provides snow-covered road navigation by integrating real-time snowmelt pipe data and snowplow routes to suggest safest, easiest paths in snowy regions.",
   "icons": {
-    "icon": "/brand/yukisaki-logo.png"
+    "icon": "/brand/yukisaki-tab-icon.png"
   },
   "robots": {
     "index": false
