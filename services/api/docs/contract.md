@@ -19,13 +19,15 @@
 ## 道路のクエリ
 
 - `bbox=west,south,east,north`: 地図の表示範囲。省略時は長岡市全域`138.643056,37.176389,139.124444,37.710278`
-- `limit=1..5000`: 1ページの最大道路件数。省略時は5,000件。Webは75件を使用する
+- `limit=1..5000`: 1ページの最大道路件数。省略時は5,000件。Webの近距離タイルは1,500件を使用する
 - `cursor`: 前ページの`next_cursor`。同じ`bbox`の続きを取得する場合だけ指定する
 - `view=detail|map`: 省略時は後方互換の`detail`。Web地図は`map`を指定する
 
-レスポンスに続きがある場合は`truncated: true`と`next_cursor`が返る。Web地図はブラウザ保護のため、現在の表示範囲の最初のページだけを描画する。
+レスポンスに続きがある場合は`truncated: true`と`next_cursor`が返る。Web地図は固定空間タイルごとに先頭ページを先に描画し、後続ページを間隔を空けて段階的に補完する。
 
 `view=map`は地図描画に必要な`segment_id`、Geometry、`road_name`、`road_type`、`drivability_score`、`snow_pipe`、`snow_pipe_operation_status`だけをFeatureへ含める。信頼度、データ時刻、仮データ区分はコレクションのメタデータに保持する。指数根拠、勾配、延長、消雪効果、最終除雪情報は返さず、道路選択時に`GET /v1/road-segments/{id}`から取得する。省略時の`view=detail`は従来契約を維持する。
+
+道路一覧、道路詳細、snapshotの成功レスポンスは`Cache-Control: public,max-age=15,s-maxage=30`を基本とし、CloudFrontで表示タイル単位に共有する。地図一覧とsnapshotは`stale-while-revalidate=30`も許可する。除雪車位置、エラー応答、その他の動的応答は`no-store`を維持する。
 
 ```json
 {

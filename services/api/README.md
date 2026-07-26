@@ -10,6 +10,8 @@ APIはS3を直接走査せず、PostgreSQLの配信用投影を参照する。�
 
 Web地図は道路一覧へ`view=map`を指定し、Geometry、道路ID・名称・種別、走りやすさ指数、消雪パイプ状態だけを取得する。軽量一覧SQLは除雪履歴と指数根拠を結合せず、道路選択時の`GET /v1/road-segments/{id}`だけが詳細情報を返す。`view`省略時は従来の詳細一覧契約を維持する。
 
+道路一覧・道路詳細・snapshotの成功応答は短時間の公開キャッシュを許可し、CloudFrontが固定表示タイルごとの結果を全端末で共有する。除雪車位置とエラー応答は`no-store`とする。
+
 経路探索は同じHTTP APIの`POST /v1/routes`から公開し、`route-planning`サービスがPostGISとpgRoutingを使って最大3候補を計算する。APIサービスは公開入口を所有し、経路計算ロジックや重み付けは所有しない。
 
 地点名称検索は同じHTTP APIの`GET /v1/places/search`と`GET /v1/places/autocomplete`から公開する。Apple Maps Server API専用LambdaをVPC外へ分離し、長岡市内に限定した座標候補を返す。ブラウザ用MapKit JSトークンは流用しない。

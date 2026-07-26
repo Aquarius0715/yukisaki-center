@@ -26,8 +26,10 @@ type RoadTile = {
 }
 
 const DETAIL_MAX_SPAN_DEGREES = 0.04
-const DETAIL_PAGE_LIMIT = 3_000
+const DETAIL_PAGE_LIMIT = 1_500
 const DETAIL_MAX_FEATURES = 18_000
+const DETAIL_REFINEMENT_DELAY_MS = 300
+const DETAIL_REQUEST_CONCURRENCY = 2
 const DETAIL_CACHE_MAX_ENTRIES = 4
 const OVERVIEW_CACHE_MAX_ENTRIES = 32
 const OVERVIEW_MAX_VISIBLE_TILES = 6
@@ -147,12 +149,12 @@ function tileRange(bounds: MapBounds, zoom: number) {
   return { minX, maxX, minY, maxY, count: (maxX - minX + 1) * (maxY - minY + 1) }
 }
 
-function overviewTiles(bounds: MapBounds): RoadTile[] {
+function fixedTiles(bounds: MapBounds, keyPrefix = '', maximumVisibleTiles = OVERVIEW_MAX_VISIBLE_TILES): RoadTile[] {
   let zoom = 0
   let range = tileRange(bounds, zoom)
   for (let candidate = 14; candidate >= 0; candidate -= 1) {
     const candidateRange = tileRange(bounds, candidate)
-    if (candidateRange.count <= OVERVIEW_MAX_VISIBLE_TILES) {
+    if (candidateRange.count <= maximumVisibleTiles) {
       zoom = candidate
       range = candidateRange
       break
@@ -162,10 +164,27 @@ function overviewTiles(bounds: MapBounds): RoadTile[] {
   const tiles: RoadTile[] = []
   for (let y = range.minY; y <= range.maxY; y += 1) {
     for (let x = range.minX; x <= range.maxX; x += 1) {
-      tiles.push({ key: `${zoom}/${x}/${y}`, bounds: tileBounds(zoom, x, y) })
+      tiles.push({ key: `${keyPrefix}${zoom}/${x}/${y}`, bounds: tileBounds(zoom, x, y) })
     }
   }
   return tiles
+}
+
+function overviewTiles(bounds: MapBounds): RoadTile[] {
+  return fixedTiles(bounds)
+}
+
+function detailTiles(bounds: MapBounds): RoadTile[] {
+  return fixedTiles(bounds, 'detail:', 6)
+}
+
+function coveringBounds(tiles: RoadTile[]): MapBounds {
+  return {
+    minLongitude: Math.min(...tiles.map((tile) => tile.bounds.minLongitude)),
+    minLatitude: Math.min(...tiles.map((tile) => tile.bounds.minLatitude)),
+    maxLongitude: Math.max(...tiles.map((tile) => tile.bounds.maxLongitude)),
+    maxLatitude: Math.max(...tiles.map((tile) => tile.bounds.maxLatitude)),
+  }
 }
 
 function pruneOverviewCache(now: number) {
@@ -215,17 +234,6 @@ function mergeRoadPages(pages: MapRoadPage[], complete = false): MapRoadPage | u
   }
 }
 
-function splitBounds(bounds: MapBounds): RoadTile[] {
-  const middleLongitude = (bounds.minLongitude + bounds.maxLongitude) / 2
-  const middleLatitude = (bounds.minLatitude + bounds.maxLatitude) / 2
-  return [
-    { minLongitude: bounds.minLongitude, minLatitude: bounds.minLatitude, maxLongitude: middleLongitude, maxLatitude: middleLatitude },
-    { minLongitude: middleLongitude, minLatitude: bounds.minLatitude, maxLongitude: bounds.maxLongitude, maxLatitude: middleLatitude },
-    { minLongitude: bounds.minLongitude, minLatitude: middleLatitude, maxLongitude: middleLongitude, maxLatitude: bounds.maxLatitude },
-    { minLongitude: middleLongitude, minLatitude: middleLatitude, maxLongitude: bounds.maxLongitude, maxLatitude: bounds.maxLatitude },
-  ].map((tileBoundsValue) => ({ key: `detail:${boundsKey(tileBoundsValue)}`, bounds: tileBoundsValue }))
-}
-
 function roadRank(roadType: string | null): number {
   const normalized = (roadType || '')
     .toLowerCase()
@@ -272,6 +280,7 @@ async function fetchRoadPages(
   maxFeatures: number,
   pageLimit: number,
   onProgress?: (page: MapRoadPage) => void,
+  refinementDelayMs = 0,
 ): Promise<MapRoadPage> {
   const pages: MapRoadPage[] = []
   let cursor: string | undefined
@@ -294,6 +303,15 @@ async function fetchRoadPages(
       progress.nextCursor = cursor ?? null
       progress.meta.truncated = cursor !== undefined
       onProgress?.(progress)
+    }
+    if (cursor && refinementDelayMs > 0) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = window.setTimeout(resolve, refinementDelayMs)
+        signal.addEventListener('abort', () => {
+          window.clearTimeout(timer)
+          reject(new DOMException('Aborted', 'AbortError'))
+        }, { once: true })
+      })
     }
   } while (cursor)
 
@@ -332,6 +350,8 @@ export function useYukisakiData() {
   const latestBounds = useRef<MapBounds>(appConfig.demo.initialBounds)
   const persistTimer = useRef<number | undefined>(undefined)
   const pendingPersist = useRef<{ bounds: MapBounds; page: MapRoadPage } | undefined>(undefined)
+  const queuedViewport = useRef<MapBounds | undefined>(undefined)
+  const viewportDrainInFlight = useRef(false)
 
   const applyPage = useCallback((page: MapRoadPage, bounds?: MapBounds) => {
     setRoads(page.roads)
@@ -372,24 +392,40 @@ export function useYukisakiData() {
     else if (!cached) setViewportRefreshing(true)
 
     try {
-      const tiles = splitBounds(requestBounds)
+      const tiles = detailTiles(requestBounds)
       const partialPages = new Map<string, MapRoadPage>()
-      const results = await Promise.allSettled(tiles.map(async (tile) => {
-        const page = await fetchRoadPages(
-          tile.bounds,
-          controller.signal,
-          Math.floor(DETAIL_MAX_FEATURES / tiles.length),
-          DETAIL_PAGE_LIMIT,
-          (progress) => {
-            if (requestId !== viewportRequestId.current) return
-            partialPages.set(tile.key, progress)
-            const visible = mergeRoadPages([...partialPages.values()])
-            if (visible) applyPage(visible, bounds)
-          },
-        )
-        partialPages.set(tile.key, page)
-        return page
-      }))
+      let progressTimer: number | undefined
+      const paintProgress = () => {
+        if (progressTimer !== undefined) return
+        progressTimer = window.setTimeout(() => {
+          progressTimer = undefined
+          if (requestId !== viewportRequestId.current) return
+          const visible = mergeRoadPages([...partialPages.values()])
+          if (visible) applyPage(visible, bounds)
+        }, 120)
+      }
+      const results: Array<PromiseSettledResult<MapRoadPage>> = []
+      for (let index = 0; index < tiles.length; index += DETAIL_REQUEST_CONCURRENCY) {
+        const batch = tiles.slice(index, index + DETAIL_REQUEST_CONCURRENCY)
+        results.push(...await Promise.allSettled(batch.map(async (tile) => {
+          const page = await fetchRoadPages(
+            tile.bounds,
+            controller.signal,
+            Math.floor(DETAIL_MAX_FEATURES / tiles.length),
+            DETAIL_PAGE_LIMIT,
+            (progress) => {
+              if (requestId !== viewportRequestId.current) return
+              partialPages.set(tile.key, progress)
+              paintProgress()
+            },
+            DETAIL_REFINEMENT_DELAY_MS,
+          )
+          partialPages.set(tile.key, page)
+          return page
+        })))
+        if (requestId !== viewportRequestId.current) break
+      }
+      if (progressTimer !== undefined) window.clearTimeout(progressTimer)
       if (requestId !== viewportRequestId.current) return
       const pages = results
         .filter((result): result is PromiseFulfilledResult<MapRoadPage> => result.status === 'fulfilled')
@@ -399,7 +435,7 @@ export function useYukisakiData() {
       ))
       const page = mergeRoadPages(pages, complete)
       if (!page) throw new Error('道路APIから近距離データを取得できませんでした。')
-      cacheDetailPage(requestBounds, page, Date.now())
+      cacheDetailPage(coveringBounds(tiles), page, Date.now())
       applyPage(page, bounds)
       setUpdateStopped(results.some((result) => result.status === 'rejected'))
     } catch {
@@ -540,6 +576,29 @@ export function useYukisakiData() {
     }
   }, [loadDetailViewport, loadOverviewViewport])
 
+  const queueViewportRefresh = useCallback((bounds: MapBounds) => {
+    latestBounds.current = bounds
+    queuedViewport.current = bounds
+    if (viewportDrainInFlight.current) {
+      // Invalidate the visible result without starting another server request.
+      // The latest bounds are fetched after the active request settles.
+      viewportRequestId.current += 1
+      return
+    }
+    viewportDrainInFlight.current = true
+    void (async () => {
+      try {
+        while (queuedViewport.current) {
+          const nextBounds = queuedViewport.current
+          queuedViewport.current = undefined
+          await loadViewport(nextBounds, false)
+        }
+      } finally {
+        viewportDrainInFlight.current = false
+      }
+    })()
+  }, [loadViewport])
+
   const retry = useCallback(() => {
     detailCache.splice(0, detailCache.length)
     overviewTileCache.clear()
@@ -548,8 +607,8 @@ export function useYukisakiData() {
   }, [])
 
   const refreshMap = useCallback((bounds: MapBounds) => {
-    void loadViewport(bounds, false)
-  }, [loadViewport])
+    queueViewportRefresh(bounds)
+  }, [queueViewportRefresh])
 
   useEffect(() => {
     let active = true
@@ -578,9 +637,12 @@ export function useYukisakiData() {
         }
         setLoading(false)
         setError(undefined)
-        void loadViewport(appConfig.demo.initialBounds, false)
+        queueViewportRefresh(appConfig.demo.initialBounds)
       } catch {
-        if (active) void loadViewport(appConfig.demo.initialBounds, !restoredFromDisk)
+        if (active) {
+          if (restoredFromDisk) queueViewportRefresh(appConfig.demo.initialBounds)
+          else void loadViewport(appConfig.demo.initialBounds, true)
+        }
       }
     })()
     yukisakiApi.getWeather(appConfig.demo.position).then((value) => {
@@ -591,7 +653,7 @@ export function useYukisakiData() {
     }).catch(() => undefined)
 
     const roadRefreshTimer = window.setInterval(() => {
-      void loadViewport(latestBounds.current, false)
+      queueViewportRefresh(latestBounds.current)
     }, ROAD_REFRESH_INTERVAL_MS)
     const plowRefreshTimer = window.setInterval(() => {
       if (plowRefreshInFlight) return
@@ -612,10 +674,11 @@ export function useYukisakiData() {
       window.clearInterval(roadRefreshTimer)
       window.clearInterval(plowRefreshTimer)
       if (persistTimer.current) window.clearTimeout(persistTimer.current)
+      queuedViewport.current = undefined
       viewportRequestId.current += 1
       viewportAbort.current?.abort()
     }
-  }, [applyPage, loadViewport, reloadKey])
+  }, [applyPage, loadViewport, queueViewportRefresh, reloadKey])
 
   return {
     roads,

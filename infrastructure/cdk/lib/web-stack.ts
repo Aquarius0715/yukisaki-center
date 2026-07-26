@@ -59,6 +59,22 @@ export class WebStack extends Stack {
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       compress: true,
     };
+    const mapApiCachePolicy = new cloudfront.CachePolicy(this, 'MapApiCachePolicy', {
+      comment: `Shared map API cache (${props.environment})`,
+      defaultTtl: Duration.seconds(30),
+      minTtl: Duration.seconds(1),
+      maxTtl: Duration.seconds(60),
+      queryStringBehavior: cloudfront.CacheQueryStringBehavior.all(),
+      cookieBehavior: cloudfront.CacheCookieBehavior.none(),
+      headerBehavior: cloudfront.CacheHeaderBehavior.none(),
+      enableAcceptEncodingBrotli: true,
+      enableAcceptEncodingGzip: true,
+    });
+    const cachedMapApiBehavior: cloudfront.BehaviorOptions = {
+      ...apiBehavior,
+      allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+      cachePolicy: mapApiCachePolicy,
+    };
 
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: `Yukisaki Web (${props.environment})`,
@@ -73,6 +89,9 @@ export class WebStack extends Stack {
         compress: true,
       },
       additionalBehaviors: {
+        'v1/road-segments': cachedMapApiBehavior,
+        'v1/road-segments/*': cachedMapApiBehavior,
+        'v1/map/snapshot': cachedMapApiBehavior,
         'v1/*': apiBehavior,
         healthz: apiBehavior,
       },

@@ -81,17 +81,25 @@ class MapApiTest(unittest.TestCase):
         )
         self.assertNotIn("score_factors", properties)
         self.assertNotIn("last_plowed_at", properties)
+        self.assertEqual(
+            "public,max-age=15,s-maxage=30,stale-while-revalidate=30",
+            response["headers"]["cache-control"],
+        )
 
     def test_road_detail_keeps_score_evidence_and_plow_history(self):
-        body = json.loads(handle(event("/v1/road-segments/road-1"), self.service)["body"])
+        response = handle(event("/v1/road-segments/road-1"), self.service)
+        body = json.loads(response["body"])
         self.assertEqual({"plowed": True}, body["properties"]["score_factors"])
         self.assertEqual("plow-01", body["properties"]["last_plowed_by"])
+        self.assertEqual("public,max-age=15,s-maxage=30", response["headers"]["cache-control"])
 
     def test_snowplows_return_point_geojson(self):
-        body = json.loads(handle(event("/v1/snowplows"), self.service)["body"])
+        response = handle(event("/v1/snowplows"), self.service)
+        body = json.loads(response["body"])
         self.assertEqual([138.78, 37.44], body["features"][0]["geometry"]["coordinates"])
         self.assertEqual("road-1", body["features"][0]["properties"]["matched_segment_id"])
         self.assertEqual("2026-07-22T02:00:00+00:00", body["features"][0]["properties"]["data_timestamp"])
+        self.assertEqual("no-store", response["headers"]["cache-control"])
 
     def test_snapshot_connects_roads_and_snowplows(self):
         body = json.loads(handle(event("/v1/map/snapshot", {"bbox": "138.7,37.4,138.9,37.5"}), self.service)["body"])
