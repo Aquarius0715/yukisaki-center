@@ -77,6 +77,14 @@ CREATE TABLE IF NOT EXISTS road_segments (
 CREATE INDEX IF NOT EXISTS road_segments_bbox_idx
   ON road_segments (min_longitude, max_longitude, min_latitude, max_latitude);
 
+CREATE INDEX IF NOT EXISTS road_segments_bbox_gist_idx
+  ON road_segments USING GIST (
+    (box(
+      point(min_longitude, min_latitude),
+      point(max_longitude, max_latitude)
+    ))
+  );
+
 CREATE TABLE IF NOT EXISTS routing_nodes (
   node_id BIGINT PRIMARY KEY,
   source_node_key TEXT UNIQUE NOT NULL,
@@ -165,6 +173,10 @@ CREATE TABLE IF NOT EXISTS snow_pipe_history (
   PRIMARY KEY (segment_id, valid_from, rule_version)
 );
 
+CREATE INDEX IF NOT EXISTS snow_pipe_history_map_latest_idx
+  ON snow_pipe_history (segment_id, valid_from DESC, ingested_at DESC)
+  INCLUDE (snow_pipe, operation_status, effectiveness, source, is_simulated);
+
 CREATE OR REPLACE VIEW latest_snow_pipe_status AS
 SELECT DISTINCT ON (segment_id)
   segment_id, snow_pipe, operation_status, effectiveness, valid_from,
@@ -248,3 +260,7 @@ CREATE INDEX IF NOT EXISTS drivability_scores_route_lookup_idx
 
 CREATE INDEX IF NOT EXISTS drivability_scores_version_time_idx
   ON drivability_scores (rule_version, data_timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS drivability_scores_map_latest_idx
+  ON drivability_scores (segment_id, data_timestamp DESC, rule_version DESC)
+  INCLUDE (score, confidence, is_simulated);

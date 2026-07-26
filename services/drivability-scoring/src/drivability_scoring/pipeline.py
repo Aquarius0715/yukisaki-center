@@ -119,6 +119,9 @@ CREATE INDEX IF NOT EXISTS drivability_scores_route_lookup_idx
   INCLUDE (score, confidence, factors, is_simulated);
 CREATE INDEX IF NOT EXISTS drivability_scores_version_time_idx
   ON drivability_scores (rule_version, data_timestamp DESC);
+CREATE INDEX IF NOT EXISTS drivability_scores_map_latest_idx
+  ON drivability_scores (segment_id, data_timestamp DESC, rule_version DESC)
+  INCLUDE (score, confidence, is_simulated);
 """
 
 

@@ -82,7 +82,7 @@ class MapApiTest(unittest.TestCase):
         self.assertNotIn("score_factors", properties)
         self.assertNotIn("last_plowed_at", properties)
         self.assertEqual(
-            "public,max-age=15,s-maxage=30,stale-while-revalidate=30",
+            "public,max-age=30,s-maxage=90,stale-while-revalidate=120",
             response["headers"]["cache-control"],
         )
 
@@ -91,7 +91,7 @@ class MapApiTest(unittest.TestCase):
         body = json.loads(response["body"])
         self.assertEqual({"plowed": True}, body["properties"]["score_factors"])
         self.assertEqual("plow-01", body["properties"]["last_plowed_by"])
-        self.assertEqual("public,max-age=15,s-maxage=30", response["headers"]["cache-control"])
+        self.assertEqual("public,max-age=30,s-maxage=90", response["headers"]["cache-control"])
 
     def test_snowplows_return_point_geojson(self):
         response = handle(event("/v1/snowplows"), self.service)

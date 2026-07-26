@@ -248,17 +248,18 @@ APIスキーマのバージョンは、一括レスポンスの`schema_version: 
 | PostgreSQL statement timeout | 12秒 |
 | 道路API上限 | 5,000件/ページ |
 | Webページサイズ | 近距離は固定タイルごとに1,500件を先行描画し、間隔を空けて後続ページを補完 |
-| HTTPキャッシュ | 道路・snapshotは`public`かつCloudFrontで通常30秒、除雪車・エラーは`no-store` |
+| HTTPキャッシュ | 道路・snapshotは`public`かつCloudFrontで90秒、除雪車・エラーは`no-store` |
 | 除雪車ポーリング | 約5秒 |
 
 RDS停止中はAPIデータを提供しない。S3は正本として維持されるため、RDSは再ロード可能である。外部データの欠損時にAPIやLLMが値を推定してはならない。
 
+道路一覧のbbox検索には道路外接矩形のGiST式インデックスを使用する。最新の走りやすさ指数と消雪パイプ状態は、`segment_id`と更新時刻をキーにした一覧向けインデックスから参照する。APIログにはDB接続、SQL、全体の所要時間を分けて記録し、CloudFrontキャッシュミス時のボトルネックを追跡できるようにする。
+
 今後、閲覧数が増えた場合は次の順で改善する。
 
-1. PostGIS/GiSTでbbox検索を高度化
-2. 道路をMVT化してS3・CloudFrontから配信
-3. 除雪車位置だけをWebSocket差分配信へ変更
-4. RDS Proxyまたは接続プールを導入
+1. 道路をMVT化してS3・CloudFrontから配信
+2. 除雪車位置だけをWebSocket差分配信へ変更
+3. RDS Proxyまたは接続プールを導入
 
 ## 13. 監視・テスト
 

@@ -59,9 +59,12 @@ class RepositoryTest(unittest.TestCase):
             )
 
         self.assertEqual([], rows)
+        self.assertEqual((138.8, 37.4, 138.9, 37.5), database_cursor.parameters[:4])
         self.assertEqual("road-250", database_cursor.parameters[4])
         self.assertEqual(251, database_cursor.parameters[5])
         self.assertEqual(ROAD_SEGMENTS_SQL, database_cursor.sql)
+        self.assertIn("spatial_candidate_ids", database_cursor.sql)
+        self.assertIn("&& box(point(%s, %s), point(%s, %s))", database_cursor.sql)
 
     def test_map_view_uses_lightweight_sql_without_detail_joins(self):
         database_cursor = FakeCursor()
@@ -76,6 +79,7 @@ class RepositoryTest(unittest.TestCase):
             )
 
         self.assertEqual(ROAD_MAP_SEGMENTS_SQL, database_cursor.sql)
+        self.assertIn("spatial_candidate_ids", database_cursor.sql)
         self.assertNotIn("score.factors", database_cursor.sql)
         self.assertNotIn("snowplow_segment_passages", database_cursor.sql)
 

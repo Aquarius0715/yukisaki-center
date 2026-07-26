@@ -19,8 +19,8 @@ CORS_HEADERS = {
     "access-control-allow-headers": "content-type",
     "content-type": "application/json; charset=utf-8",
 }
-MAP_CACHE_CONTROL = "public,max-age=15,s-maxage=30,stale-while-revalidate=30"
-DETAIL_CACHE_CONTROL = "public,max-age=15,s-maxage=30"
+MAP_CACHE_CONTROL = "public,max-age=30,s-maxage=90,stale-while-revalidate=120"
+DETAIL_CACHE_CONTROL = "public,max-age=30,s-maxage=90"
 NO_STORE = "no-store"
 
 

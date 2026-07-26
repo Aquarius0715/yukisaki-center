@@ -61,9 +61,9 @@ export class WebStack extends Stack {
     };
     const mapApiCachePolicy = new cloudfront.CachePolicy(this, 'MapApiCachePolicy', {
       comment: `Shared map API cache (${props.environment})`,
-      defaultTtl: Duration.seconds(30),
+      defaultTtl: Duration.seconds(90),
       minTtl: Duration.seconds(1),
-      maxTtl: Duration.seconds(60),
+      maxTtl: Duration.seconds(210),
       queryStringBehavior: cloudfront.CacheQueryStringBehavior.all(),
       cookieBehavior: cloudfront.CacheCookieBehavior.none(),
       headerBehavior: cloudfront.CacheHeaderBehavior.none(),

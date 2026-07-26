@@ -3,9 +3,15 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import time
 from functools import lru_cache
 from typing import Any
+
+
+LOGGER = logging.getLogger(__name__)
+LOGGER.setLevel(logging.INFO)
 
 
 ROAD_SEGMENTS_SELECT = """
@@ -43,18 +49,28 @@ LEFT JOIN LATERAL (
 """
 
 ROAD_SEGMENTS_SQL = """
-WITH candidates AS MATERIALIZED (
-  SELECT
-    segment_id, geometry_geojson, road_name, road_type, length_m,
-    max_slope_percent, source, source_version, snapshot_date, is_simulated
+WITH spatial_candidate_ids AS MATERIALIZED (
+  SELECT segment_id
   FROM road_segments
-  WHERE min_longitude <= %s
-    AND max_longitude >= %s
-    AND min_latitude <= %s
-    AND max_latitude >= %s
-    AND segment_id > %s
+  WHERE box(
+      point(min_longitude, min_latitude),
+      point(max_longitude, max_latitude)
+    ) && box(point(%s, %s), point(%s, %s))
+),
+paged_candidate_ids AS MATERIALIZED (
+  SELECT segment_id
+  FROM spatial_candidate_ids
+  WHERE segment_id > %s
   ORDER BY segment_id
   LIMIT %s
+),
+candidates AS MATERIALIZED (
+  SELECT
+    r.segment_id, r.geometry_geojson, r.road_name, r.road_type, r.length_m,
+    r.max_slope_percent, r.source, r.source_version, r.snapshot_date,
+    r.is_simulated
+  FROM road_segments AS r
+  JOIN paged_candidate_ids AS p USING (segment_id)
 )
 """ + ROAD_SEGMENTS_SELECT.replace(
     "FROM road_segments AS r",
@@ -64,17 +80,27 @@ ORDER BY r.segment_id
 """
 
 ROAD_MAP_SEGMENTS_SQL = """
-WITH candidates AS MATERIALIZED (
-  SELECT
-    segment_id, geometry_geojson, road_name, road_type, snapshot_date, is_simulated
+WITH spatial_candidate_ids AS MATERIALIZED (
+  SELECT segment_id
   FROM road_segments
-  WHERE min_longitude <= %s
-    AND max_longitude >= %s
-    AND min_latitude <= %s
-    AND max_latitude >= %s
-    AND segment_id > %s
+  WHERE box(
+      point(min_longitude, min_latitude),
+      point(max_longitude, max_latitude)
+    ) && box(point(%s, %s), point(%s, %s))
+),
+paged_candidate_ids AS MATERIALIZED (
+  SELECT segment_id
+  FROM spatial_candidate_ids
+  WHERE segment_id > %s
   ORDER BY segment_id
   LIMIT %s
+),
+candidates AS MATERIALIZED (
+  SELECT
+    r.segment_id, r.geometry_geojson, r.road_name, r.road_type,
+    r.snapshot_date, r.is_simulated
+  FROM road_segments AS r
+  JOIN paged_candidate_ids AS p USING (segment_id)
 )
 SELECT
   r.segment_id, r.geometry_geojson, r.road_name, r.road_type,
@@ -161,12 +187,29 @@ class PostgresMapRepository:
     ) -> list[dict[str, Any]]:
         west, south, east, north = bbox
         after_segment_id = cursor or ""
-        with _connect() as connection, connection.cursor() as database_cursor:
-            database_cursor.execute(
-                ROAD_MAP_SEGMENTS_SQL if map_only else ROAD_SEGMENTS_SQL,
-                (east, west, north, south, after_segment_id, limit + 1),
-            )
-            return _rows(database_cursor)
+        started_at = time.perf_counter()
+        with _connect() as connection:
+            connected_at = time.perf_counter()
+            database_cursor = connection.cursor()
+            with database_cursor:
+                query_started_at = time.perf_counter()
+                database_cursor.execute(
+                    ROAD_MAP_SEGMENTS_SQL if map_only else ROAD_SEGMENTS_SQL,
+                    (west, south, east, north, after_segment_id, limit + 1),
+                )
+                rows = _rows(database_cursor)
+                completed_at = time.perf_counter()
+        LOGGER.info(
+            "road_segments completed map_only=%s limit=%d rows=%d "
+            "connect_ms=%.1f query_ms=%.1f total_ms=%.1f",
+            map_only,
+            limit,
+            len(rows),
+            (connected_at - started_at) * 1000,
+            (completed_at - query_started_at) * 1000,
+            (completed_at - started_at) * 1000,
+        )
+        return rows
 
     def road_segment(self, segment_id: str) -> dict[str, Any] | None:
         with _connect() as connection, connection.cursor() as cursor:
