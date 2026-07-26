@@ -65,7 +65,9 @@ def connect_database():
         host=secret["host"], port=secret.get("port", 5432),
         dbname=secret.get("dbname", os.environ.get("DATABASE_NAME", "yukisaki")),
         user=secret["username"], password=secret["password"], sslmode="require",
-        connect_timeout=10, options="-c statement_timeout=15000",
+        # Leave headroom under the Lambda function's 28s timeout so pgr_KSP on
+        # longer in-city routes can finish instead of being cut off early.
+        connect_timeout=10, options="-c statement_timeout=24000",
     )
 
 

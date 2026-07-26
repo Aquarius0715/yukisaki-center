@@ -25,14 +25,22 @@ const factorLabels: Record<string, string> = {
   heavy_hourly_snowfall: '気象入力による補正',
   moderate_hourly_snowfall: '気象入力による補正',
   light_hourly_snowfall: '気象入力による補正',
+  narrow_road: '狭い生活道路による補正',
 }
 
 function coordinates(geometry: RoadSegmentFeature['geometry']): Position[] {
   return geometry.type === 'LineString' ? geometry.coordinates : geometry.coordinates.flat()
 }
 
+function appliedRulesOf(factors: ApiRoadProperties['score_factors']): Record<string, number | boolean | string | null> {
+  const rules = (factors as { applied_rules?: unknown } | null | undefined)?.applied_rules
+  return rules && typeof rules === 'object' && !Array.isArray(rules)
+    ? rules as Record<string, number | boolean | string | null>
+    : {}
+}
+
 function statusOf(properties: ApiRoadProperties): RoadConditionStatus {
-  const factors = properties.score_factors ?? {}
+  const factors = appliedRulesOf(properties.score_factors)
   if ('steep_slope' in factors) return 'warning'
   if (properties.snow_pipe && properties.snow_pipe_operation_status === 'active') return 'snowmelt'
   if (properties.last_plowed_at === undefined && properties.score_factors === undefined) return 'no_plow_record'
@@ -43,7 +51,7 @@ function statusOf(properties: ApiRoadProperties): RoadConditionStatus {
 }
 
 function factorMessages(factors: ApiRoadProperties['score_factors']) {
-  return Object.entries(factors ?? {}).map(([key, value]) => ({
+  return Object.entries(appliedRulesOf(factors)).map(([key, value]) => ({
     key,
     label: factorLabels[key] ?? key.split('_').join(' '),
     value,

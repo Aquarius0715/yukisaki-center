@@ -6,6 +6,12 @@ from datetime import datetime
 from typing import Any
 
 RULE_VERSION = "mvp-2026-01-23-v1"
+# OSM highway values that correspond to single-lane-feeling local roads
+# (residential streets, driveways/service lanes, unpaved tracks). Motorway
+# through tertiary roads are excluded since they carry through traffic even
+# when narrow.
+VERY_NARROW_ROAD_TYPES = {"service", "track"}
+NARROW_ROAD_TYPES = {"residential", "living_street", "unclassified"}
 
 
 def score_segment(segment: dict[str, Any]) -> dict[str, Any]:
@@ -38,6 +44,11 @@ def score_segment(segment: dict[str, Any]) -> dict[str, Any]:
             factors["plowed_over_180_minutes_ago"] = -15
     else:
         factors["no_plow_history"] = -15
+    road_type = segment.get("road_type")
+    if road_type in VERY_NARROW_ROAD_TYPES:
+        factors["narrow_road"] = -15
+    elif road_type in NARROW_ROAD_TYPES:
+        factors["narrow_road"] = -10
     if segment.get("snow_pipe") is True and segment.get("snow_pipe_operation_status") == "active":
         factors["active_snow_pipe"] = 15
     if temperature is not None and -3 <= float(temperature) <= 1 and snowfall > 0:
@@ -48,12 +59,14 @@ def score_segment(segment: dict[str, Any]) -> dict[str, Any]:
         "snow_pipe", "temperature_c",
     )
     known = sum(segment.get(key) is not None for key in known_fields)
+    inputs = {key: segment.get(key) for key in known_fields}
+    inputs["road_type"] = road_type
     return {
         "segment_id": segment["segment_id"],
         "score": score,
         "confidence": round(known / len(known_fields), 2),
         "factors": factors,
-        "inputs": {key: segment.get(key) for key in known_fields},
+        "inputs": inputs,
         "data_timestamp": segment["data_timestamp"],
         "rule_version": RULE_VERSION,
         "is_simulated": bool(segment.get("is_simulated", False)),

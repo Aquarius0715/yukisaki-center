@@ -10,7 +10,10 @@ NAGAOKA_BOUNDS = (138.643056, 37.176389, 139.124444, 37.710278)
 # allowing those representative coordinates to reach the nearest road.
 MAX_SNAP_DISTANCE_M = 500.0
 MAX_CANDIDATES = 3
-K_SHORTEST_PATHS = 8
+# pgr_KSP cost scales with K on the small demo RDS instance; 8 pushed longer
+# in-city routes past the statement timeout. 5 still leaves enough raw
+# candidates for the diversity and comparison-mode selection passes.
+K_SHORTEST_PATHS = 5
 # Restrict pgRouting to a rectangle around the two snapped points. The second,
 # wider margin is only used when the normal urban corridor has no connected
 # route, such as when a river or mountain requires a larger detour.

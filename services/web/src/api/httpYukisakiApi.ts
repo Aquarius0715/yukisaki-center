@@ -404,5 +404,6 @@ function factorLabel(factor: string) {
     bridge: '橋梁区間があります',
     no_plow_history: '除雪実績を確認できない区間があります',
     freezing_wet_condition: '凍結しやすい条件の区間があります',
+    narrow_road: '狭い生活道路の区間があります',
   }[factor] ?? factor.split('_').join(' ')
 }

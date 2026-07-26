@@ -20,7 +20,7 @@ def request_payload():
     }
 
 
-def edge(path_id, path_seq, segment_id, source, target, node, coordinates, *, score=70, cost=20):
+def edge(path_id, path_seq, segment_id, source, target, node, coordinates, *, score=70, cost=20, factors=None):
     return {
         "path_id": path_id, "path_seq": path_seq, "node": node,
         "edge": path_seq + 1, "cost": cost, "agg_cost": cost * (path_seq + 1),
@@ -28,7 +28,7 @@ def edge(path_id, path_seq, segment_id, source, target, node, coordinates, *, sc
         "st_asgeojson": {"type": "LineString", "coordinates": coordinates},
         "length_m": 100, "base_travel_time_s": 10, "road_type": "primary",
         "max_slope_percent": 2, "bridge": False, "tunnel": False,
-        "score": score, "confidence": 0.9, "factors": {},
+        "score": score, "confidence": 0.9, "factors": factors or {},
         "score_is_simulated": True, "snow_pipe": True, "operation_status": "active",
         "observed_at": datetime.fromisoformat("2026-01-23T11:30:00+09:00"),
         "edge_is_simulated": False,
@@ -47,6 +47,28 @@ class FakeRepository:
                 edge(1, 1, "bc", 2, 3, 2, [[138.80, 37.45], [138.81, 37.46]], score=35),
                 edge(2, 0, "ad", 1, 4, 1, [[138.79, 37.44], [138.78, 37.45]], cost=24),
                 edge(2, 1, "dc", 4, 3, 4, [[138.78, 37.45], [138.81, 37.46]], cost=24),
+            ],
+        }
+
+
+class HazardFactorRepository:
+    def plan(self, request, max_snap_distance_m):
+        return {
+            "graph_version": "graph-v1", "score_rule_version": "score-v1",
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "origin": {"node_id": 1, "distance_m": 5},
+            "destination": {"node_id": 3, "distance_m": 7},
+            "rows": [
+                edge(
+                    1, 0, "hazard-seg", 1, 2, 1,
+                    [[138.79, 37.44], [138.80, 37.45]],
+                    score=30,
+                    factors={
+                        "applied_rules": {"no_plow_history": -15, "narrow_road": -10},
+                        "inputs": {"snowfall_1h_cm": 3},
+                        "source_run_ids": ["bootstrap-all-roads-x"],
+                    },
+                ),
             ],
         }
 
@@ -158,6 +180,13 @@ class RouteServiceTest(unittest.TestCase):
         self.assertEqual(1, first["routes"][0]["hazard_group_count"])
         self.assertEqual(1.0, first["routes"][0]["score_coverage"])
         self.assertTrue(first["is_simulated"])
+
+    def test_hazard_factors_unwrap_applied_rules_not_the_score_envelope(self):
+        service = RoutePlanningService(HazardFactorRepository())
+        result = service.plan(request_payload())
+        hazards = result["routes"][0]["hazard_groups"]
+        self.assertEqual(1, len(hazards))
+        self.assertEqual(["narrow_road", "no_plow_history"], hazards[0]["factors"])
 
     def test_cost_cache_key_tracks_cost_inputs_but_not_candidate_filter(self):
         request = RouteRequest.parse(request_payload())
@@ -293,7 +322,7 @@ class RouteServiceTest(unittest.TestCase):
 
         result = RoutePlanningService(repository).plan(payload)
 
-        self.assertEqual(
+        self.assertCountEqual(
             ["balanced", "drivability_priority", "distance_priority"],
             repository.modes,
         )

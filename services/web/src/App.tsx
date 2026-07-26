@@ -1,4 +1,4 @@
-import { Component, useCallback, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
+import { Component, useCallback, useEffect, useMemo, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
 import { appConfig } from './api/config'
 import { yukisakiApi } from './api/createYukisakiApi'
 import type {
@@ -13,11 +13,11 @@ import type {
   RouteExplanation,
   Snowplow,
 } from './api/contracts'
-import { YukisakiMap, type LayerVisibility } from './features/map/YukisakiMap'
+import { YukisakiMap, type HazardPoint, type LayerVisibility } from './features/map/YukisakiMap'
 import { useYukisakiData } from './hooks/useYukisakiData'
 
 type Screen = 'splash' | 'home' | 'routes' | 'navigation'
-type Sheet = 'layers' | 'road' | 'plow' | undefined
+type Sheet = 'layers' | 'road' | 'plow' | 'hazard' | undefined
 // Keep the first paint intentionally light. Supplemental overlays remain
 // available from the layer sheet and are created only when selected.
 const defaultLayers: LayerVisibility = {
@@ -137,6 +137,7 @@ const scoreLabels: Record<string, string> = {
   moderate_hourly_snowfall: '中程度の降雪',
   heavy_hourly_snowfall: '強い降雪',
   freezing_wet_condition: '凍結しやすい路面・気温',
+  narrow_road: '狭い生活道路',
 }
 
 function scoreValue(key: string, value: unknown): string {
@@ -238,6 +239,15 @@ function PlowSheet({ plow, close }: { plow: Snowplow; close: () => void }) {
   </div></BottomSheet>
 }
 
+function HazardSheet({ hazard, close }: { hazard: HazardPoint; close: () => void }) {
+  return <BottomSheet title="注意箇所の詳細" onClose={close}><div className="sheet-content">
+    <div className="road-title"><div><small>最低走りやすさ指数</small><h3>{hazard.minimumScore ?? '未算出'}</h3></div></div>
+    {hazard.explanation ? <p>{hazard.explanation}</p> : <div className="detail-loading" role="status"><div className="spinner"/>AIによる説明を生成しています</div>}
+    {hazard.cautions.length > 0 && <div className="reason-list">{hazard.cautions.map((caution) => <span className="warn" key={caution}>△ {caution}</span>)}</div>}
+    <p className="data-note">判定要因: {hazard.factors.map((factor) => scoreLabels[factor] ?? factor).join('、') || '情報なし'}</p>
+  </div></BottomSheet>
+}
+
 function Header({ weather }: { weather?: ReturnType<typeof useYukisakiData>['weather'] }) { return <header className="topbar"><div className="mini-logo">Y❄ <b>Yukisaki</b></div><div className="weather"><span>❄ {weather?.temperatureC ?? '--'}°</span><small>{weather?.condition ?? '読込中'}</small></div></header> }
 
 function Search({ onChoose }: { onChoose: (destination: Destination) => void }) {
@@ -312,10 +322,12 @@ function AppContent() {
   const [roadDetailError, setRoadDetailError] = useState<string>()
   const roadDetailRequestId = useRef(0)
   const [plow, setPlow] = useState<Snowplow>()
+  const [activeHazardId, setActiveHazardId] = useState<string>()
   const [destination, setDestination] = useState<Destination>()
   const [routes, setRoutes] = useState<RecommendedRoute[]>([])
   const [activeRoute, setActiveRoute] = useState('')
   const [routeLoading, setRouteLoading] = useState(false)
+  const [aiLoading, setAiLoading] = useState(false)
   const [routeResponse, setRouteResponse] = useState<ApiRouteResponse>()
   const [routeExplanation, setRouteExplanation] = useState<RouteExplanation>()
   const [dangerExplanation, setDangerExplanation] = useState<DangerExplanation>()
@@ -326,6 +338,25 @@ function AppContent() {
   const condition = roadCondition
   const scoredConditions = data.conditions.filter((item) => item.hasDrivabilityScore !== false)
   const averageScore = scoredConditions.length ? Math.round(scoredConditions.reduce((sum,item) => sum + item.drivabilityScore,0) / scoredConditions.length) : 0
+
+  const activeApiRoute = routeResponse?.routes.find((route) => route.route_id === activeRoute)
+  const hazardPoints = useMemo<HazardPoint[]>(() => {
+    if (!activeApiRoute) return []
+    return activeApiRoute.hazard_groups.map((group, index) => {
+      const hazardId = `${activeApiRoute.route_id}-hazard-${index + 1}`
+      const coordinates = group.geometry.coordinates
+      const [longitude, latitude] = coordinates[Math.floor(coordinates.length / 2)] ?? coordinates[0] ?? [0, 0]
+      const explanation = dangerExplanation?.hazards.find((item) => item.hazardId === hazardId)
+      return {
+        hazardId, latitude, longitude,
+        minimumScore: group.minimum_drivability_score,
+        factors: group.factors,
+        explanation: explanation?.explanation,
+        cautions: explanation?.cautions ?? [],
+      }
+    })
+  }, [activeApiRoute, dangerExplanation])
+  const activeHazard = hazardPoints.find((item) => item.hazardId === activeHazardId)
 
   const requestCurrentLocation = useCallback(() => {
     if (currentLocationRequest.current) return currentLocationRequest.current
@@ -371,24 +402,27 @@ function AppContent() {
       setActiveRoute(selectedId)
       setRouteResponse(response.apiResponse)
       setScreen('routes')
+      setRouteLoading(false)
       if (response.apiResponse) {
-        const [explanation, danger] = await Promise.allSettled([
+        setAiLoading(true)
+        Promise.allSettled([
           yukisakiApi.explainRoutes(response.apiResponse),
           yukisakiApi.explainDangerPoints(response.apiResponse, selectedId),
-        ])
-        if (explanation.status === 'fulfilled') setRouteExplanation(explanation.value)
-        if (danger.status === 'fulfilled') setDangerExplanation(danger.value)
+        ]).then(([explanation, danger]) => {
+          if (explanation.status === 'fulfilled') setRouteExplanation(explanation.value)
+          if (danger.status === 'fulfilled') setDangerExplanation(danger.value)
+        }).finally(() => setAiLoading(false))
       }
     } catch (error) {
       if (error instanceof CurrentLocationError) {
         setRouteError(error.message)
+        setRouteLoading(false)
         return
       }
       const status = error && typeof error === 'object' && 'status' in error ? Number(error.status) : undefined
       setRouteError(status === 409
         ? '経路探索用の道路グラフがまだロードされていません。'
         : '経路APIを利用できませんでした。環境の起動状態を確認してください。')
-    } finally {
       setRouteLoading(false)
     }
   }
@@ -426,21 +460,21 @@ function AppContent() {
   if (data.error) return <div className="loading" role="alert"><b>{data.error}</b><button className="primary" onClick={data.retry}>再試行</button></div>
   if (data.loading || !data.roads) return <div className="loading" role="status" aria-live="polite"><div className="spinner"/><b>道路データを読み込んでいます</b><small>長岡市全域・デモデータ</small></div>
   return <div className="app-screen"><Header weather={data.weather}/>
-    <YukisakiMap roads={data.roads} conditions={data.conditions} snowplows={data.snowplows} layers={layers} currentPosition={currentPosition} destination={destination} routes={screen === 'routes' || screen === 'navigation' ? routes : undefined} activeRouteId={activeRoute} onRoadSelect={selectRoad} onPlowSelect={(item) => { setPlow(item); setSheet('plow') }} onMapDestination={selectDestination} onViewportChange={data.refreshMap} animateSnowplows/>
+    <YukisakiMap roads={data.roads} conditions={data.conditions} snowplows={data.snowplows} layers={layers} currentPosition={currentPosition} destination={destination} routes={screen === 'routes' || screen === 'navigation' ? routes : undefined} activeRouteId={activeRoute} hazards={screen === 'routes' || screen === 'navigation' ? hazardPoints : undefined} onRoadSelect={selectRoad} onPlowSelect={(item) => { setPlow(item); setSheet('plow') }} onHazardSelect={(item) => { setActiveHazardId(item.hazardId); setSheet('hazard') }} onMapDestination={selectDestination} onViewportChange={data.refreshMap} animateSnowplows/>
     {layers.snowEffects && <div className="map-snow" aria-hidden="true"/>}
     {screen === 'home' && <><Search onChoose={selectDestination}/><div className="map-actions"><button onClick={() => setSheet('layers')} aria-label="地図レイヤーを選択">◇</button></div><div className="legend"><b>走りやすさ指数</b><span className="score-gradient"/><small><em>注意 0–59</em><em>60–74</em><em>75–84</em><em>良好 85–100</em></small><span className="legend-unknown"><i/>未算出</span></div>{routeError && <div className="api-warning route-error" role="alert"><b>経路探索エラー</b><span>{routeError}</span></div>}{data.updateStopped && <div className="api-warning" role="alert"><b>更新停止</b><span>最後に取得したデータを表示しています</span></div>}{data.viewportRefreshing && <div className="api-warning truncated" role="status"><b>表示範囲を更新中</b><span>道路データを再取得しています</span></div>}<section className="home-card"><div><small>現在地周辺の走りやすさ</small><h2>{appConfig.demo.area}</h2><p>走りやすさ指数・消雪パイプを道路上に表示</p></div><Score value={averageScore}/><footer><span>更新 {data.meta?.dataTimestamp ? new Date(data.meta.dataTimestamp).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : appConfig.demo.label}</span><b>{data.apiOnline === false ? 'API停止中' : data.meta?.source === 'api' ? 'API・デモデータ' : 'モックデータ'}</b></footer><div className="home-actions"><button className="primary" onClick={() => document.querySelector<HTMLInputElement>('.search input')?.focus()}>目的地を設定</button></div></section></>}
-    {screen === 'routes' && <RoutePanel routes={routes} active={activeRoute} setActive={selectRoute} explanation={routeExplanation} danger={dangerExplanation} back={() => setScreen('home')} start={() => setScreen('navigation')}/>}
+    {screen === 'routes' && <RoutePanel routes={routes} active={activeRoute} setActive={selectRoute} explanation={routeExplanation} aiLoading={aiLoading} back={() => setScreen('home')} start={() => setScreen('navigation')}/>}
     {screen === 'navigation' && <NavigationPanel route={routes.find((item) => item.id === activeRoute)} back={() => setScreen('home')}/>} 
     {routeLoading && <div className="route-loading" role="status"><div className="spinner"/>ルート候補を準備しています</div>}
-    {sheet === 'layers' && <LayerSheet layers={layers} setLayers={setLayers} close={() => setSheet(undefined)}/>} {sheet === 'road' && road && <RoadSheet road={road} condition={condition} loading={roadDetailLoading} error={roadDetailError} close={() => setSheet(undefined)}/>} {sheet === 'plow' && plow && <PlowSheet plow={plow} close={() => setSheet(undefined)}/>}
+    {sheet === 'layers' && <LayerSheet layers={layers} setLayers={setLayers} close={() => setSheet(undefined)}/>} {sheet === 'road' && road && <RoadSheet road={road} condition={condition} loading={roadDetailLoading} error={roadDetailError} close={() => setSheet(undefined)}/>} {sheet === 'plow' && plow && <PlowSheet plow={plow} close={() => setSheet(undefined)}/>} {sheet === 'hazard' && activeHazard && <HazardSheet hazard={activeHazard} close={() => setSheet(undefined)}/>}
   </div>
 }
 
-function RoutePanel({ routes,active,setActive,explanation,danger,back,start }: { routes: RecommendedRoute[]; active: string; setActive: (id:string) => void; explanation?: RouteExplanation; danger?: DangerExplanation; back: () => void; start: () => void }) {
+function RoutePanel({ routes,active,setActive,explanation,aiLoading,back,start }: { routes: RecommendedRoute[]; active: string; setActive: (id:string) => void; explanation?: RouteExplanation; aiLoading: boolean; back: () => void; start: () => void }) {
   const selectedExplanation = explanation?.routes.find((item) => item.routeId === active)
   return <section className="route-panel"><header><button className="icon-button" onClick={back} aria-label="ホームへ戻る">‹</button><div><b>ルートを選択</b><small>走りやすさの根拠を比較</small></div></header><div className="route-list">
     {explanation && <div className="ai-explanation"><b>AIによる比較説明</b><p>{explanation.recommendationReason}</p>{selectedExplanation && <p>{selectedExplanation.summary}</p>}<small>{explanation.metadata.fallback_used ? '定型フォールバック' : explanation.metadata.model_id}</small></div>}
-    {danger && danger.hazards.length > 0 && <div className="danger-explanation"><b>注意箇所</b>{danger.hazards.map((hazard) => <p key={hazard.hazardId}>{hazard.explanation} {hazard.cautions.join('、')}</p>)}</div>}
+    {!explanation && aiLoading && <div className="ai-explanation ai-loading" role="status"><div className="spinner"/>AIが経路とルート上の注意箇所を分析しています</div>}
     {routes.map((route) => <button className={`route-card ${active === route.id ? 'active' : ''}`} key={route.id} onClick={() => setActive(route.id)}><div><em>{route.label}</em>{route.label === 'AIおすすめ' && <mark>総合推薦</mark>}<h3>{route.durationMinutes}<small>分</small> <span>{route.distanceKm} km</span></h3></div><Score value={route.drivabilityScore}/><dl><div><dt>直近の除雪実績</dt><dd>{Math.round(route.plowedRatio * 100)}%</dd></div><div><dt>消雪パイプ区間</dt><dd>{Math.round(route.snowmeltPipeRatio * 100)}%</dd></div><div><dt>実績未確認区間</dt><dd>{route.noPlowRecordSegmentCount ?? 'API提供なし'}</dd></div></dl><p>{route.reasons.join('・')}</p>{route.warnings.map((warning) => <span className="route-warning" key={warning}>△ {warning}</span>)}</button>)}
   </div><button className="primary start" onClick={start}>経路の全体を確認</button></section>
 }

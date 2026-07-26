@@ -33,7 +33,7 @@ class FakeCursor:
         if "SELECT segment_id FROM road_segments" in self.statement:
             return [("s-1",), ("s-2",)]
         return [(
-            "s-1", 3, -1, 1, 0.2, True, "active",
+            "s-1", 3, "residential", -1, 1, 0.2, True, "active",
             datetime.fromisoformat("2026-01-23T11:59:00+09:00"),
         )]
 

@@ -56,7 +56,7 @@ def connect_database():
 
 
 INPUT_SQL = """
-SELECT r.segment_id, r.max_slope_percent,
+SELECT r.segment_id, r.max_slope_percent, r.road_type,
        w.temperature_c, w.snowfall_cm, w.snow_depth_m,
        s.snow_pipe, s.operation_status,
        p.last_plowed_at
@@ -94,10 +94,11 @@ def _input_rows(cursor: Any, segment_ids: list[str], timestamp: str) -> list[dic
     rows = []
     for row in cursor.fetchall():
         rows.append({
-            "segment_id": row[0], "max_slope_percent": row[1], "temperature_c": row[2],
-            "snowfall_1h_cm": row[3], "snow_depth_m": row[4], "snow_pipe": row[5],
-            "snow_pipe_operation_status": row[6],
-            "last_plowed_at": row[7].isoformat() if row[7] else None,
+            "segment_id": row[0], "max_slope_percent": row[1], "road_type": row[2],
+            "temperature_c": row[3],
+            "snowfall_1h_cm": row[4], "snow_depth_m": row[5], "snow_pipe": row[6],
+            "snow_pipe_operation_status": row[7],
+            "last_plowed_at": row[8].isoformat() if row[8] else None,
             "data_timestamp": timestamp, "is_simulated": True,
         })
     return rows

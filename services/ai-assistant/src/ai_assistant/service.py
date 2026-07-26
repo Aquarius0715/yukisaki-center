@@ -506,6 +506,7 @@ FACTOR_LABELS = {
     "freezing_wet_condition": "氷点付近の降雪条件",
     "bridge": "橋梁区間",
     "ice_risk": "凍結に関する判定要因",
+    "narrow_road": "幅員が狭い生活道路区間",
 }
 
 EVIDENCE_FORMATTERS = {
@@ -709,6 +710,8 @@ def _danger_cautions(hazard: dict[str, Any]) -> list[str]:
         "no_plow_history",
     }:
         cautions.append("除雪履歴の状況を踏まえ、路面の変化に対応できる速度で走行してください。")
+    if "narrow_road" in rules:
+        cautions.append("幅員が狭い区間があるため、対向車とのすれ違いに注意して走行してください。")
     if not cautions:
         cautions.append("入力された注意情報を確認し、速度を抑えて慎重に走行してください。")
     return cautions[:3]

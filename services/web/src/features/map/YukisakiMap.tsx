@@ -4,6 +4,15 @@ import type { Destination, MapBounds, Position, RecommendedRoute, RoadCondition,
 import { loadMapKit } from './loadMapKit'
 
 export type LayerVisibility = { drivability: boolean; snowmelt: boolean; plowing: boolean; plows: boolean; tracks: boolean; slopes: boolean; snowEffects: boolean }
+export type HazardPoint = {
+  hazardId: string
+  latitude: number
+  longitude: number
+  minimumScore: number | null
+  factors: string[]
+  explanation?: string
+  cautions: string[]
+}
 type Props = {
   roads: RoadSegmentFeatureCollection
   conditions: RoadCondition[]
@@ -13,8 +22,10 @@ type Props = {
   destination?: Destination
   routes?: RecommendedRoute[]
   activeRouteId?: string
+  hazards?: HazardPoint[]
   onRoadSelect: (feature: RoadSegmentFeature) => void
   onPlowSelect: (plow: Snowplow) => void
+  onHazardSelect: (hazard: HazardPoint) => void
   onMapDestination: (destination: Destination) => void
   onViewportChange: (bounds: MapBounds) => void
   animateSnowplows: boolean
@@ -22,7 +33,7 @@ type Props = {
 
 type OverlayKind = 'road' | 'snow' | 'pipe' | 'plowing' | 'slope' | 'track' | 'route'
 type OverlayData = { kind: OverlayKind; segmentId?: string; originalWidth?: number }
-type AnnotationData = { kind: 'plow' | 'destination' | 'current'; id?: string }
+type AnnotationData = { kind: 'plow' | 'destination' | 'current' | 'hazard'; id?: string }
 type PlowCoordinate = [number, number]
 type PlowMotion = { from: PlowCoordinate; to: PlowCoordinate; startedAt: number }
 type OverviewChain = { key: string; coordinates: number[][]; color: string; segmentId?: string }
@@ -311,6 +322,7 @@ export function YukisakiMap(props: Props) {
   const plowAnnotationsRef = useRef(new Map<string, mapkit.Annotation>())
   const destinationAnnotationRef = useRef<mapkit.Annotation | undefined>(undefined)
   const currentLocationAnnotationRef = useRef<mapkit.Annotation | undefined>(undefined)
+  const hazardAnnotationsRef = useRef(new Map<string, mapkit.Annotation>())
   const plowMotionsRef = useRef(new Map<string, PlowMotion>())
   const selectedOverlayRef = useRef<mapkit.Overlay | undefined>(undefined)
   const animationFrameRef = useRef<number | undefined>(undefined)
@@ -400,6 +412,10 @@ export function YukisakiMap(props: Props) {
           const plow = propsRef.current.snowplows.find((item) => item.id === data.id)
           if (plow) propsRef.current.onPlowSelect(plow)
         }
+        if (data?.kind === 'hazard' && data.id) {
+          const hazard = propsRef.current.hazards?.find((item) => item.hazardId === data.id)
+          if (hazard) propsRef.current.onHazardSelect(hazard)
+        }
       }) as EventListener)
 
     }).catch((error: unknown) => {
@@ -415,6 +431,7 @@ export function YukisakiMap(props: Props) {
       mapRef.current?.destroy()
       mapRef.current = undefined
       currentLocationAnnotationRef.current = undefined
+      hazardAnnotationsRef.current.clear()
       managedMapOverlaysRef.current.clear()
     }
   }, [])
@@ -680,6 +697,34 @@ export function YukisakiMap(props: Props) {
       destinationAnnotationRef.current.coordinate = coordinateOf(destination.latitude, destination.longitude)
     }
   }, [destination, mapReady])
+
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const hazards = props.hazards ?? []
+    const activeIds = new Set(hazards.map((hazard) => hazard.hazardId))
+    hazardAnnotationsRef.current.forEach((annotation, id) => {
+      if (!activeIds.has(id)) {
+        map.removeAnnotation(annotation)
+        hazardAnnotationsRef.current.delete(id)
+      }
+    })
+    hazards.forEach((hazard) => {
+      const coordinate = coordinateOf(hazard.latitude, hazard.longitude)
+      const existing = hazardAnnotationsRef.current.get(hazard.hazardId)
+      if (existing) {
+        existing.coordinate = coordinate
+        return
+      }
+      const annotation = new mapkit.Annotation(
+        coordinate,
+        annotationElement('hazard-marker', '⚠'),
+        { data: { kind: 'hazard', id: hazard.hazardId } satisfies AnnotationData, accessibilityLabel: '注意箇所' },
+      )
+      hazardAnnotationsRef.current.set(hazard.hazardId, annotation)
+      map.addAnnotation(annotation)
+    })
+  }, [props.hazards, mapReady])
 
   useEffect(() => {
     const visibility: Record<OverlayKind, boolean> = {

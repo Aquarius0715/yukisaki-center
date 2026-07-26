@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import timedelta
 from typing import Any
@@ -61,7 +62,7 @@ def _hazard(edges: list[dict[str, Any]]) -> dict[str, Any]:
     scores = [int(edge["score"]) for edge in edges if edge["score"] is not None]
     factors: set[str] = set()
     for edge in edges:
-        factors.update((edge["factors"] or {}).keys())
+        factors.update(((edge["factors"] or {}).get("applied_rules") or {}).keys())
         if float(edge["max_slope_percent"] or 0) >= 8:
             factors.add("steep_slope")
         if edge["bridge"]:
@@ -275,10 +276,13 @@ class RoutePlanningService:
         return result, diverse, versions
 
     def _plan_comparison(self, payload: Any, request: RouteRequest) -> dict[str, Any]:
-        planned = {
-            mode: self._plan_mode(replace(request, mode=mode), comparison_pool=True)
-            for mode in ("balanced", "drivability_priority", "distance_priority")
-        }
+        modes = ("balanced", "drivability_priority", "distance_priority")
+        with ThreadPoolExecutor(max_workers=len(modes)) as executor:
+            futures = {
+                mode: executor.submit(self._plan_mode, replace(request, mode=mode), comparison_pool=True)
+                for mode in modes
+            }
+            planned = {mode: future.result() for mode, future in futures.items()}
         balanced_result, balanced_routes, versions = planned["balanced"]
         for mode, (result, _, profile_versions) in planned.items():
             if (

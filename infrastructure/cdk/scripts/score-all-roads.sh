@@ -78,7 +78,7 @@ if [[ "${CONCURRENCY}" == "0" ]]; then
   exit 1
 fi
 
-PAYLOAD="{\"action\":\"score_all\",\"dataTimestamp\":\"${DATA_TIMESTAMP}\"}"
+PAYLOAD="{\"mode\":\"bootstrap-all-road-segments\",\"dataTimestamp\":\"${DATA_TIMESTAMP}\"}"
 echo "Scoring every road segment at ${DATA_TIMESTAMP} with ${SCORER_FUNCTION}..."
 aws_cli lambda invoke \
   --function-name "${SCORER_FUNCTION}" \
