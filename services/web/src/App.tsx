@@ -85,22 +85,52 @@ class ApplicationErrorBoundary extends Component<{ children: ReactNode }, { erro
 }
 
 function SnowplowArt({ compact = false }: { compact?: boolean }) {
-  return <svg className={compact ? 'plow-art compact' : 'plow-art'} viewBox="0 0 180 100" role="img" aria-label="除雪車">
-    <g className="snow-spray"><circle cx="18" cy="42" r="12"/><circle cx="7" cy="58" r="8"/><circle cx="25" cy="72" r="10"/></g>
-    <path d="M25 40 58 51v32L25 92Z" fill="#d7e4ed" stroke="#91a6b8" strokeWidth="3"/>
-    <rect x="52" y="40" width="95" height="43" rx="12" fill="#f4a51c"/><path d="M105 20h40a13 13 0 0 1 13 13v34h-53Z" fill="#e78c15"/>
-    <path d="M114 27h27a9 9 0 0 1 9 9v14h-36Z" fill="#c8e7f8"/><rect x="122" y="12" width="13" height="10" rx="5" fill="#ef4b3f"/>
-    <circle cx="76" cy="82" r="15" fill="#17202d"/><circle cx="76" cy="82" r="7" fill="#617080"/><circle cx="137" cy="82" r="15" fill="#17202d"/><circle cx="137" cy="82" r="7" fill="#617080"/>
+  return <svg className={compact ? 'plow-art compact' : 'plow-art'} viewBox="0 0 220 120" role="img" aria-label="右へ進む除雪車">
+    <defs>
+      <linearGradient id="plow-body" x1="0" x2="1"><stop stopColor="#ffcb3d"/><stop offset="1" stopColor="#f39119"/></linearGradient>
+      <linearGradient id="plow-blade" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#eff8fd"/><stop offset="1" stopColor="#a9c5d8"/></linearGradient>
+    </defs>
+    <path d="M43 47h84v50H35V58a11 11 0 0 1 8-11Z" fill="url(#plow-body)"/>
+    <path d="M119 28h39c18 0 28 13 28 31v38h-67Z" fill="#f49b1b"/>
+    <path d="M129 37h27c10 0 17 8 18 20h-45Z" fill="#c6ebff" stroke="#fff" strokeWidth="3"/>
+    <path d="M156 37v20" stroke="#7fb3d2" strokeWidth="3"/>
+    <rect x="49" y="59" width="45" height="10" rx="5" fill="#ffdf75"/>
+    <path d="M180 61 211 46l4 53-35-8Z" fill="url(#plow-blade)" stroke="#7898ad" strokeWidth="4"/>
+    <path d="m184 70 25-11M184 82l27-10" stroke="#fff" strokeWidth="3" opacity=".8"/>
+    <path d="M177 78h10" stroke="#45596a" strokeWidth="5"/>
+    <rect x="59" y="33" width="10" height="16" rx="3" fill="#334659"/>
+    <rect x="142" y="18" width="17" height="10" rx="5" fill="#ff5d4e"/>
+    <rect x="183" y="64" width="6" height="12" rx="2" fill="#fff4a7"/>
+    <circle cx="66" cy="96" r="18" fill="#17202d"/><circle cx="66" cy="96" r="8" fill="#718295"/>
+    <circle cx="151" cy="96" r="18" fill="#17202d"/><circle cx="151" cy="96" r="8" fill="#718295"/>
+    <path d="M31 84h151" stroke="#d37b10" strokeWidth="5"/>
   </svg>
 }
 
 function Splash({ onDone }: { onDone: () => void }) {
-  useEffect(() => { const timer = window.setTimeout(onDone, 2800); return () => window.clearTimeout(timer) }, [onDone])
+  useEffect(() => { const timer = window.setTimeout(onDone, 4300); return () => window.clearTimeout(timer) }, [onDone])
   return <button className="splash" onClick={onDone} aria-label="ホーム画面へ進む">
-    <div className="snow-particles" aria-hidden="true">{Array.from({ length: 28 }, (_, i) => <i key={i} style={{ '--x': `${(i * 47) % 100}%`, '--d': `${(i % 7) * .35}s`, '--s': `${3 + i % 5}px` } as React.CSSProperties}/>)}</div>
-    <div className="brand-mark">Y<span>❄</span></div><h1>Yukisaki</h1><p>雪の先に、走りやすい道を。</p>
-    <div className="splash-road"><div className="revealed-road"/><div className="moving-plow"><SnowplowArt/></div></div>
-    <small>タップしてはじめる</small>
+    <div className="splash-glow" aria-hidden="true"/>
+    <div className="splash-mountains" aria-hidden="true"><i/><i/><i/></div>
+    <div className="snow-particles" aria-hidden="true">{Array.from({ length: 36 }, (_, i) => <i key={i} style={{ '--x': `${(i * 47) % 100}%`, '--d': `${(i % 9) * .28}s`, '--s': `${3 + i % 6}px`, '--drift': `${-18 + i % 37}px` } as React.CSSProperties}/>)}</div>
+    <div className="splash-brand">
+      <img src="/brand/yukisaki-logo.png" alt="Yukisaki"/>
+      <p>雪の先に、走りやすい道を。</p>
+    </div>
+    <div className="splash-road" aria-hidden="true">
+      <div className="snow-blanket"/>
+      <div className="revealed-road"><i/><i/><i/><i/><i/></div>
+      <div className="plowed-bank bank-top"/>
+      <div className="plowed-bank bank-bottom"/>
+      <div className="moving-plow">
+        <div className="plow-shadow"/>
+        <SnowplowArt/>
+        <div className="cast-snow cast-top">{Array.from({ length: 9 }, (_, i) => <i key={i}/>)}</div>
+        <div className="cast-snow cast-bottom">{Array.from({ length: 9 }, (_, i) => <i key={i}/>)}</div>
+      </div>
+    </div>
+    <div className="splash-status"><span/><b>長岡の雪道を準備しています</b><i>•••</i></div>
+    <small>タップしてスキップ</small>
   </button>
 }
 
@@ -239,16 +269,7 @@ function PlowSheet({ plow, close }: { plow: Snowplow; close: () => void }) {
   </div></BottomSheet>
 }
 
-function HazardSheet({ hazard, close }: { hazard: HazardPoint; close: () => void }) {
-  return <BottomSheet title="注意箇所の詳細" onClose={close}><div className="sheet-content">
-    <div className="road-title"><div><small>最低走りやすさ指数</small><h3>{hazard.minimumScore ?? '未算出'}</h3></div></div>
-    {hazard.explanation ? <p>{hazard.explanation}</p> : <div className="detail-loading" role="status"><div className="spinner"/>AIによる説明を生成しています</div>}
-    {hazard.cautions.length > 0 && <div className="reason-list">{hazard.cautions.map((caution) => <span className="warn" key={caution}>△ {caution}</span>)}</div>}
-    <p className="data-note">判定要因: {hazard.factors.map((factor) => scoreLabels[factor] ?? factor).join('、') || '情報なし'}</p>
-  </div></BottomSheet>
-}
-
-function Header({ weather }: { weather?: ReturnType<typeof useYukisakiData>['weather'] }) { return <header className="topbar"><div className="mini-logo">Y❄ <b>Yukisaki</b></div><div className="weather"><span>❄ {weather?.temperatureC ?? '--'}°</span><small>{weather?.condition ?? '読込中'}</small></div></header> }
+function Header({ weather }: { weather?: ReturnType<typeof useYukisakiData>['weather'] }) { return <header className="topbar"><div className="mini-logo"><img src="/brand/yukisaki-logo.png" alt="Yukisaki"/></div><div className="weather"><span>❄ {weather?.temperatureC ?? '--'}°</span><small>{weather?.condition ?? '読込中'}</small></div></header> }
 
 function Search({ onChoose }: { onChoose: (destination: Destination) => void }) {
   const [query, setQuery] = useState('')
