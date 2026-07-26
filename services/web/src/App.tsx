@@ -101,35 +101,71 @@ function SnowplowArt({ compact = false }: { compact?: boolean }) {
     <rect x="59" y="33" width="10" height="16" rx="3" fill="#334659"/>
     <rect x="142" y="18" width="17" height="10" rx="5" fill="#ff5d4e"/>
     <rect x="183" y="64" width="6" height="12" rx="2" fill="#fff4a7"/>
-    <circle cx="66" cy="96" r="18" fill="#17202d"/><circle cx="66" cy="96" r="8" fill="#718295"/>
-    <circle cx="151" cy="96" r="18" fill="#17202d"/><circle cx="151" cy="96" r="8" fill="#718295"/>
+    <g className="plow-wheel rear-wheel"><circle cx="66" cy="96" r="18" fill="#17202d"/><circle cx="66" cy="96" r="8" fill="#718295"/><path d="M66 82v28M52 96h28" stroke="#a9b7c4" strokeWidth="3"/></g>
+    <g className="plow-wheel front-wheel"><circle cx="151" cy="96" r="18" fill="#17202d"/><circle cx="151" cy="96" r="8" fill="#718295"/><path d="M151 82v28M137 96h28" stroke="#a9b7c4" strokeWidth="3"/></g>
     <path d="M31 84h151" stroke="#d37b10" strokeWidth="5"/>
   </svg>
 }
 
 function Splash({ onDone }: { onDone: () => void }) {
-  useEffect(() => { const timer = window.setTimeout(onDone, 4300); return () => window.clearTimeout(timer) }, [onDone])
-  return <button className="splash" onClick={onDone} aria-label="ホーム画面へ進む">
-    <div className="splash-glow" aria-hidden="true"/>
-    <div className="splash-mountains" aria-hidden="true"><i/><i/><i/></div>
-    <div className="snow-particles" aria-hidden="true">{Array.from({ length: 36 }, (_, i) => <i key={i} style={{ '--x': `${(i * 47) % 100}%`, '--d': `${(i % 9) * .28}s`, '--s': `${3 + i % 6}px`, '--drift': `${-18 + i % 37}px` } as React.CSSProperties}/>)}</div>
+  const [exiting, setExiting] = useState(false)
+  const onDoneRef = useRef(onDone)
+  const skippedRef = useRef(false)
+
+  useEffect(() => { onDoneRef.current = onDone }, [onDone])
+  useEffect(() => {
+    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    const exitTimer = window.setTimeout(() => setExiting(true), reducedMotion ? 360 : 1_560)
+    const doneTimer = window.setTimeout(() => onDoneRef.current(), reducedMotion ? 520 : 1_760)
+    return () => {
+      window.clearTimeout(exitTimer)
+      window.clearTimeout(doneTimer)
+    }
+  }, [])
+
+  const skip = () => {
+    if (skippedRef.current) return
+    skippedRef.current = true
+    setExiting(true)
+    window.setTimeout(() => onDoneRef.current(), 160)
+  }
+
+  return <button className={`splash${exiting ? ' is-exiting' : ''}`} onClick={skip} aria-label="ホーム画面へ進む">
     <div className="splash-brand">
       <img src="/brand/yukisaki-logo.png" alt="Yukisaki"/>
       <p>雪の先に、走りやすい道を。</p>
     </div>
-    <div className="splash-road" aria-hidden="true">
-      <div className="snow-blanket"/>
-      <div className="revealed-road"><i/><i/><i/><i/><i/></div>
-      <div className="plowed-bank bank-top"/>
-      <div className="plowed-bank bank-bottom"/>
+    <div className="splash-status"><span/><b>長岡の道路情報を準備しています</b></div>
+    <div className="snow-clearing-animation" aria-hidden="true">
+      <svg className="clearing-scene" viewBox="0 0 1000 220" preserveAspectRatio="none">
+        <defs>
+          <linearGradient id="opening-road" x1="0" y1="0" x2="0" y2="1">
+            <stop stopColor="#526579"/>
+            <stop offset=".55" stopColor="#34475a"/>
+            <stop offset="1" stopColor="#2a3b4d"/>
+          </linearGradient>
+          <linearGradient id="opening-snow" x1="0" y1="0" x2="0" y2="1">
+            <stop stopColor="#ffffff"/>
+            <stop offset="1" stopColor="#dcebf3"/>
+          </linearGradient>
+          <mask id="opening-snow-mask">
+            <rect width="1000" height="220" fill="white"/>
+            <rect className="snow-clear-mask" x="0" y="65" width="1000" height="94" rx="24" fill="black"/>
+          </mask>
+        </defs>
+        <rect x="0" y="43" width="1000" height="142" fill="url(#opening-road)"/>
+        <path d="M0 58H1000M0 170H1000" stroke="#9cafbf" strokeWidth="4" opacity=".5"/>
+        <path d="M0 113H1000" stroke="#f2dda0" strokeWidth="5" strokeDasharray="62 42" opacity=".9"/>
+        <path className="snow-cover" d="M0 35Q75 24 150 39T300 36T450 40T600 34T750 39T900 35T1000 38V187Q925 197 850 184T700 189T550 184T400 190T250 185T100 191T0 187Z" fill="url(#opening-snow)" mask="url(#opening-snow-mask)"/>
+        <path d="M0 60Q80 51 160 62T320 59T480 63T640 58T800 62T1000 59M0 166Q85 174 170 164T340 169T510 164T680 170T850 165T1000 168" fill="none" stroke="#f9fcfe" strokeWidth="13" strokeLinecap="round"/>
+      </svg>
       <div className="moving-plow">
-        <div className="plow-shadow"/>
         <SnowplowArt/>
-        <div className="cast-snow cast-top">{Array.from({ length: 9 }, (_, i) => <i key={i}/>)}</div>
-        <div className="cast-snow cast-bottom">{Array.from({ length: 9 }, (_, i) => <i key={i}/>)}</div>
+        <svg className="plow-snow-ridge" viewBox="0 0 72 46">
+          <path d="M1 43c7-18 16-11 22-25 5 9 12 6 16 17 7-10 18-5 31 8Z" fill="#f7fbfd" stroke="#c8dce8" strokeWidth="2"/>
+        </svg>
       </div>
     </div>
-    <div className="splash-status"><span/><b>長岡の雪道を準備しています</b><i>•••</i></div>
     <small>タップしてスキップ</small>
   </button>
 }
@@ -269,7 +305,7 @@ function PlowSheet({ plow, close }: { plow: Snowplow; close: () => void }) {
   </div></BottomSheet>
 }
 
-function Header({ weather }: { weather?: ReturnType<typeof useYukisakiData>['weather'] }) { return <header className="topbar"><div className="mini-logo"><img src="/brand/yukisaki-logo.png" alt="Yukisaki"/></div><div className="weather"><span>❄ {weather?.temperatureC ?? '--'}°</span><small>{weather?.condition ?? '読込中'}</small></div></header> }
+function Header({ weather }: { weather?: ReturnType<typeof useYukisakiData>['weather'] }) { return <header className="topbar"><div className="mini-logo"><img src="/brand/yukisaki-logo.png" alt="Yukisaki"/></div><div className="weather"><span><svg className="weather-symbol" viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2v16M3.1 6l13.8 8M3.1 14l13.8-8M7.6 3.4 10 5.8l2.4-2.4M7.6 16.6l2.4-2.4 2.4 2.4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>{weather?.temperatureC ?? '--'}°</span><small>{weather?.condition ?? '読込中'}</small></div></header> }
 
 function Search({ onChoose }: { onChoose: (destination: Destination) => void }) {
   const [query, setQuery] = useState('')
@@ -483,8 +519,8 @@ function AppContent() {
   return <div className="app-screen"><Header weather={data.weather}/>
     <YukisakiMap roads={data.roads} conditions={data.conditions} snowplows={data.snowplows} layers={layers} currentPosition={currentPosition} destination={destination} routes={screen === 'routes' || screen === 'navigation' ? routes : undefined} activeRouteId={activeRoute} hazards={screen === 'routes' || screen === 'navigation' ? hazardPoints : undefined} onRoadSelect={selectRoad} onPlowSelect={(item) => { setPlow(item); setSheet('plow') }} onHazardSelect={(item) => { setActiveHazardId(item.hazardId); setSheet('hazard') }} onMapDestination={selectDestination} onViewportChange={data.refreshMap} animateSnowplows/>
     {layers.snowEffects && <div className="map-snow" aria-hidden="true"/>}
-    {screen === 'home' && <><Search onChoose={selectDestination}/><div className="map-actions"><button onClick={() => setSheet('layers')} aria-label="地図レイヤーを選択">◇</button></div><div className="legend"><b>走りやすさ指数</b><span className="score-gradient"/><small><em>注意 0–59</em><em>60–74</em><em>75–84</em><em>良好 85–100</em></small><span className="legend-unknown"><i/>未算出</span></div>{routeError && <div className="api-warning route-error" role="alert"><b>経路探索エラー</b><span>{routeError}</span></div>}{data.updateStopped && <div className="api-warning" role="alert"><b>更新停止</b><span>最後に取得したデータを表示しています</span></div>}{data.viewportRefreshing && <div className="api-warning truncated" role="status"><b>表示範囲を更新中</b><span>道路データを再取得しています</span></div>}<section className="home-card"><div><small>現在地周辺の走りやすさ</small><h2>{appConfig.demo.area}</h2><p>走りやすさ指数・消雪パイプを道路上に表示</p></div><Score value={averageScore}/><footer><span>更新 {data.meta?.dataTimestamp ? new Date(data.meta.dataTimestamp).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : appConfig.demo.label}</span><b>{data.apiOnline === false ? 'API停止中' : data.meta?.source === 'api' ? 'API・デモデータ' : 'モックデータ'}</b></footer><div className="home-actions"><button className="primary" onClick={() => document.querySelector<HTMLInputElement>('.search input')?.focus()}>目的地を設定</button></div></section></>}
-    {screen === 'routes' && <RoutePanel routes={routes} active={activeRoute} setActive={selectRoute} explanation={routeExplanation} aiLoading={aiLoading} back={() => setScreen('home')} start={() => setScreen('navigation')}/>}
+    {screen === 'home' && <><Search onChoose={selectDestination}/><div className="map-actions"><button onClick={() => setSheet('layers')} aria-label="地図レイヤーを選択">◇</button></div><div className="legend"><b>走りやすさ指数</b><span className="score-gradient"/><small><em>注意 0–59</em><em>60–74</em><em>75–84</em><em>良好 85–100</em></small><span className="legend-unknown"><i/>未算出</span></div>{routeError && <div className="api-warning route-error" role="alert"><b>経路探索エラー</b><span>{routeError}</span></div>}{data.updateStopped && <div className="api-warning" role="alert"><b>更新停止</b><span>最後に取得したデータを表示しています</span></div>}{data.viewportRefreshing && <div className="api-warning truncated" role="status"><b>表示範囲を更新中</b><span>道路データを再取得しています</span></div>}<section className="home-card"><div><small>現在地周辺の走りやすさ</small><h2>{appConfig.demo.area}</h2><p>走りやすさ指数・消雪パイプを道路上に表示</p></div><Score value={averageScore}/><footer><span>更新 {data.meta?.dataTimestamp ? new Date(data.meta.dataTimestamp).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : appConfig.demo.label}</span><b>{data.apiOnline === false ? 'API停止中' : data.meta?.source === 'api' ? 'API・デモデータ' : 'モックデータ'}</b></footer></section></>}
+    {screen === 'routes' && <RoutePanel routes={routes} active={activeRoute} setActive={selectRoute} explanation={routeExplanation} danger={dangerExplanation} back={() => setScreen('home')} start={() => setScreen('navigation')}/>}
     {screen === 'navigation' && <NavigationPanel route={routes.find((item) => item.id === activeRoute)} back={() => setScreen('home')}/>} 
     {routeLoading && <div className="route-loading" role="status"><div className="spinner"/>ルート候補を準備しています</div>}
     {sheet === 'layers' && <LayerSheet layers={layers} setLayers={setLayers} close={() => setSheet(undefined)}/>} {sheet === 'road' && road && <RoadSheet road={road} condition={condition} loading={roadDetailLoading} error={roadDetailError} close={() => setSheet(undefined)}/>} {sheet === 'plow' && plow && <PlowSheet plow={plow} close={() => setSheet(undefined)}/>} {sheet === 'hazard' && activeHazard && <HazardSheet hazard={activeHazard} close={() => setSheet(undefined)}/>}
