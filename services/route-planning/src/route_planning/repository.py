@@ -399,12 +399,14 @@ class RoutingRepository:
                           e.segment_id, e.source, e.target,
                           ST_AsGeoJSON(e.geometry)::jsonb, e.length_m, e.base_travel_time_s,
                           e.road_type, e.max_slope_percent, e.bridge, e.tunnel,
+                          rs.road_name,
                           score.score, score.confidence, score.factors,
                           score.is_simulated AS score_is_simulated,
                           snow.snow_pipe, snow.operation_status,
                           passage.observed_at, e.is_simulated AS edge_is_simulated
                    FROM paths p
                    JOIN routing_edges e ON e.edge_id = p.edge
+                   LEFT JOIN road_segments rs ON rs.segment_id = e.segment_id
                    LEFT JOIN LATERAL (
                      SELECT d.score, d.confidence, d.factors, d.is_simulated
                      FROM drivability_scores d

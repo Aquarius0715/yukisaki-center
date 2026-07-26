@@ -287,6 +287,33 @@ class AssistantTest(unittest.TestCase):
         self.assertEqual(2, len(response["result"]["hazards"][0]["cautions"]))
         self.assertTrue(response["metadata"]["is_simulated"])
 
+    def test_danger_fallback_differentiates_hazards_sharing_the_same_rules(self):
+        payload = {
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "is_simulated": True,
+            "hazards": [
+                {
+                    "hazard_id": "h-1",
+                    "rules": ["bridge", "no_plow_history"],
+                    "evidence": {"road_name": "国道351号", "length_m": 120.0},
+                },
+                {
+                    "hazard_id": "h-2",
+                    "rules": ["bridge", "no_plow_history"],
+                    "evidence": {"road_name": "県道23号", "length_m": 340.0},
+                },
+            ],
+        }
+
+        response = AssistantService(
+            FakeGenerator(error=RuntimeError("unavailable"))
+        ).explain_danger_points(payload)
+
+        explanations = [item["explanation"] for item in response["result"]["hazards"]]
+        self.assertIn("国道351号", explanations[0])
+        self.assertIn("県道23号", explanations[1])
+        self.assertNotEqual(explanations[0], explanations[1])
+
     def test_compatibility_helpers_remain_deterministic(self):
         self.assertEqual(extract_conditions("雪道で安全に")["priority"], "safety")
         self.assertIn("2件", explain_route({"minimum_score": 35, "hazard_count": 2}))

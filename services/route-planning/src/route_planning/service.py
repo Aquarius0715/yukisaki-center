@@ -61,17 +61,54 @@ def _hazard_groups(path: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def _hazard(edges: list[dict[str, Any]]) -> dict[str, Any]:
     scores = [int(edge["score"]) for edge in edges if edge["score"] is not None]
     factors: set[str] = set()
+    road_name: str | None = None
+    max_slope_percent = 0.0
+    snowfall_1h_cm: float | None = None
+    temperature_c: float | None = None
+    oldest_plowed_at = None
+    missing_plow_history = False
     for edge in edges:
-        factors.update(((edge["factors"] or {}).get("applied_rules") or {}).keys())
-        if float(edge["max_slope_percent"] or 0) >= 8:
+        applied_rules = (edge["factors"] or {}).get("applied_rules") or {}
+        factors.update(applied_rules.keys())
+        inputs = (edge["factors"] or {}).get("inputs") or {}
+        if road_name is None and edge.get("road_name"):
+            road_name = str(edge["road_name"])
+        slope = float(edge["max_slope_percent"] or 0)
+        max_slope_percent = max(max_slope_percent, slope)
+        if slope >= 8:
             factors.add("steep_slope")
         if edge["bridge"]:
             factors.add("bridge")
+        if snowfall_1h_cm is None and inputs.get("snowfall_1h_cm") is not None:
+            snowfall_1h_cm = float(inputs["snowfall_1h_cm"])
+        if temperature_c is None and inputs.get("temperature_c") is not None:
+            temperature_c = float(inputs["temperature_c"])
+        if edge["observed_at"] is None:
+            missing_plow_history = True
+        elif oldest_plowed_at is None or edge["observed_at"] < oldest_plowed_at:
+            oldest_plowed_at = edge["observed_at"]
+    # Passing only rule names (e.g. "steep_slope") gives the AI nothing to tell
+    # two similarly-classified hazards apart, so it produces near-identical text.
+    # Concrete evidence values let it ground each explanation in specifics.
+    evidence: dict[str, Any] = {
+        "length_m": round(sum(float(edge["length_m"]) for edge in edges), 1),
+    }
+    if road_name:
+        evidence["road_name"] = road_name
+    if max_slope_percent:
+        evidence["max_slope_percent"] = round(max_slope_percent, 1)
+    if snowfall_1h_cm is not None:
+        evidence["snowfall_1h_cm"] = snowfall_1h_cm
+    if temperature_c is not None:
+        evidence["temperature_c"] = temperature_c
+    if oldest_plowed_at is not None and not missing_plow_history:
+        evidence["last_plowed_at"] = oldest_plowed_at.isoformat()
     return {
         "segment_ids": [edge["segment_id"] for edge in edges],
         "minimum_drivability_score": min(scores) if scores else None,
         "factors": sorted(factors),
         "geometry": {"type": "LineString", "coordinates": _coordinates(edges)},
+        "evidence": evidence,
     }
 
 

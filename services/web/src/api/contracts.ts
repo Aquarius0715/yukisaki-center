@@ -119,11 +119,21 @@ export type RecommendedRoute = {
   reasons: string[]
 }
 
+export type ApiHazardEvidence = {
+  road_name?: string
+  length_m?: number
+  max_slope_percent?: number
+  snowfall_1h_cm?: number
+  temperature_c?: number
+  last_plowed_at?: string
+}
+
 export type ApiHazardGroup = {
   segment_ids: string[]
   minimum_drivability_score: number | null
   factors: string[]
   geometry: LineString
+  evidence: ApiHazardEvidence
 }
 
 export type ApiRoute = {

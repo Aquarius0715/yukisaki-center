@@ -36,7 +36,7 @@ LLM出力の推奨IDと全経路IDが入力と完全一致しなければ破棄�
 
 ## `POST /v1/ai/explain-danger-points`
 
-入力は1〜20件の`hazards`、`data_timestamp`、`is_simulated`。各要素は一意の`hazard_id`、適用ルール、説明根拠を持つ。LLM出力のIDと順序が入力と完全一致しなければ定型文へフォールバックする。
+入力は1〜20件の`hazards`、`data_timestamp`、`is_simulated`。各要素は一意の`hazard_id`、適用ルール(`rules`)、最低走りやすさ指数(`minimum_drivability_score`)、任意の根拠数値(`evidence`: 道路名・区間長・最大勾配・1時間降雪量・気温・最終除雪時刻のうち入力されているものだけ)を持つ。同じ`rules`を持つ危険箇所でも`evidence`が異なれば、その具体的な値を使って説明文を書き分ける。`evidence`にない項目には言及しない。LLM出力のIDと順序が入力と完全一致しなければ定型文へフォールバックする。
 
 危険箇所の説明は根拠と注意すべき理由を2〜4文で示し、一般的な運転上の注意を1〜3項目返す。`is_simulated`はAPIメタデータだけに保持し、説明本文では言及しない。
 

@@ -301,6 +301,7 @@ export class HttpYukisakiApi implements YukisakiApi {
         hazard_id: `${route.route_id}-hazard-${index + 1}`,
         rules: hazard.factors,
         minimum_drivability_score: hazard.minimum_drivability_score,
+        evidence: hazard.evidence,
       })),
     }, AI_TIMEOUT_MS)
     if (!isAssistantEnvelope(value) || !isDangerExplanationResult(value.result)) {

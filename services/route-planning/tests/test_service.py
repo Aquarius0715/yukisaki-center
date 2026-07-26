@@ -20,17 +20,22 @@ def request_payload():
     }
 
 
-def edge(path_id, path_seq, segment_id, source, target, node, coordinates, *, score=70, cost=20, factors=None):
+def edge(
+    path_id, path_seq, segment_id, source, target, node, coordinates,
+    *, score=70, cost=20, factors=None, road_name=None, max_slope_percent=2,
+    bridge=False, observed_at=datetime.fromisoformat("2026-01-23T11:30:00+09:00"),
+):
     return {
         "path_id": path_id, "path_seq": path_seq, "node": node,
         "edge": path_seq + 1, "cost": cost, "agg_cost": cost * (path_seq + 1),
         "segment_id": segment_id, "source": source, "target": target,
         "st_asgeojson": {"type": "LineString", "coordinates": coordinates},
         "length_m": 100, "base_travel_time_s": 10, "road_type": "primary",
-        "max_slope_percent": 2, "bridge": False, "tunnel": False,
+        "road_name": road_name,
+        "max_slope_percent": max_slope_percent, "bridge": bridge, "tunnel": False,
         "score": score, "confidence": 0.9, "factors": factors or {},
         "score_is_simulated": True, "snow_pipe": True, "operation_status": "active",
-        "observed_at": datetime.fromisoformat("2026-01-23T11:30:00+09:00"),
+        "observed_at": observed_at,
         "edge_is_simulated": False,
     }
 
@@ -63,9 +68,11 @@ class HazardFactorRepository:
                     1, 0, "hazard-seg", 1, 2, 1,
                     [[138.79, 37.44], [138.80, 37.45]],
                     score=30,
+                    road_name="国道351号",
+                    observed_at=None,
                     factors={
                         "applied_rules": {"no_plow_history": -15, "narrow_road": -10},
-                        "inputs": {"snowfall_1h_cm": 3},
+                        "inputs": {"snowfall_1h_cm": 3, "temperature_c": -1.5},
                         "source_run_ids": ["bootstrap-all-roads-x"],
                     },
                 ),
@@ -187,6 +194,18 @@ class RouteServiceTest(unittest.TestCase):
         hazards = result["routes"][0]["hazard_groups"]
         self.assertEqual(1, len(hazards))
         self.assertEqual(["narrow_road", "no_plow_history"], hazards[0]["factors"])
+
+    def test_hazard_evidence_carries_concrete_values_for_ai_grounding(self):
+        service = RoutePlanningService(HazardFactorRepository())
+        result = service.plan(request_payload())
+        evidence = result["routes"][0]["hazard_groups"][0]["evidence"]
+        self.assertEqual("国道351号", evidence["road_name"])
+        self.assertEqual(3, evidence["snowfall_1h_cm"])
+        self.assertEqual(-1.5, evidence["temperature_c"])
+        self.assertEqual(100, evidence["length_m"])
+        # No observed_at on the only edge in this hazard means the group has no
+        # plow history at all, so last_plowed_at must not be fabricated.
+        self.assertNotIn("last_plowed_at", evidence)
 
     def test_cost_cache_key_tracks_cost_inputs_but_not_candidate_filter(self):
         request = RouteRequest.parse(request_payload())

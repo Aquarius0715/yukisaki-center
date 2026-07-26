@@ -517,6 +517,8 @@ EVIDENCE_FORMATTERS = {
     "last_plowed_at": lambda value: f"最終除雪時刻は{value}",
     "score": lambda value: f"走りやすさ指数は{value}",
     "confidence": lambda value: f"信頼度は{value}",
+    "road_name": lambda value: f"道路名は{value}",
+    "length_m": lambda value: f"区間長は{value}m",
 }
 
 
