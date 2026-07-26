@@ -235,6 +235,15 @@ function annotationElement(className: string, text?: string) {
   }
 }
 
+function plowMarkerElement() {
+  return () => {
+    const element = document.createElement('div')
+    element.className = 'map-annotation plow-marker'
+    element.innerHTML = '<i class="marker-plow-body"><b class="marker-plow-cab"></b><b class="marker-plow-window"></b><b class="marker-plow-blade"></b><b class="marker-plow-wheel rear"></b><b class="marker-plow-wheel front"></b></i>'
+    return element
+  }
+}
+
 function dataOf(overlay: mapkit.Overlay | undefined): OverlayData | undefined {
   return overlay?.data as OverlayData | undefined
 }
@@ -574,7 +583,7 @@ export function YukisakiMap(props: Props) {
       if (!plowAnnotationsRef.current.has(plow.id)) {
         const annotation = new mapkit.Annotation(
           coordinateOf(plow.latitude, plow.longitude),
-          annotationElement('plow-marker', '🚛'),
+          plowMarkerElement(),
           { title: plow.name, data: { kind: 'plow', id: plow.id } satisfies AnnotationData, accessibilityLabel: `${plow.name}（デモデータ）` },
         )
         plowAnnotationsRef.current.set(plow.id, annotation)
