@@ -4,7 +4,9 @@
 
 道路収集、curated DB Loader、PostGIS/pgRoutingスキーマ、Route Planning Docker Lambda、`POST /v1/routes`、CDK、`env:start|stop|status`統合は実装済みである。経路はApple Mapsではなく、PostGIS/pgRoutingと独自の雪道コストで生成する。
 
-`POST /v1/ai/explain-routes`は経路APIレスポンスを直接受け取れるようにローカル改修済みである。このAI改修はまだAWSへデプロイしていない。
+経路コストは`routing_cost_snapshots`と`routing_cost_edges_cache`へ版付きで保持する。同じグラフ版・指数版・基準時刻・モード・条件では生成済みコストを再利用し、リクエストごとの全道路再集計を行わない。pgRoutingへ渡す道路は出発地・目的地を囲む回廊内に限定し、通常回廊で接続できない場合だけ広い回廊へ再探索する。CloudWatchにはスキーマ確認、地点スナップ、コストキャッシュ、pgRouting取得の所要時間を分けて記録する。
+
+`POST /v1/ai/explain-routes`は経路APIレスポンスを直接受け取れるようにAWSへデプロイ済みである。Geometry等を除いた根拠だけをClaudeへ渡し、詳細な自然文説明を返す実推論を確認済みである。
 
 ## デプロイ前確認
 

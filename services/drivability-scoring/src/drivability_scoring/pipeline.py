@@ -114,6 +114,11 @@ CREATE TABLE IF NOT EXISTS drivability_scores (
   is_simulated BOOLEAN NOT NULL DEFAULT false,
   PRIMARY KEY (segment_id, data_timestamp, rule_version)
 );
+CREATE INDEX IF NOT EXISTS drivability_scores_route_lookup_idx
+  ON drivability_scores (segment_id, rule_version, data_timestamp DESC)
+  INCLUDE (score, confidence, factors, is_simulated);
+CREATE INDEX IF NOT EXISTS drivability_scores_version_time_idx
+  ON drivability_scores (rule_version, data_timestamp DESC);
 """
 
 

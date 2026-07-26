@@ -303,6 +303,32 @@ CREATE INDEX IF NOT EXISTS routing_edges_geometry_idx ON routing_edges USING GIS
 CREATE INDEX IF NOT EXISTS routing_edges_source_idx ON routing_edges (source);
 CREATE INDEX IF NOT EXISTS routing_edges_target_idx ON routing_edges (target);
 CREATE INDEX IF NOT EXISTS routing_edges_graph_version_idx ON routing_edges (graph_version);
+CREATE TABLE IF NOT EXISTS routing_cost_snapshots (
+  cache_key TEXT PRIMARY KEY,
+  graph_version TEXT NOT NULL,
+  score_rule_version TEXT NOT NULL,
+  score_data_timestamp TIMESTAMPTZ NOT NULL,
+  reference_time TIMESTAMPTZ NOT NULL,
+  mode TEXT NOT NULL,
+  avoid_conditions JSONB NOT NULL,
+  prefer_conditions JSONB NOT NULL,
+  edge_count INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS routing_cost_edges_cache (
+  cache_key TEXT NOT NULL
+    REFERENCES routing_cost_snapshots(cache_key) ON DELETE CASCADE,
+  id BIGINT NOT NULL,
+  source BIGINT NOT NULL,
+  target BIGINT NOT NULL,
+  cost DOUBLE PRECISION NOT NULL,
+  reverse_cost DOUBLE PRECISION NOT NULL,
+  PRIMARY KEY (cache_key, id)
+);
+CREATE INDEX IF NOT EXISTS routing_cost_edges_cache_source_idx
+  ON routing_cost_edges_cache (cache_key, source);
+CREATE INDEX IF NOT EXISTS routing_cost_edges_cache_target_idx
+  ON routing_cost_edges_cache (cache_key, target);
 CREATE TABLE IF NOT EXISTS routing_graph_state (
   singleton BOOLEAN PRIMARY KEY DEFAULT true CHECK (singleton),
   graph_version TEXT NOT NULL,

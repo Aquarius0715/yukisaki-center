@@ -59,6 +59,26 @@ export class WebStack extends Stack {
       viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
       compress: true,
     };
+    const roadApiCachePolicy = new cloudfront.CachePolicy(this, 'RoadApiCachePolicy', {
+      comment: `Yukisaki road API cache (${props.environment})`,
+      defaultTtl: Duration.seconds(60),
+      minTtl: Duration.seconds(60),
+      maxTtl: Duration.seconds(60),
+      queryStringBehavior: cloudfront.CacheQueryStringBehavior.all(),
+      cookieBehavior: cloudfront.CacheCookieBehavior.none(),
+      headerBehavior: cloudfront.CacheHeaderBehavior.none(),
+      enableAcceptEncodingBrotli: true,
+      enableAcceptEncodingGzip: true,
+    });
+    const roadApiBehavior: cloudfront.BehaviorOptions = {
+      origin: apiOrigin,
+      allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
+      cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD_OPTIONS,
+      cachePolicy: roadApiCachePolicy,
+      originRequestPolicy: cloudfront.OriginRequestPolicy.ALL_VIEWER_EXCEPT_HOST_HEADER,
+      viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      compress: true,
+    };
 
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: `Yukisaki Web (${props.environment})`,
@@ -73,6 +93,7 @@ export class WebStack extends Stack {
         compress: true,
       },
       additionalBehaviors: {
+        'v1/road-segments*': roadApiBehavior,
         'v1/*': apiBehavior,
         healthz: apiBehavior,
       },

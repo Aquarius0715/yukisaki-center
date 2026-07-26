@@ -61,7 +61,7 @@ export class RoutePlanningStack extends Stack {
         path.join(__dirname, '../../../services/route-planning'),
         { target: 'runtime', platform: ecrAssets.Platform.LINUX_ARM64 },
       ),
-      timeout: Duration.seconds(20),
+      timeout: Duration.seconds(28),
       memorySize: 2048,
       reservedConcurrentExecutions: 0,
       logGroup,

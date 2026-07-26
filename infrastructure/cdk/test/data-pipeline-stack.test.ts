@@ -38,6 +38,7 @@ describe('DataPipelineStack', () => {
     template.hasResourceProperties('AWS::RDS::DBInstance', {
       Engine: 'postgres',
       DBName: 'yukisaki',
+      DBInstanceClass: 'db.t4g.micro',
       PubliclyAccessible: false,
       StorageEncrypted: true,
       MultiAZ: false,

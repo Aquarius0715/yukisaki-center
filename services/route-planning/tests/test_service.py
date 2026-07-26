@@ -4,7 +4,8 @@ from datetime import datetime
 from unittest.mock import Mock, patch
 
 from route_planning.handler import handler
-from route_planning.models import RequestValidationError, RouteRequest
+from route_planning.models import Point, RequestValidationError, RouteRequest
+from route_planning.repository import PointNotOnRoadError, RoutingRepository
 from route_planning.service import RoutePlanningService
 
 
@@ -81,6 +82,23 @@ class SimilarRoutesRepository:
         }
 
 
+class PlaceholderCheckingCursor:
+    def __init__(self):
+        self.executed = []
+        self.description = []
+
+    def execute(self, sql, parameters=None):
+        if parameters is not None:
+            assert sql.count("%s") == len(parameters), (sql.count("%s"), len(parameters))
+        self.executed.append((sql, parameters))
+
+    def fetchone(self):
+        return None
+
+    def fetchall(self):
+        return []
+
+
 class RouteServiceTest(unittest.TestCase):
     def test_validates_public_request_allow_lists(self):
         parsed = RouteRequest.parse(request_payload())
@@ -102,6 +120,123 @@ class RouteServiceTest(unittest.TestCase):
         self.assertEqual(1, first["routes"][0]["hazard_group_count"])
         self.assertEqual(1.0, first["routes"][0]["score_coverage"])
         self.assertTrue(first["is_simulated"])
+
+    def test_cost_cache_key_tracks_cost_inputs_but_not_candidate_filter(self):
+        request = RouteRequest.parse(request_payload())
+        key = RoutingRepository._cost_cache_key(
+            request,
+            "graph-v1",
+            "score-v1",
+            "2026-01-23T12:00:00+09:00",
+        )
+        same_costs = request_payload()
+        same_costs["options"]["max_detour_minutes"] = 30
+        same_key = RoutingRepository._cost_cache_key(
+            RouteRequest.parse(same_costs),
+            "graph-v1",
+            "score-v1",
+            "2026-01-23T12:00:00+09:00",
+        )
+        different_mode = request_payload()
+        different_mode["mode"] = "time_priority"
+        different_key = RoutingRepository._cost_cache_key(
+            RouteRequest.parse(different_mode),
+            "graph-v1",
+            "score-v1",
+            "2026-01-23T12:00:00+09:00",
+        )
+
+        self.assertEqual(key, same_key)
+        self.assertNotEqual(key, different_key)
+
+    def test_snap_validates_distance_to_edge_not_only_distance_to_endpoint_node(self):
+        cursor = Mock()
+        cursor.fetchone.return_value = (
+            123,
+            "node-123",
+            37.442,
+            138.791,
+            180.0,
+            12.5,
+        )
+
+        snapped = RoutingRepository._snap(
+            cursor,
+            Point(latitude=37.4427, longitude=138.7908),
+            "graph-v1",
+            100.0,
+        )
+
+        self.assertEqual(180.0, snapped["distance_m"])
+        self.assertEqual(12.5, snapped["road_distance_m"])
+        self.assertIn("nearest_edge", cursor.execute.call_args.args[0])
+
+    def test_snap_rejects_point_when_nearest_edge_is_too_far(self):
+        cursor = Mock()
+        cursor.fetchone.return_value = (
+            123,
+            "node-123",
+            37.442,
+            138.791,
+            20.0,
+            100.1,
+        )
+
+        with self.assertRaises(PointNotOnRoadError):
+            RoutingRepository._snap(
+                cursor,
+                Point(latitude=37.4427, longitude=138.7908),
+                "graph-v1",
+                100.0,
+            )
+
+    def test_cost_cache_sql_parameters_match_with_and_without_plow_preference(self):
+        for prefer in ([], ["recently_plowed"]):
+            payload = request_payload()
+            payload["options"]["prefer"] = prefer
+            cursor = PlaceholderCheckingCursor()
+
+            RoutingRepository._prepare_cost_edges(
+                cursor,
+                RouteRequest.parse(payload),
+                "graph-v1",
+                "score-v1",
+                "2026-01-23T12:00:00+09:00",
+            )
+
+            cost_sql = next(sql for sql, _ in cursor.executed if "latest_scores" in sql)
+            self.assertIn("LEFT JOIN latest_scores", cost_sql)
+            if prefer:
+                self.assertIn("FROM snowplow_segment_passages", cost_sql)
+            else:
+                self.assertNotIn("FROM snowplow_segment_passages", cost_sql)
+
+    def test_path_sql_projects_cached_costs_for_static_pgrouting_query(self):
+        cursor = PlaceholderCheckingCursor()
+
+        RoutingRepository._path_rows(
+            cursor,
+            1,
+            2,
+            RouteRequest.parse(request_payload()),
+            "score-v1",
+            "route-cost-key",
+            "graph-v1",
+        )
+
+        projection_sql, projection_parameters = cursor.executed[1]
+        path_sql, path_parameters = cursor.executed[2]
+        self.assertIn("CREATE TEMP TABLE route_cost_edges", projection_sql)
+        self.assertEqual("route-cost-key", projection_parameters[0])
+        self.assertEqual("graph-v1", projection_parameters[1])
+        self.assertIn("ST_MakeEnvelope", projection_sql)
+        self.assertIn("FROM route_cost_edges", path_sql)
+        self.assertNotIn("format(", path_sql)
+        self.assertEqual(3, path_parameters[2])
+        self.assertEqual(
+            2,
+            sum("CREATE TEMP TABLE route_cost_edges" in sql for sql, _ in cursor.executed),
+        )
 
     def test_returns_three_distinct_routes_when_ksp_paths_differ_locally(self):
         result = RoutePlanningService(SimilarRoutesRepository()).plan(request_payload())

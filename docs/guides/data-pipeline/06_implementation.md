@@ -26,7 +26,7 @@ AWSリソースは次のとおり。
 - 非公開・暗号化・バージョニング済みS3バケット1個
 - VPC外の収集Lambda 1個
 - private subnet内の処理・DBロードLambda 1個
-- 非公開・暗号化・Single-AZのRDS PostgreSQL 16（`db.t4g.micro`）
+- 非公開・暗号化・Single-AZのRDS PostgreSQL 16（Free Plan対象の`db.t4g.micro`）
 - Session Manager接続・DB確認用EC2踏み台（Free Tier対象の`t4g.micro`、受信ルールなし、必要時だけ起動）
 - S3 Gateway Endpoint、1 AZのSecrets Manager Interface Endpoint
 - Secrets Manager自動生成DB認証情報

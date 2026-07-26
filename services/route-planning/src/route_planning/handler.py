@@ -44,10 +44,17 @@ def handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         )
         return response(200, result)
     except (json.JSONDecodeError, RequestValidationError, PointNotOnRoadError) as error:
+        LOGGER.warning(
+            "route request rejected error_type=%s message=%s",
+            type(error).__name__,
+            str(error),
+        )
         return response(400, {"error": "invalid_request", "message": str(error)})
     except RouteNotFoundError as error:
+        LOGGER.warning("route not found message=%s", str(error))
         return response(404, {"error": "route_not_found", "message": str(error)})
     except GraphUnavailableError as error:
+        LOGGER.warning("route data unavailable message=%s", str(error))
         return response(409, {"error": "route_data_unavailable", "message": str(error)})
     except Exception:
         LOGGER.exception("route planning failed")
