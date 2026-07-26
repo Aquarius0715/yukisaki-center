@@ -92,9 +92,21 @@ export class HttpYukisakiApi implements YukisakiApi {
     return this.latestSnapshot
   }
 
-  async getMapRoadPage(bounds?: MapBounds, cursor?: string, signal?: AbortSignal, limit?: number) {
+  async getMapRoadPage(
+    bounds?: MapBounds,
+    cursor?: string,
+    signal?: AbortSignal,
+    limit?: number,
+    minRoadRank?: number,
+  ) {
     const value = await requestJson<unknown>(
-      this.url('/v1/road-segments', { bbox: bbox(bounds), limit: limit ? String(limit) : pageLimit(bounds), cursor, view: 'map' }),
+      this.url('/v1/road-segments', {
+        bbox: bbox(bounds),
+        limit: limit ? String(limit) : pageLimit(bounds),
+        cursor,
+        view: 'map',
+        min_road_rank: minRoadRank ? String(minRoadRank) : undefined,
+      }),
       { signal },
       MAP_PAGE_TIMEOUT_MS,
     )

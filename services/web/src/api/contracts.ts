@@ -299,7 +299,7 @@ export type ApiMapSnapshot = {
 export interface YukisakiApi {
   getHealth(signal?: AbortSignal): Promise<ApiHealth>
   getMapSnapshot(bounds?: MapBounds, signal?: AbortSignal): Promise<MapSnapshot>
-  getMapRoadPage(bounds?: MapBounds, cursor?: string, signal?: AbortSignal, limit?: number): Promise<MapRoadPage>
+  getMapRoadPage(bounds?: MapBounds, cursor?: string, signal?: AbortSignal, limit?: number, minRoadRank?: number): Promise<MapRoadPage>
   getRoadSegments(bounds?: MapBounds, signal?: AbortSignal): Promise<RoadSegmentFeatureCollection>
   getRoadSegment(segmentId: string, signal?: AbortSignal): Promise<{ road: RoadSegmentFeature; condition: RoadCondition }>
   getRoadConditions(segmentIds?: string[]): Promise<RoadCondition[]>

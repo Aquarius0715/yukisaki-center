@@ -17,8 +17,9 @@ class FallbackApi implements YukisakiApi {
     cursor?: Parameters<YukisakiApi['getMapRoadPage']>[1],
     signal?: Parameters<YukisakiApi['getMapRoadPage']>[2],
     limit?: Parameters<YukisakiApi['getMapRoadPage']>[3],
+    minRoadRank?: Parameters<YukisakiApi['getMapRoadPage']>[4],
   ) {
-    return this.primary.getMapRoadPage(bounds, cursor, signal, limit)
+    return this.primary.getMapRoadPage(bounds, cursor, signal, limit, minRoadRank)
   }
   getRoadSegments(bounds?: Parameters<YukisakiApi['getRoadSegments']>[0], signal?: AbortSignal) { return this.primary.getRoadSegments(bounds, signal) }
   getRoadSegment(segmentId: string, signal?: AbortSignal) { return this.primary.getRoadSegment(segmentId, signal) }

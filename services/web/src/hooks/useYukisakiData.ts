@@ -170,8 +170,8 @@ function fixedTiles(bounds: MapBounds, keyPrefix = '', maximumVisibleTiles = OVE
   return tiles
 }
 
-function overviewTiles(bounds: MapBounds): RoadTile[] {
-  return fixedTiles(bounds)
+function overviewTiles(bounds: MapBounds, minRoadRank: number): RoadTile[] {
+  return fixedTiles(bounds, `rank:${minRoadRank}:`)
 }
 
 function detailTiles(bounds: MapBounds): RoadTile[] {
@@ -251,10 +251,10 @@ function roadRank(roadType: string | null): number {
 
 function minimumRoadRank(span: number): number {
   if (span <= 0.04) return 0
-  if (span <= 0.09) return 1
-  if (span <= 0.18) return 2
-  if (span <= 0.36) return 3
-  return 4
+  if (span <= 0.09) return 2
+  if (span <= 0.18) return 4
+  if (span <= 0.36) return 5
+  return 6
 }
 
 function filterRoadPage(page: MapRoadPage, span: number): MapRoadPage {
@@ -271,6 +271,7 @@ function filterRoadPage(page: MapRoadPage, span: number): MapRoadPage {
 
 function overviewScanPages(span: number): number {
   if (span <= 0.09) return 3
+  if (span <= 0.36) return 5
   return 2
 }
 
@@ -279,6 +280,7 @@ async function fetchRoadPages(
   signal: AbortSignal,
   maxFeatures: number,
   pageLimit: number,
+  minRoadRank: number,
   onProgress?: (page: MapRoadPage) => void,
   refinementDelayMs = 0,
 ): Promise<MapRoadPage> {
@@ -294,6 +296,7 @@ async function fetchRoadPages(
       cursor,
       signal,
       Math.min(pageLimit, remaining),
+      minRoadRank,
     )
     pages.push(page)
     featureCount += page.roads.features.length
@@ -413,6 +416,7 @@ export function useYukisakiData() {
             controller.signal,
             Math.floor(DETAIL_MAX_FEATURES / tiles.length),
             DETAIL_PAGE_LIMIT,
+            0,
             (progress) => {
               if (requestId !== viewportRequestId.current) return
               partialPages.set(tile.key, progress)
@@ -458,7 +462,9 @@ export function useYukisakiData() {
   ) => {
     const now = Date.now()
     pruneOverviewCache(now)
-    const tiles = overviewTiles(bounds)
+    const span = boundsSpan(bounds)
+    const minRoadRank = minimumRoadRank(span)
+    const tiles = overviewTiles(bounds, minRoadRank)
     const cachedEntries = tiles
       .map((tile) => overviewTileCache.get(tile.key))
       .filter((entry): entry is CachedRoadPage => Boolean(entry))
@@ -489,7 +495,6 @@ export function useYukisakiData() {
         Math.floor(OVERVIEW_TOTAL_PAGE_LIMIT / tiles.length),
       ),
     )
-    const span = boundsSpan(bounds)
     const scanPages = overviewScanPages(span)
     try {
       const results: Array<PromiseSettledResult<{ tile: RoadTile; page: MapRoadPage }>> = []
@@ -501,6 +506,7 @@ export function useYukisakiData() {
             controller.signal,
             tileLimit * scanPages,
             tileLimit,
+            minRoadRank,
             (progress) => {
               if (requestId !== viewportRequestId.current) return
               const filtered = filterRoadPage(progress, span)

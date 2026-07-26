@@ -82,10 +82,10 @@ function roadRank(feature: RoadSegmentFeature): number {
 
 function roadDisplayForSpan(span: number): RoadDisplay {
   if (span <= 0.04) return { key: 'all', minimumRank: 0, lineWidth: 5, bridgeMetres: 10, continuityBridgeMetres: 10 }
-  if (span <= 0.09) return { key: 'local', minimumRank: 1, lineWidth: 4.5, bridgeMetres: 35, continuityBridgeMetres: 90, label: '広域表示・生活道路以上' }
-  if (span <= 0.18) return { key: 'arterial', minimumRank: 2, lineWidth: 4, bridgeMetres: 55, continuityBridgeMetres: 150, label: '広域表示・幹線道路中心' }
-  if (span <= 0.36) return { key: 'primary', minimumRank: 3, lineWidth: 3.5, bridgeMetres: 80, continuityBridgeMetres: 240, label: '広域表示・主要道路のみ' }
-  return { key: 'trunk', minimumRank: 4, lineWidth: 3, bridgeMetres: 110, continuityBridgeMetres: 360, label: '広域表示・主要幹線のみ' }
+  if (span <= 0.09) return { key: 'arterial', minimumRank: 2, lineWidth: 4.5, bridgeMetres: 35, continuityBridgeMetres: 90, label: '広域表示・幹線道路中心' }
+  if (span <= 0.18) return { key: 'primary', minimumRank: 4, lineWidth: 4, bridgeMetres: 55, continuityBridgeMetres: 150, label: '広域表示・主要道路のみ' }
+  if (span <= 0.36) return { key: 'trunk', minimumRank: 5, lineWidth: 3.5, bridgeMetres: 80, continuityBridgeMetres: 240, label: '広域表示・主要幹線のみ' }
+  return { key: 'trunk', minimumRank: 6, lineWidth: 3, bridgeMetres: 110, continuityBridgeMetres: 360, label: '広域表示・高速道路中心' }
 }
 
 function linesOf(feature: RoadSegmentFeature): number[][][] {
