@@ -92,7 +92,7 @@ class AssistantService:
                 and _is_string_list(item.get("advantages"))
                 and _is_string_list(item.get("cautions"))
                 for item in output_routes
-            )
+            ) and _route_explanation_is_grounded(result, payload)
 
         result, fallback_used = self._generate_or_fallback(
             schema_name="route_explanations",
@@ -222,6 +222,50 @@ def _validate_conditions(result: dict[str, Any]) -> bool:
     return isinstance(result.get("needs_confirmation"), bool)
 
 
+def _route_explanation_is_grounded(
+    result: dict[str, Any],
+    payload: dict[str, Any],
+) -> bool:
+    text = json.dumps(result, ensure_ascii=False)
+    unsupported_claims = (
+        "渋滞",
+        "事故",
+        "規制",
+        "通行止め",
+        "横風",
+        "積雪",
+        "路面",
+        "除雪実施率",
+        "融雪設備",
+        "走行環境の質",
+        "安定した走行環境",
+        "安全な経路",
+        "安全性",
+        "安心",
+        "残る可能性",
+        "管理が充実",
+        "課題",
+    )
+    if any(claim in text for claim in unsupported_claims):
+        return False
+
+    factors = {
+        factor
+        for route in payload["routes"]
+        for factor in route.get("hazard_factors", [])
+    }
+    if "凍結" in text and not factors & {"freezing_wet_condition", "ice_risk"}:
+        return False
+    if "降雪" in text and not factors & {
+        "heavy_hourly_snowfall",
+        "moderate_hourly_snowfall",
+        "light_hourly_snowfall",
+        "freezing_wet_condition",
+    }:
+        return False
+    return True
+
+
 def _fallback_conditions(text: str) -> dict[str, Any]:
     safety_words = ("安全", "雪道", "危険", "凍結")
     return {
@@ -238,26 +282,247 @@ def _fallback_conditions(text: str) -> dict[str, Any]:
 
 
 def _fallback_route_explanation(payload: dict[str, Any]) -> dict[str, Any]:
-    simulated_prefix = "仮データでは、" if payload["is_simulated"] else ""
-    explanations = []
-    for route in payload["routes"]:
-        route_id = route["route_id"]
-        minimum_score = route.get("minimum_score")
-        hazard_count = route.get("hazard_count")
-        facts = []
-        if minimum_score is not None:
-            facts.append(f"最低走りやすさ指数は{minimum_score}")
-        if hazard_count is not None:
-            facts.append(f"注意区間は{hazard_count}件")
-        summary = simulated_prefix + ("、".join(facts) + "です。" if facts else "入力済みの候補経路です。")
-        explanations.append(
-            {"route_id": route_id, "summary": summary, "advantages": [], "cautions": []}
-        )
+    routes = payload["routes"]
+    recommended = next(
+        route
+        for route in routes
+        if route["route_id"] == payload["recommended_route_id"]
+    )
+    explanations = [
+        {
+            "route_id": route["route_id"],
+            "summary": _route_summary(route),
+            "advantages": _route_advantages(route, routes),
+            "cautions": _route_cautions(route),
+        }
+        for route in routes
+    ]
     return {
         "recommended_route_id": payload["recommended_route_id"],
-        "recommendation_reason": simulated_prefix + "経路探索サービスが確定した順位に基づく推奨です。",
+        "recommendation_reason": _recommendation_reason(recommended, routes),
         "routes": explanations,
     }
+
+
+def _route_summary(route: dict[str, Any]) -> str:
+    label = {
+        "fastest": "所要時間を重視した",
+        "balanced": "所要時間と走りやすさのバランスを重視した",
+        "most_drivable": "走りやすさを重視した",
+        "alternative": "比較用の",
+    }.get(route.get("label"), "比較用の")
+    facts = []
+    if route.get("distance_m") is not None:
+        facts.append(f"距離は{_format_distance(route['distance_m'])}")
+    if route.get("duration_s") is not None:
+        facts.append(f"所要時間は{_format_duration(route['duration_s'])}")
+    score_facts = []
+    if route.get("average_score") is not None:
+        score_facts.append(f"平均走りやすさ指数は{_format_number(route['average_score'])}")
+    if route.get("minimum_score") is not None:
+        score_facts.append(f"最低走りやすさ指数は{_format_number(route['minimum_score'])}")
+    hazard_count = route.get("hazard_count")
+    hazard_text = (
+        f"ルールで集約された注意区間は{hazard_count}件です。"
+        if hazard_count is not None
+        else "注意区間数の情報はありません。"
+    )
+    first = f"第{route['rank']}候補で、{label}経路です。"
+    second = "、".join(facts) + "です。" if facts else "距離と所要時間の情報はありません。"
+    third = "、".join(score_facts) + f"で、{hazard_text}" if score_facts else hazard_text
+    return first + second + third
+
+
+def _route_advantages(
+    route: dict[str, Any],
+    routes: list[dict[str, Any]],
+) -> list[str]:
+    advantages = []
+    durations = [item["duration_s"] for item in routes if item.get("duration_s") is not None]
+    minimum_scores = [
+        item["minimum_score"] for item in routes if item.get("minimum_score") is not None
+    ]
+    average_scores = [
+        item["average_score"] for item in routes if item.get("average_score") is not None
+    ]
+    if route.get("duration_s") is not None and route["duration_s"] == min(durations):
+        advantages.append(
+            f"候補の中で所要時間が最短の{_format_duration(route['duration_s'])}です。"
+        )
+    if (
+        route.get("minimum_score") is not None
+        and route["minimum_score"] == max(minimum_scores)
+    ):
+        advantages.append(
+            f"候補の中で最低走りやすさ指数が最も高い{_format_number(route['minimum_score'])}です。"
+        )
+    if (
+        route.get("average_score") is not None
+        and route["average_score"] == max(average_scores)
+    ):
+        advantages.append(
+            f"候補の中で平均走りやすさ指数が最も高い{_format_number(route['average_score'])}です。"
+        )
+    if route.get("score_coverage") == 1:
+        advantages.append("走りやすさ指数は経路全体をカバーしています。")
+    if route.get("plowed_ratio") is not None and route["plowed_ratio"] > 0:
+        advantages.append(
+            "基準時刻前60分以内の除雪履歴を確認できる区間は"
+            f"{_format_percent(route['plowed_ratio'])}です。"
+        )
+    if route.get("snow_pipe_ratio") is not None and route["snow_pipe_ratio"] > 0:
+        advantages.append(
+            f"稼働中の消雪パイプがある区間は{_format_percent(route['snow_pipe_ratio'])}です。"
+        )
+    if not advantages:
+        advantages.append("入力された条件と走りやすさコストに基づいて順位付けされた候補です。")
+    return advantages[:4]
+
+
+def _route_cautions(route: dict[str, Any]) -> list[str]:
+    cautions = []
+    hazard_count = route.get("hazard_count")
+    factors = route.get("hazard_factors", [])
+    if hazard_count:
+        factor_text = "、".join(_factor_label(factor) for factor in factors)
+        suffix = f"主な要因は{factor_text}です。" if factor_text else "要因の詳細を確認してください。"
+        cautions.append(f"注意区間が{hazard_count}件あります。{suffix}")
+    elif hazard_count == 0:
+        cautions.append("ルールで集約された注意区間はありません。")
+    coverage = route.get("score_coverage")
+    if coverage is not None and coverage < 1:
+        cautions.append(
+            "走りやすさ指数のカバレッジは"
+            f"{_format_percent(coverage)}で、未算出区間を含みます。"
+        )
+    confidence = route.get("minimum_confidence")
+    if confidence is not None and confidence < 1:
+        cautions.append(
+            f"区間ごとの指数の最低信頼度は{_format_number(confidence)}です。"
+        )
+    plowed_ratio = route.get("plowed_ratio")
+    if plowed_ratio is not None and plowed_ratio < 1:
+        cautions.append(
+            "基準時刻前60分以内の除雪履歴を確認できる区間は"
+            f"{_format_percent(plowed_ratio)}です。"
+        )
+    snow_pipe_ratio = route.get("snow_pipe_ratio")
+    if snow_pipe_ratio is not None and snow_pipe_ratio < 1:
+        cautions.append(
+            f"稼働中の消雪パイプがある区間は{_format_percent(snow_pipe_ratio)}です。"
+        )
+    return cautions[:4]
+
+
+def _recommendation_reason(
+    recommended: dict[str, Any],
+    routes: list[dict[str, Any]],
+) -> str:
+    reason = (
+        f"経路探索で第{recommended['rank']}候補として確定しているため、"
+        "この経路を推奨します。"
+    )
+    facts = []
+    if recommended.get("duration_s") is not None:
+        facts.append(f"所要時間は{_format_duration(recommended['duration_s'])}")
+    if recommended.get("minimum_score") is not None:
+        facts.append(
+            f"最低走りやすさ指数は{_format_number(recommended['minimum_score'])}"
+        )
+    if recommended.get("hazard_count") is not None:
+        facts.append(f"注意区間は{recommended['hazard_count']}件")
+    if facts:
+        reason += "この経路の" + "、".join(facts) + "です。"
+
+    alternative = next(
+        (route for route in routes if route["route_id"] != recommended["route_id"]),
+        None,
+    )
+    if alternative is not None:
+        differences = _route_differences(recommended, alternative)
+        if differences:
+            reason += f"第{alternative['rank']}候補と比べると、" + "、".join(differences) + "。"
+    return reason
+
+
+def _route_differences(
+    first: dict[str, Any],
+    second: dict[str, Any],
+) -> list[str]:
+    differences = []
+    if first.get("duration_s") is not None and second.get("duration_s") is not None:
+        delta = first["duration_s"] - second["duration_s"]
+        if delta:
+            differences.append(
+                f"所要時間が{_format_duration(abs(delta))}{'長い' if delta > 0 else '短い'}"
+            )
+    if first.get("minimum_score") is not None and second.get("minimum_score") is not None:
+        delta = first["minimum_score"] - second["minimum_score"]
+        if delta:
+            differences.append(
+                "最低走りやすさ指数が"
+                f"{_format_number(abs(delta))}{'高い' if delta > 0 else '低い'}"
+            )
+    if first.get("hazard_count") is not None and second.get("hazard_count") is not None:
+        delta = first["hazard_count"] - second["hazard_count"]
+        if delta:
+            differences.append(f"注意区間が{abs(delta)}件{'多い' if delta > 0 else '少ない'}")
+    return differences
+
+
+def _format_number(value: int | float) -> str:
+    return str(int(value)) if float(value).is_integer() else f"{value:.1f}"
+
+
+def _format_distance(value: int | float) -> str:
+    if value >= 1_000:
+        return f"{value / 1_000:.1f}km"
+    return f"{_format_number(value)}m"
+
+
+def _format_duration(value: int | float) -> str:
+    seconds = round(value)
+    minutes, remaining = divmod(seconds, 60)
+    if minutes and remaining:
+        return f"{minutes}分{remaining}秒"
+    if minutes:
+        return f"{minutes}分"
+    return f"{remaining}秒"
+
+
+def _format_percent(value: int | float) -> str:
+    return f"{round(value * 100)}%"
+
+
+FACTOR_LABELS = {
+    "heavy_hourly_snowfall": "1時間降雪量が多いこと",
+    "moderate_hourly_snowfall": "1時間降雪量がやや多いこと",
+    "light_hourly_snowfall": "降雪があること",
+    "steep_slope": "急勾配",
+    "moderate_slope": "勾配",
+    "plowed_within_60_minutes": "直近60分以内の除雪履歴",
+    "plowed_60_to_180_minutes_ago": "最終除雪から60〜180分経過していること",
+    "plowed_over_180_minutes_ago": "最終除雪から180分以上経過していること",
+    "no_plow_history": "除雪履歴がないこと",
+    "active_snow_pipe": "稼働中の消雪パイプ",
+    "freezing_wet_condition": "氷点付近の降雪条件",
+    "bridge": "橋梁区間",
+    "ice_risk": "凍結に関する判定要因",
+}
+
+EVIDENCE_FORMATTERS = {
+    "temperature_c": lambda value: f"気温は{value}℃",
+    "snowfall_1h_cm": lambda value: f"1時間降雪量は{value}cm",
+    "snow_depth_m": lambda value: f"積雪深は{value}m",
+    "max_slope_percent": lambda value: f"最大勾配は{value}%",
+    "last_plowed_at": lambda value: f"最終除雪時刻は{value}",
+    "score": lambda value: f"走りやすさ指数は{value}",
+    "confidence": lambda value: f"信頼度は{value}",
+}
+
+
+def _factor_label(factor: str) -> str:
+    return FACTOR_LABELS.get(factor, f"判定要因「{factor}」")
 
 
 def _normalize_route_result(payload: dict[str, Any]) -> dict[str, Any]:
@@ -371,17 +636,78 @@ def _number(value: Any) -> int | float | None:
 
 
 def _fallback_danger_explanation(payload: dict[str, Any]) -> dict[str, Any]:
-    prefix = "仮データ上の注意箇所です。" if payload["is_simulated"] else "登録済みの注意箇所です。"
     return {
         "hazards": [
             {
                 "hazard_id": hazard["hazard_id"],
-                "explanation": prefix,
-                "cautions": [str(rule) for rule in hazard.get("rules", [])],
+                "explanation": _danger_summary(hazard),
+                "cautions": _danger_cautions(hazard),
             }
             for hazard in payload["hazards"]
         ]
     }
+
+
+def _danger_summary(hazard: dict[str, Any]) -> str:
+    rules = [
+        _factor_label(str(rule))
+        for rule in hazard.get("rules", [])
+        if isinstance(rule, str)
+    ]
+    if rules:
+        explanation = "この注意箇所では、" + "、".join(rules) + "が判定根拠です。"
+    else:
+        explanation = "この注意箇所には、入力済みの判定根拠があります。"
+    evidence = hazard.get("evidence")
+    if isinstance(evidence, dict):
+        details = [
+            _evidence_text(key, value)
+            for key, value in evidence.items()
+            if isinstance(key, str)
+            and isinstance(value, (str, int, float))
+            and not isinstance(value, bool)
+        ][:4]
+        if details:
+            explanation += "確認された値は、" + "、".join(details) + "です。"
+    explanation += "経路通過時は、この根拠に対応した運転上の注意が必要です。"
+    return explanation
+
+
+def _evidence_text(key: str, value: str | int | float) -> str:
+    formatter = EVIDENCE_FORMATTERS.get(key)
+    if formatter is not None:
+        return formatter(value)
+    return f"根拠項目「{key}」は{value}"
+
+
+def _danger_cautions(hazard: dict[str, Any]) -> list[str]:
+    rules = {
+        str(rule)
+        for rule in hazard.get("rules", [])
+        if isinstance(rule, str)
+    }
+    cautions = []
+    if rules & {"steep_slope", "moderate_slope"}:
+        cautions.append("勾配区間では速度を抑え、急な加減速や急ハンドルを避けてください。")
+    if "bridge" in rules:
+        cautions.append("橋梁区間では路面状況の変化を見込み、手前から速度を落としてください。")
+    if rules & {
+        "heavy_hourly_snowfall",
+        "moderate_hourly_snowfall",
+        "light_hourly_snowfall",
+        "freezing_wet_condition",
+        "ice_risk",
+    }:
+        cautions.append("十分な車間距離を取り、急ブレーキを避けて走行してください。")
+    if rules & {
+        "plowed_60_to_180_minutes_ago",
+        "plowed_over_180_minutes_ago",
+        "no_plow_history",
+    }:
+        cautions.append("除雪履歴の状況を踏まえ、路面の変化に対応できる速度で走行してください。")
+    if not cautions:
+        cautions.append("入力された注意情報を確認し、速度を抑えて慎重に走行してください。")
+    return cautions[:3]
 
 
 def _required_string(value: Any, key: str) -> str:

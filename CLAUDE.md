@@ -26,8 +26,8 @@
 - REST APIはAPI Gateway HTTP APIとDockerイメージLambdaで実装し、共通RDSの道路・指数・消雪パイプ・最新除雪車位置をGeoJSONで返す。道路Geometryの外接矩形をRDSへ保持し、DB側の`bbox`条件とSQL件数上限で絞る。GPSは別エンドポイントから更新できる
 - 地点名称検索はApple Maps Server API専用のVPC外Docker Lambdaへ分離し、長岡市内の検索・入力補完だけを公開する。`server_api`秘密鍵はSecrets Managerへ置き、ブラウザ用MapKit JSトークンと分離する。Webへの接続は未実施
 - 2026-07-24にApple Maps地点名称検索をAWSへデプロイ済み。署名JWTをToken APIでaccess tokenへ交換し、`GET /v1/places/search`と`GET /v1/places/autocomplete`で長岡市内の実検索結果を確認済み
-- 経路探索は道路収集時のOSMノード・分割ノード・方向・速度・accessをS3 curatedからPostGIS/pgRoutingへ投影し、地点スナップ、動的な指数コスト、K最短候補、危険区間集計を行うDocker Lambdaと`POST /v1/routes`をAWSへデプロイ済み。ルーティング属性を含む道路の再収集・再ロードは未完了で、現在のAPIはグラフ未ロードにより利用不可
-- AIサービスはAmazon BedrockのStructured Outputsを使うDocker Lambdaとして実装し、自然言語の条件抽出、確定済み経路の比較説明、確定済み危険要因の説明を別APIで提供する。`POST /v1/ai/explain-routes`は従来の経路APIレスポンスを直接受け取り、Geometry等を除いた根拠だけをLLMへ渡すローカル改修済み・AWS未デプロイ。識別子変更やBedrock失敗時は定型文へフォールバックし、指数・順位・通行可否は決定しない
+- 経路探索は道路収集時のOSMノード・分割ノード・方向・速度・accessをS3 curatedからPostGIS/pgRoutingへ投影し、地点スナップ、動的な指数コスト、K最短候補、危険区間集計を行うDocker Lambdaと`POST /v1/routes`をAWSへデプロイ済み。道路グラフもロード済みで、公開APIから最大3候補を利用できる
+- AIサービスはAmazon BedrockのStructured Outputsを使うDocker Lambdaとして実装し、自然言語の条件抽出、確定済み経路の比較説明、確定済み危険要因の説明を別APIで提供する。`POST /v1/ai/explain-routes`は従来の経路APIレスポンスを直接受け取り、Geometry等を除いた根拠だけをLLMへ渡す。詳細な自然文説明とフォールバック改善をAWSへデプロイ済み。識別子変更、根拠外推測、Bedrock失敗時は定型文へフォールバックし、指数・順位・通行可否は決定しない
 - WebはReactとApple MapKit JSで実装し、非公開S3とCloudFront OACで配信するCDKスタックを持つ。CloudFrontからAPI Gatewayへ`/v1/*`を同一オリジン転送し、デプロイ直後は無効とする
 - MapKit JSトークンはGit管理外の`services/web/env.local`からSecrets Managerへ同期し、CDKデプロイ時だけ取得する。トークンはCloudFrontドメインへ制限し、ログやCloudFormationへ直接出力しない
 - AWS CDKでは気象データパイプライン、道路収集、消雪パイプ処理、GPS・指数処理、経路探索、公開API、AIアシスタント、Web配信を別スタックとして管理。経路探索スタックと公開API経路はAWSへデプロイ済み
@@ -35,12 +35,13 @@
 - 全Collectorは共通メタデータ契約で`run_id`、取得日時、対象期間、出典URL、SHA-256をS3 metadata/manifestへ保持し、PostgreSQLへ直接書かない
 - `services/`直下の8サービスはすべてDockerfileを持ち、ローカルテストもDocker Composeから実行する
 - 2026-07-23に長岡市全域版をAWSへデプロイ・再収集済み。共通RDSで気象35地点245件、道路133,013件、道路名あり36,383件すべての消雪パイプ`active`、全道路133,013件の走りやすさ指数を確認した。S3 raw/normalized/curatedを正本として維持し、公開APIで消雪パイプ`active`と指数を確認済み
-- 2026-07-22にAIアシスタントスタックと3つのPOST APIをAWSへデプロイ済み。API Gateway、Docker Lambda、安全な定型文フォールバックを実環境で確認し、Lambdaは予約同時実行数`0`へ戻した。Claude実推論はAnthropic use case details formの提出待ちである
+- 2026-07-26にAnthropic use case details formの提出とAWS Marketplace初回購読を完了し、Claude Sonnet 4.5の直接呼び出しと`POST /v1/ai/parse-route-request`で`fallback_used: false`の実推論を確認済み
+- 2026-07-26に経路候補の選抜改善とAI詳細説明をAWSへデプロイし、公開`POST /v1/routes`の3候補、`POST /v1/ai/explain-routes`のClaude実推論、仮データ文言と根拠外推測を説明本文へ含めない安全境界を確認済み
 - 旧JMA Atom Collector、旧Normalizer、固定fixture Lambda、旧気象用EventBridge SchedulerはAWSから削除済み
 - AWS実行系は開発・デモ時だけ起動し、`npm run env:start|stop|status`で管理する。S3等の正本は停止対象にしない
 - RDSの直接確認は`db:start|stop`でRDSとSSM踏み台をまとめて起動・停止し、Session Managerで入って踏み台内の`yukisaki-psql`から行う。RDSは非公開とし、踏み台には受信ルールを設けない
 
-標高・勾配は未実装または骨組みのみである。経路探索のLambdaとAPI経路はAWSへデプロイ済みだが、既存AWS道路は新しいグラフ契約で未ロードのため経路探索はまだ利用できない。Web画面とAWS配信基盤は実装・デプロイ済みである。AIサービスはAWSデプロイ済みだが、Claude実推論はAnthropic用途申請が完了するまで利用できない。除雪車GPS、消雪パイプ、走りやすさ指数はデモ用の仮データ・ルールベース処理であり、実設備データではない。未実装・利用条件未完了の機能を、すでに動作しているかのように扱わない。
+標高・勾配は未実装または骨組みのみである。経路探索のLambda、道路グラフ、API経路はAWSへデプロイ・ロード済みで、最大3候補を利用できる。Web画面とAWS配信基盤は実装・デプロイ済みである。AIサービスはAWSデプロイ済みで、Claude実推論を利用できる。除雪車GPS、消雪パイプ、走りやすさ指数はデモ用の仮データ・ルールベース処理であり、実設備データではない。未実装・利用条件未完了の機能を、すでに動作しているかのように扱わない。
 
 ## デモ固定条件
 

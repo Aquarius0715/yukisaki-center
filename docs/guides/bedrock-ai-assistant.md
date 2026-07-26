@@ -2,15 +2,15 @@
 
 ## 現在の状態
 
-2026-07-22にサービス実装、DockerイメージLambda、APIルート、IAMをAWSへデプロイ済みである。API Gatewayと定型文フォールバックは実環境で動作確認済み、Lambdaは検証後に予約同時実行数`0`へ戻している。
+2026-07-22にサービス実装、DockerイメージLambda、APIルート、IAMをAWSへデプロイ済みである。API Gatewayと定型文フォールバックは実環境で動作確認済みである。
 
-Claudeの実推論は、AWSアカウントでAnthropic use case details formを提出するまで`ResourceNotFoundException`になる。申請前もAPIは停止せず、`fallback_used: true`の定型応答を返す。
+2026-07-26にAnthropic use case details formの提出とAWS Marketplace初回購読を完了した。Claude Sonnet 4.5の直接呼び出しと、公開`POST /v1/ai/parse-route-request`、`POST /v1/ai/explain-routes`で`fallback_used: false`の実推論を確認済みである。詳細な自然文説明もAWSへデプロイ済みで、入力にない道路状態や主観的な安全評価を含む出力は破棄して定型文へフォールバックする。Bedrockの一時障害や出力検証失敗時も、`fallback_used: true`の定型応答を返す。
 
 ## 事前確認
 
 1. AWS Consoleで東京リージョンを選ぶ。
 2. Amazon BedrockのModel accessで、設定したモデルを利用できることを確認する。
-3. Claudeを使う場合はAnthropic use case details formを実際の組織・用途情報で提出し、反映まで最大15分程度待つ。
+3. 別のAWSアカウントでClaudeを初めて使う場合は、Anthropic use case details formを実際の組織・用途情報で提出し、Marketplace初回購読を完了する。
 4. 必要ならCDKコンテキスト`bedrockModelId`をStructured Outputs対応モデルへ変更する。
 5. Guardrailを利用する場合だけ`bedrockGuardrailIdentifier`と`bedrockGuardrailVersion`を同時に指定する。
 

@@ -49,6 +49,38 @@ class FakeRepository:
         }
 
 
+class SimilarRoutesRepository:
+    def plan(self, request, max_snap_distance_m):
+        rows = []
+        for path_id, final_segment, cost in (
+            (1, "finish-a", 20),
+            (2, "finish-b", 21),
+            (3, "finish-c", 22),
+        ):
+            segment_ids = [f"shared-{index}" for index in range(9)] + [final_segment]
+            for path_seq, segment_id in enumerate(segment_ids):
+                rows.append(
+                    edge(
+                        path_id,
+                        path_seq,
+                        segment_id,
+                        path_seq + 1,
+                        path_seq + 2,
+                        path_seq + 1,
+                        [[138.79 + path_seq / 1000, 37.44], [138.791 + path_seq / 1000, 37.44]],
+                        cost=cost,
+                    )
+                )
+        return {
+            "graph_version": "graph-v1",
+            "score_rule_version": "score-v1",
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "origin": {"node_id": 1, "distance_m": 5},
+            "destination": {"node_id": 11, "distance_m": 7},
+            "rows": rows,
+        }
+
+
 class RouteServiceTest(unittest.TestCase):
     def test_validates_public_request_allow_lists(self):
         parsed = RouteRequest.parse(request_payload())
@@ -70,6 +102,16 @@ class RouteServiceTest(unittest.TestCase):
         self.assertEqual(1, first["routes"][0]["hazard_group_count"])
         self.assertEqual(1.0, first["routes"][0]["score_coverage"])
         self.assertTrue(first["is_simulated"])
+
+    def test_returns_three_distinct_routes_when_ksp_paths_differ_locally(self):
+        result = RoutePlanningService(SimilarRoutesRepository()).plan(request_payload())
+
+        self.assertEqual(3, len(result["routes"]))
+        self.assertEqual([1, 2, 3], [route["rank"] for route in result["routes"]])
+        self.assertEqual(
+            {"finish-a", "finish-b", "finish-c"},
+            {route["segment_ids"][-1] for route in result["routes"]},
+        )
 
     def test_handler_returns_http_response(self):
         planned = RoutePlanningService(FakeRepository()).plan(request_payload())

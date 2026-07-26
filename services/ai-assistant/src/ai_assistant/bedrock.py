@@ -45,7 +45,7 @@ class BedrockStructuredGenerator:
                     ],
                 }
             ],
-            "inferenceConfig": {"maxTokens": 1200, "temperature": 0},
+            "inferenceConfig": {"maxTokens": 2400, "temperature": 0},
             "outputConfig": {
                 "textFormat": {
                     "type": "json_schema",

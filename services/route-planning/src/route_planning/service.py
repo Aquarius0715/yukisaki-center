@@ -132,6 +132,39 @@ def _overlap(first: dict[str, Any], second: dict[str, Any]) -> float:
     return len(left & right) / max(1, min(len(left), len(right)))
 
 
+def _select_candidates(
+    candidates: list[dict[str, Any]],
+    max_detour_minutes: int,
+) -> list[dict[str, Any]]:
+    """Prefer diverse routes, then fill remaining slots with distinct KSP paths."""
+    fastest_duration = min(route["duration_s"] for route in candidates)
+    eligible = [
+        route
+        for route in candidates
+        if route["duration_s"] <= fastest_duration + max_detour_minutes * 60
+    ]
+    selected: list[dict[str, Any]] = []
+    for route in eligible:
+        if any(_overlap(route, current) >= SIMILARITY_THRESHOLD for current in selected):
+            continue
+        selected.append(route)
+        if len(selected) == MAX_CANDIDATES:
+            return selected
+
+    # A K-shortest candidate can be useful even when it differs only around
+    # one junction. Backfill up to three without duplicating an identical path.
+    selected_paths = {tuple(route["segment_ids"]) for route in selected}
+    for route in eligible:
+        path = tuple(route["segment_ids"])
+        if path in selected_paths:
+            continue
+        selected.append(route)
+        selected_paths.add(path)
+        if len(selected) == MAX_CANDIDATES:
+            break
+    return selected
+
+
 def _labels(routes: list[dict[str, Any]], mode: str) -> None:
     if not routes:
         return
@@ -174,16 +207,7 @@ class RoutePlanningService:
             for path in _path_groups(result["rows"])
         ]
         candidates.sort(key=lambda route: (route["weighted_cost_s"], route["duration_s"], route["route_id"]))
-        diverse: list[dict[str, Any]] = []
-        fastest_duration = min(route["duration_s"] for route in candidates)
-        for route in candidates:
-            if route["duration_s"] > fastest_duration + request.options.max_detour_minutes * 60:
-                continue
-            if any(_overlap(route, selected) >= SIMILARITY_THRESHOLD for selected in diverse):
-                continue
-            diverse.append(route)
-            if len(diverse) == MAX_CANDIDATES:
-                break
+        diverse = _select_candidates(candidates, request.options.max_detour_minutes)
         if not diverse:
             diverse = [candidates[0]]
         _labels(diverse, request.mode)

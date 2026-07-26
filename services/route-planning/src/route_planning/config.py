@@ -8,7 +8,10 @@ NAGAOKA_BOUNDS = (138.643056, 37.176389, 139.124444, 37.710278)
 MAX_SNAP_DISTANCE_M = 100.0
 MAX_CANDIDATES = 3
 K_SHORTEST_PATHS = 10
-SIMILARITY_THRESHOLD = 0.80
+# KSP candidates commonly share most of a long route and differ only around
+# one junction. Treating 80% overlap as duplicate was too aggressive for the
+# Nagaoka graph, so require 95% overlap before the diversity pass rejects one.
+SIMILARITY_THRESHOLD = 0.95
 
 COST_PROFILES = {
     "time_priority": {"alpha": 0.2, "beta": 0.2},
@@ -22,4 +25,3 @@ STEEP_ROAD_PENALTY_S = 300.0
 BRIDGE_PENALTY_S = 300.0
 NON_MAIN_ROAD_PENALTY_S = 15.0
 STALE_PLOW_PENALTY_S = 20.0
-

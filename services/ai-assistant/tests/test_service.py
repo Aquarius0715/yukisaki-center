@@ -90,6 +90,97 @@ class AssistantTest(unittest.TestCase):
         self.assertIn("35", response["result"]["routes"][0]["summary"])
         self.assertTrue(response["metadata"]["fallback_used"])
 
+    def test_route_fallback_is_detailed_without_simulated_wording(self):
+        payload = {
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "is_simulated": True,
+            "routes": [
+                {
+                    "route_id": "route-a",
+                    "rank": 1,
+                    "label": "balanced",
+                    "distance_m": 2100,
+                    "duration_s": 420,
+                    "average_drivability_score": 76.5,
+                    "minimum_drivability_score": 42,
+                    "score_coverage": 1.0,
+                    "minimum_confidence": 0.9,
+                    "plowed_ratio": 0.6,
+                    "snow_pipe_ratio": 0.7,
+                    "hazard_group_count": 1,
+                    "hazard_groups": [{"factors": ["ice_risk"]}],
+                },
+                {
+                    "route_id": "route-b",
+                    "rank": 2,
+                    "label": "fastest",
+                    "distance_m": 1900,
+                    "duration_s": 360,
+                    "average_drivability_score": 70,
+                    "minimum_drivability_score": 35,
+                    "score_coverage": 0.9,
+                    "minimum_confidence": 0.8,
+                    "plowed_ratio": 0.4,
+                    "snow_pipe_ratio": 0.5,
+                    "hazard_group_count": 2,
+                    "hazard_groups": [{"factors": ["freezing_wet_condition"]}],
+                },
+            ],
+        }
+
+        response = AssistantService(
+            FakeGenerator(error=RuntimeError("unavailable"))
+        ).explain_routes(payload)
+
+        explanation = json.dumps(response["result"], ensure_ascii=False)
+        self.assertNotIn("仮データ", explanation)
+        self.assertIn("第2候補と比べると", response["result"]["recommendation_reason"])
+        self.assertIn("1分長い", response["result"]["recommendation_reason"])
+        self.assertIn("2.1km", response["result"]["routes"][0]["summary"])
+        self.assertGreaterEqual(len(response["result"]["routes"][0]["advantages"]), 2)
+        self.assertGreaterEqual(len(response["result"]["routes"][0]["cautions"]), 2)
+        self.assertTrue(response["metadata"]["is_simulated"])
+
+    def test_route_output_with_unsupported_inference_uses_fallback(self):
+        generator = FakeGenerator(
+            {
+                "recommended_route_id": "route-a",
+                "recommendation_reason": "橋梁区間では横風に注意が必要です。",
+                "routes": [
+                    {
+                        "route_id": "route-a",
+                        "summary": "除雪実施率が0%なので積雪が残る可能性があります。",
+                        "advantages": [],
+                        "cautions": ["路面凍結に注意してください。"],
+                    }
+                ],
+            }
+        )
+        payload = {
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "is_simulated": True,
+            "routes": [
+                {
+                    "route_id": "route-a",
+                    "rank": 1,
+                    "label": "balanced",
+                    "duration_s": 420,
+                    "minimum_drivability_score": 42,
+                    "plowed_ratio": 0,
+                    "hazard_group_count": 1,
+                    "hazard_groups": [{"factors": ["bridge"]}],
+                }
+            ],
+        }
+
+        response = AssistantService(generator).explain_routes(payload)
+
+        explanation = json.dumps(response["result"], ensure_ascii=False)
+        self.assertTrue(response["metadata"]["fallback_used"])
+        self.assertNotIn("積雪", explanation)
+        self.assertNotIn("凍結", explanation)
+        self.assertNotIn("横風", explanation)
+
     def test_accepts_route_api_result_and_removes_geometry_before_bedrock(self):
         output = {
             "recommended_route_id": "route-a",
@@ -169,6 +260,29 @@ class AssistantTest(unittest.TestCase):
         response = AssistantService(FakeGenerator(output)).explain_danger_points(payload)
         self.assertEqual(response["result"], output)
         self.assertFalse(response["metadata"]["fallback_used"])
+
+    def test_danger_fallback_explains_rules_without_simulated_wording(self):
+        payload = {
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "is_simulated": True,
+            "hazards": [
+                {
+                    "hazard_id": "h-1",
+                    "rules": ["steep_slope", "freezing_wet_condition"],
+                    "evidence": {"temperature_c": -1, "max_slope_percent": 9},
+                }
+            ],
+        }
+
+        response = AssistantService(
+            FakeGenerator(error=RuntimeError("unavailable"))
+        ).explain_danger_points(payload)
+
+        explanation = json.dumps(response["result"], ensure_ascii=False)
+        self.assertNotIn("仮データ", explanation)
+        self.assertIn("急勾配", response["result"]["hazards"][0]["explanation"])
+        self.assertEqual(2, len(response["result"]["hazards"][0]["cautions"]))
+        self.assertTrue(response["metadata"]["is_simulated"])
 
     def test_compatibility_helpers_remain_deterministic(self):
         self.assertEqual(extract_conditions("雪道で安全に")["priority"], "safety")
