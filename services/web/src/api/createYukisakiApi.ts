@@ -10,12 +10,7 @@ class FallbackApi implements YukisakiApi {
   private call<T>(run: (api: YukisakiApi) => Promise<T>) { return run(this.primary).catch(() => run(this.fallback)) }
   getHealth(signal?: AbortSignal) { return this.primary.getHealth(signal) }
   async getMapSnapshot(bounds?: Parameters<YukisakiApi['getMapSnapshot']>[0]) {
-    try {
-      const snapshot = await this.primary.getMapSnapshot(bounds)
-      return snapshot
-    } catch {
-      return this.fallback.getMapSnapshot(bounds)
-    }
+    return this.primary.getMapSnapshot(bounds)
   }
   async getMapRoadPage(
     bounds?: Parameters<YukisakiApi['getMapRoadPage']>[0],
@@ -23,14 +18,9 @@ class FallbackApi implements YukisakiApi {
     signal?: Parameters<YukisakiApi['getMapRoadPage']>[2],
     limit?: Parameters<YukisakiApi['getMapRoadPage']>[3],
   ) {
-    try {
-      const page = await this.primary.getMapRoadPage(bounds, cursor, signal, limit)
-      return page
-    } catch {
-      return this.fallback.getMapRoadPage(bounds, cursor, signal, limit)
-    }
+    return this.primary.getMapRoadPage(bounds, cursor, signal, limit)
   }
-  getRoadSegments(bounds?: Parameters<YukisakiApi['getRoadSegments']>[0], signal?: AbortSignal) { return this.call((api) => api.getRoadSegments(bounds, signal)) }
+  getRoadSegments(bounds?: Parameters<YukisakiApi['getRoadSegments']>[0], signal?: AbortSignal) { return this.primary.getRoadSegments(bounds, signal) }
   getRoadSegment(segmentId: string, signal?: AbortSignal) { return this.primary.getRoadSegment(segmentId, signal) }
   getRoadConditions(ids?: string[]) { return this.call((api) => api.getRoadConditions(ids)) }
   getSnowmeltPipes(bounds?: Parameters<YukisakiApi['getSnowmeltPipes']>[0]) { return this.call((api) => api.getSnowmeltPipes(bounds)) }

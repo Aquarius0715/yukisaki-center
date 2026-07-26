@@ -236,20 +236,20 @@ export type ApiRoadProperties = {
   segment_id: string
   road_name: string | null
   road_type: string | null
-  length_m: number | null
-  max_slope_percent: number | null
   snow_pipe: boolean | null
   snow_pipe_operation_status: 'active' | 'inactive' | 'unknown' | null
-  snow_pipe_effectiveness: number | null
   drivability_score: number | null
-  confidence: number
-  score_factors: Record<string, number | boolean | string | null> | null
-  score_rule_version: string | null
-  last_plowed_at: string | null
-  last_plowed_by: string | null
-  data_timestamp: string | null
-  source: string | null
-  is_simulated: boolean
+  length_m?: number | null
+  max_slope_percent?: number | null
+  snow_pipe_effectiveness?: number | null
+  confidence?: number
+  score_factors?: Record<string, number | boolean | string | null> | null
+  score_rule_version?: string | null
+  last_plowed_at?: string | null
+  last_plowed_by?: string | null
+  data_timestamp?: string | null
+  source?: string | null
+  is_simulated?: boolean
 }
 
 export type ApiRoadCollection = FeatureCollection<RoadGeometry, ApiRoadProperties> & {
@@ -257,6 +257,7 @@ export type ApiRoadCollection = FeatureCollection<RoadGeometry, ApiRoadPropertie
   count: number
   truncated: boolean
   next_cursor: string | null
+  view?: 'detail' | 'map'
   data_timestamp: string | null
   confidence: number
   is_simulated: boolean

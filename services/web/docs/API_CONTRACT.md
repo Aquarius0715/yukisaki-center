@@ -7,8 +7,8 @@
 | Method | Path | Webでの用途 |
 |---|---|---|
 | GET | `/healthz` | LambdaのLiveness確認 |
-| GET | `/v1/map/snapshot?bbox=west,south,east,north&limit=3000` | 初回の道路・除雪車一括取得 |
-| GET | `/v1/road-segments?bbox=...&limit=3000` | 道路だけを取得する場合の補助エンドポイント |
+| GET | `/v1/map/snapshot?bbox=west,south,east,north&limit=3000&view=map` | 初回の軽量道路・除雪車一括取得 |
+| GET | `/v1/road-segments?bbox=...&limit=3000&view=map` | 地図用の軽量道路エンドポイント |
 | GET | `/v1/road-segments/{id}` | 道路区間1件 |
 | GET | `/v1/snowplows` | 初回後、5秒間隔の最新位置取得 |
 | GET | `/v1/places/autocomplete?q=...` | Apple Mapsによる入力補完 |
@@ -17,7 +17,9 @@
 | POST | `/v1/ai/explain-routes` | 経路APIが確定した候補を比較説明 |
 | POST | `/v1/ai/explain-danger-points` | 経路APIが抽出した注意箇所を説明 |
 
-初回snapshotは `schema_version`, `data_timestamp`, `confidence`, `is_simulated`, `demo`, `roads`, `snowplows` を返す。道路はLineStringまたはMultiLineStringで、`segment_id`, `drivability_score`, `score_factors`, `snow_pipe`, `snow_pipe_operation_status`, `last_plowed_at`, `data_timestamp`, `is_simulated` を画面へ反映する。
+初回snapshotは `schema_version`, `data_timestamp`, `confidence`, `is_simulated`, `demo`, `roads`, `snowplows` を返す。道路はLineStringまたはMultiLineStringとし、一覧では指数と消雪パイプを、詳細では`score_factors`、`last_plowed_at`等を画面へ反映する。
+
+地図一覧の`view=map`はFeatureごとにGeometry、`segment_id`、`road_name`、`road_type`、`drivability_score`、`snow_pipe`、`snow_pipe_operation_status`だけを受け取る。時刻・信頼度・仮データ区分はコレクションのメタデータを使う。指数根拠、勾配、延長、消雪効果、最終除雪情報は道路タップ後の`/v1/road-segments/{id}`で取得し、取得中は詳細シートへローディング状態を表示する。
 
 初期表示ではIndexedDBに保存した表示範囲があれば道路を先に復元し、並行して`/healthz`とsnapshotを取得する。その後は表示範囲ごとに道路APIを取得し、道路選択時は詳細APIから最新の1件を取得し直す。最大スパン0.04度以下の近距離表示では表示範囲と小さな先読み領域を4分割して並列取得し、各領域の`next_cursor`を追跡して合計最大18,000区間まで段階描画する。広域表示では最大6空間タイルを並列取得し、先頭ページを直ちに描画した後、道路種別を絞りながら後続ページを補完して表示の偏りを抑える。
 
@@ -35,7 +37,7 @@ MapKitへは現在の表示範囲の道路だけを描画する。近距離で�
 
 経路順位・指数・危険区間はWebで再計算しない。AI比較・危険説明は経路APIの成功レスポンスに対してのみ呼び出し、AIに順位や危険区間を変更させない。
 
-`VITE_DATA_MODE=api`では地点検索、経路探索、AI APIの失敗を固定モックへ置き換えない。道路・除雪車の表示用フォールバックと、公開気象APIが未実装のための固定天気表示だけは、`VITE_ENABLE_MOCK_FALLBACK=true`の場合にモックを使用する。走行軌跡・本日走行距離は公開APIに含まれない。
+`VITE_DATA_MODE=api`では道路一覧・snapshot、地点検索、経路探索、AI APIの失敗を固定モックへ置き換えない。道路更新失敗時は最後の実API値またはキャッシュを維持する。除雪車の表示用フォールバックと、公開気象APIが未実装のための固定天気表示だけは、`VITE_ENABLE_MOCK_FALLBACK=true`の場合にモックを使用する。走行軌跡・本日走行距離は公開APIに含まれない。
 
 ## エラー
 

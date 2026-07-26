@@ -63,6 +63,45 @@ WITH candidates AS MATERIALIZED (
 ORDER BY r.segment_id
 """
 
+ROAD_MAP_SEGMENTS_SQL = """
+WITH candidates AS MATERIALIZED (
+  SELECT
+    segment_id, geometry_geojson, road_name, road_type, snapshot_date, is_simulated
+  FROM road_segments
+  WHERE min_longitude <= %s
+    AND max_longitude >= %s
+    AND min_latitude <= %s
+    AND max_latitude >= %s
+    AND segment_id > %s
+  ORDER BY segment_id
+  LIMIT %s
+)
+SELECT
+  r.segment_id, r.geometry_geojson, r.road_name, r.road_type,
+  r.snapshot_date, r.is_simulated AS road_is_simulated,
+  snow.snow_pipe, snow.operation_status,
+  snow.valid_from AS snow_pipe_updated_at,
+  snow.is_simulated AS snow_pipe_is_simulated,
+  score.data_timestamp, score.score, score.confidence,
+  score.is_simulated AS score_is_simulated
+FROM candidates AS r
+LEFT JOIN LATERAL (
+  SELECT snow_pipe, operation_status, valid_from, is_simulated
+  FROM snow_pipe_history
+  WHERE segment_id = r.segment_id
+  ORDER BY valid_from DESC, ingested_at DESC
+  LIMIT 1
+) AS snow ON true
+LEFT JOIN LATERAL (
+  SELECT data_timestamp, score, confidence, is_simulated
+  FROM drivability_scores
+  WHERE segment_id = r.segment_id
+  ORDER BY data_timestamp DESC, rule_version DESC
+  LIMIT 1
+) AS score ON true
+ORDER BY r.segment_id
+"""
+
 ROAD_SEGMENT_SQL = ROAD_SEGMENTS_SELECT + """
 WHERE r.segment_id = %s
 LIMIT 1
@@ -118,12 +157,13 @@ class PostgresMapRepository:
         bbox: tuple[float, float, float, float],
         limit: int,
         cursor: str | None = None,
+        map_only: bool = False,
     ) -> list[dict[str, Any]]:
         west, south, east, north = bbox
         after_segment_id = cursor or ""
         with _connect() as connection, connection.cursor() as database_cursor:
             database_cursor.execute(
-                ROAD_SEGMENTS_SQL,
+                ROAD_MAP_SEGMENTS_SQL if map_only else ROAD_SEGMENTS_SQL,
                 (east, west, north, south, after_segment_id, limit + 1),
             )
             return _rows(database_cursor)

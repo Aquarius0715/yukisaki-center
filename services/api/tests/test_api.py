@@ -27,7 +27,7 @@ class FakeRepository:
             "vehicle_id": "plow-01",
         }
 
-    def road_segments(self, bbox, limit, cursor=None):
+    def road_segments(self, bbox, limit, cursor=None, map_only=False):
         west, south, east, north = bbox
         if not (west <= 138.79 and east >= 138.78 and south <= 37.45 and north >= 37.44):
             return []
@@ -63,6 +63,30 @@ class MapApiTest(unittest.TestCase):
         self.assertTrue(body["features"][0]["properties"]["is_simulated"])
         self.assertIn("access-control-allow-origin", response["headers"])
 
+    def test_map_view_returns_only_properties_needed_for_drawing(self):
+        response = handle(event("/v1/road-segments", {"view": "map"}), self.service)
+        body = json.loads(response["body"])
+        properties = body["features"][0]["properties"]
+        self.assertEqual("map", body["view"])
+        self.assertEqual(
+            {
+                "segment_id",
+                "road_name",
+                "road_type",
+                "snow_pipe",
+                "snow_pipe_operation_status",
+                "drivability_score",
+            },
+            set(properties),
+        )
+        self.assertNotIn("score_factors", properties)
+        self.assertNotIn("last_plowed_at", properties)
+
+    def test_road_detail_keeps_score_evidence_and_plow_history(self):
+        body = json.loads(handle(event("/v1/road-segments/road-1"), self.service)["body"])
+        self.assertEqual({"plowed": True}, body["properties"]["score_factors"])
+        self.assertEqual("plow-01", body["properties"]["last_plowed_by"])
+
     def test_snowplows_return_point_geojson(self):
         body = json.loads(handle(event("/v1/snowplows"), self.service)["body"])
         self.assertEqual([138.78, 37.44], body["features"][0]["geometry"]["coordinates"])
@@ -87,9 +111,13 @@ class MapApiTest(unittest.TestCase):
         with self.assertRaises(RequestError):
             MapQuery.parse({"limit": "5001"})
 
+    def test_query_rejects_unknown_view(self):
+        with self.assertRaises(RequestError):
+            MapQuery.parse({"view": "everything"})
+
     def test_road_pages_return_a_cursor_when_more_rows_exist(self):
         class PagedRepository(FakeRepository):
-            def road_segments(self, bbox, limit, cursor=None):
+            def road_segments(self, bbox, limit, cursor=None, map_only=False):
                 rows = [
                     {**self._road(), "segment_id": "road-1"},
                     {**self._road(), "segment_id": "road-2"},

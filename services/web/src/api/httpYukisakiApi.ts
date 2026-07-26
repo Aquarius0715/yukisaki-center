@@ -83,7 +83,7 @@ export class HttpYukisakiApi implements YukisakiApi {
 
   async getMapSnapshot(bounds?: MapBounds, signal?: AbortSignal) {
     const value = await requestJson<unknown>(
-      this.url('/v1/map/snapshot', { bbox: bbox(bounds), limit: pageLimit(bounds) }),
+      this.url('/v1/map/snapshot', { bbox: bbox(bounds), limit: pageLimit(bounds), view: 'map' }),
       { signal },
       MAP_PAGE_TIMEOUT_MS,
     )
@@ -94,7 +94,7 @@ export class HttpYukisakiApi implements YukisakiApi {
 
   async getMapRoadPage(bounds?: MapBounds, cursor?: string, signal?: AbortSignal, limit?: number) {
     const value = await requestJson<unknown>(
-      this.url('/v1/road-segments', { bbox: bbox(bounds), limit: limit ? String(limit) : pageLimit(bounds), cursor }),
+      this.url('/v1/road-segments', { bbox: bbox(bounds), limit: limit ? String(limit) : pageLimit(bounds), cursor, view: 'map' }),
       { signal },
       MAP_PAGE_TIMEOUT_MS,
     )
