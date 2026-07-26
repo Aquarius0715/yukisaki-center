@@ -22,12 +22,15 @@
 - `limit=1..5000`: 1ページの最大道路件数。省略時は5,000件。Webの近距離タイルは1,500件を使用する
 - `cursor`: 前ページの`next_cursor`。同じ`bbox`の続きを取得する場合だけ指定する
 - `view=detail|map`: 省略時は後方互換の`detail`。Web地図は`map`を指定する
+- `min_road_rank=0..6`: 道路種別の最低ランク。省略時は0で全道路を対象とする。広域Web地図は縮尺に応じた値を指定し、道路種別を絞ってからページングする
+
+道路ランクは`0=その他を含む全道路`、`1=residential/unclassified以上`、`2=tertiary以上`、`3=secondary以上`、`4=primary以上`、`5=trunk以上`、`6=motorway`とする。`*_link`は接続先道路と同じランクとして扱う。
 
 レスポンスに続きがある場合は`truncated: true`と`next_cursor`が返る。Web地図は固定空間タイルごとに先頭ページを先に描画し、後続ページを間隔を空けて段階的に補完する。
 
 `view=map`は地図描画に必要な`segment_id`、Geometry、`road_name`、`road_type`、`drivability_score`、`snow_pipe`、`snow_pipe_operation_status`だけをFeatureへ含める。信頼度、データ時刻、仮データ区分はコレクションのメタデータに保持する。指数根拠、勾配、延長、消雪効果、最終除雪情報は返さず、道路選択時に`GET /v1/road-segments/{id}`から取得する。省略時の`view=detail`は従来契約を維持する。
 
-道路一覧、道路詳細、snapshotの成功レスポンスは`Cache-Control: public,max-age=15,s-maxage=30`を基本とし、CloudFrontで表示タイル単位に共有する。地図一覧とsnapshotは`stale-while-revalidate=30`も許可する。除雪車位置、エラー応答、その他の動的応答は`no-store`を維持する。
+道路一覧、道路詳細、snapshotの成功レスポンスは`Cache-Control: public,max-age=30,s-maxage=90`を基本とし、CloudFrontで表示タイル単位に共有する。地図一覧とsnapshotは`stale-while-revalidate=120`も許可する。除雪車位置、エラー応答、その他の動的応答は`no-store`を維持する。
 
 ```json
 {
@@ -62,7 +65,7 @@
 
 フロントエンドは道路の最初のページと除雪車を並列取得する。最初の道路ページを受信した時点で地図を表示し、地図移動時に新しい表示範囲の道路へ差し替える。除雪車だけを約5秒間隔でポーリングする。
 
-道路検索は`road_segments`が保持する外接矩形列とリクエスト`bbox`をPostgreSQL上で比較し、SQLの`LIMIT + 1`まで取得する。Lambdaで全道路を読み込んでから絞り込まない。返却件数を超える道路がある場合は`truncated=true`とする。
+道路検索は`road_segments`が保持する外接矩形列とリクエスト`bbox`をPostgreSQL上で比較し、`min_road_rank`の道路種別条件を適用してからSQLの`LIMIT + 1`まで取得する。LambdaやWebで全道路を読み込んでからページ対象を絞り込まない。返却件数を超える道路がある場合は`truncated=true`とする。
 
 ## エラー
 

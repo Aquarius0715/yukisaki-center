@@ -21,6 +21,7 @@ class MapQuery:
     limit: int
     cursor: str | None
     view: Literal["detail", "map"]
+    min_road_rank: int
 
     @classmethod
     def parse(cls, params: dict[str, str] | None) -> "MapQuery":
@@ -47,7 +48,19 @@ class MapQuery:
         view = params.get("view", "detail")
         if view not in {"detail", "map"}:
             raise RequestError("view must be detail or map")
-        return cls(bbox=(west, south, east, north), limit=limit, cursor=cursor, view=view)
+        try:
+            min_road_rank = int(params.get("min_road_rank", "0"))
+        except ValueError as error:
+            raise RequestError("min_road_rank must be an integer") from error
+        if not 0 <= min_road_rank <= 6:
+            raise RequestError("min_road_rank must be between 0 and 6")
+        return cls(
+            bbox=(west, south, east, north),
+            limit=limit,
+            cursor=cursor,
+            view=view,
+            min_road_rank=min_road_rank,
+        )
 
 
 def _iso(value: Any) -> str | None:
@@ -164,7 +177,8 @@ class MapService:
             query.bbox,
             query.limit,
             query.cursor,
-            query.view == "map",
+            map_only=query.view == "map",
+            min_road_rank=query.min_road_rank,
         )
         rows = matched[: query.limit]
         feature_builder = _map_road_feature if query.view == "map" else _road_feature

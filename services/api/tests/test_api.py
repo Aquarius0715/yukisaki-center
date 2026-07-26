@@ -27,11 +27,19 @@ class FakeRepository:
             "vehicle_id": "plow-01",
         }
 
-    def road_segments(self, bbox, limit, cursor=None, map_only=False):
+    def road_segments(
+        self,
+        bbox,
+        limit,
+        cursor=None,
+        map_only=False,
+        min_road_rank=0,
+    ):
         west, south, east, north = bbox
         if not (west <= 138.79 and east >= 138.78 and south <= 37.45 and north >= 37.44):
             return []
-        return [self._road()][: limit + 1]
+        rows = [self._road()] if min_road_rank <= 4 else []
+        return rows[: limit + 1]
 
     def road_segment(self, segment_id):
         return self._road() if segment_id == "road-1" else None
@@ -123,9 +131,25 @@ class MapApiTest(unittest.TestCase):
         with self.assertRaises(RequestError):
             MapQuery.parse({"view": "everything"})
 
+    def test_minimum_road_rank_is_validated_and_applied_before_paging(self):
+        response = handle(
+            event("/v1/road-segments", {"view": "map", "min_road_rank": "5"}),
+            self.service,
+        )
+        self.assertEqual([], json.loads(response["body"])["features"])
+        with self.assertRaises(RequestError):
+            MapQuery.parse({"min_road_rank": "7"})
+
     def test_road_pages_return_a_cursor_when_more_rows_exist(self):
         class PagedRepository(FakeRepository):
-            def road_segments(self, bbox, limit, cursor=None, map_only=False):
+            def road_segments(
+                self,
+                bbox,
+                limit,
+                cursor=None,
+                map_only=False,
+                min_road_rank=0,
+            ):
                 rows = [
                     {**self._road(), "segment_id": "road-1"},
                     {**self._road(), "segment_id": "road-2"},

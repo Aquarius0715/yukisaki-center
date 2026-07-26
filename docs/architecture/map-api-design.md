@@ -143,7 +143,7 @@ infrastructure/cdk/
 
 ### 7.1 道路
 
-`road_segments`を基点に、bboxで対象道路を先に絞ってから各道路区間の最新情報を結合する。Web地図は`view=map`を指定し、道路形状・名称・種別、指数、消雪パイプ状態だけを取得する。この軽量SQLは除雪履歴を結合せず、指数根拠JSON、勾配、延長、消雪効果もSELECTしない。道路選択時の詳細APIだけが従来の全結合を行う。
+`road_segments`を基点に、bboxと任意の`min_road_rank`で対象道路を先に絞ってから各道路区間の最新情報を結合する。Web地図は`view=map`を指定し、道路形状・名称・種別、指数、消雪パイプ状態だけを取得する。この軽量SQLは除雪履歴を結合せず、指数根拠JSON、勾配、延長、消雪効果もSELECTしない。道路選択時の詳細APIだけが従来の全結合を行う。
 
 | 公開プロパティ | PostgreSQL取得元 |
 |---|---|
@@ -154,7 +154,7 @@ infrastructure/cdk/
 
 道路はLineStringまたはMultiLineStringのGeoJSON Featureとして返す。`feature.id`と`properties.segment_id`は同じ値とする。
 
-道路ロード時にGeoJSONから`min_longitude`、`min_latitude`、`max_longitude`、`max_latitude`を計算して`road_segments`へ保持し、複合インデックスを作成する。APIはこの外接矩形とリクエスト`bbox`の交差条件、`LIMIT + 1`をSQLへ渡し、該当道路だけをLambdaへ返す。`LIMIT + 1`件目の有無で`truncated`を判定する。将来、より複雑な形状検索や経路探索が必要になった段階でPostGIS/GiST、ページング、MVT配信への移行を判断する。
+道路ロード時にGeoJSONから`min_longitude`、`min_latitude`、`max_longitude`、`max_latitude`を計算して`road_segments`へ保持し、外接矩形のGiST式インデックスを作成する。APIはリクエスト`bbox`との交差条件を適用し、道路種別を0〜6へ正規化したランクが`min_road_rank`以上の区間だけをページングしてLambdaへ返す。省略時のランクは0で後方互換を維持する。`LIMIT + 1`件目の有無で`truncated`を判定する。
 
 ### 7.2 除雪車
 
@@ -190,7 +190,7 @@ APIスキーマのバージョンは、一括レスポンスの`schema_version: 
 ```text
 画面表示
   -> IndexedDBの最終道路を先行描画
-  -> 固定タイルごとにGET /v1/road-segments?bbox=...&limit=1500&view=map
+  -> 固定タイルごとにGET /v1/road-segments?bbox=...&limit=1500&view=map&min_road_rank=...
      とGET /v1/snowplowsを実行
   -> 先頭ページを即時描画
   -> next_cursorを300ミリ秒間隔、最大2並列で段階補完
@@ -217,7 +217,7 @@ APIスキーマのバージョンは、一括レスポンスの`schema_version: 
 
 | HTTP | `error.code` | 条件 |
 |---|---|---|
-| 400 | `invalid_request` | bbox、limit、道路IDの入力不正 |
+| 400 | `invalid_request` | bbox、limit、min_road_rank、道路IDの入力不正 |
 | 404 | `not_found` | パスまたは道路区間が存在しない |
 | 405 | `method_not_allowed` | GET以外 |
 | 503 | `service_unavailable` | RDS停止、DBタイムアウト、内部一時障害 |
@@ -275,7 +275,7 @@ RDS停止中はAPIデータを提供しない。S3は正本として維持され
 
 | テスト | 内容 |
 |---|---|
-| API単体テスト | GeoJSON、bbox、limit、404、必須メタデータ |
+| API単体テスト | GeoJSON、bbox、limit、min_road_rank、404、必須メタデータ |
 | CDKテスト | API Gateway 5 Route、Docker Lambda、ARM64、予約同時実行数0、DB SG |
 | スモークテスト | `/healthz`、道路、除雪車3台、一括取得、CORS |
 | ライフサイクル | `env:start`で利用可能、`env:stop`でLambda・RDS・GPS停止 |

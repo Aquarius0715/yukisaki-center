@@ -56,6 +56,20 @@ WITH spatial_candidate_ids AS MATERIALIZED (
       point(min_longitude, min_latitude),
       point(max_longitude, max_latitude)
     ) && box(point(%s, %s), point(%s, %s))
+    AND CASE regexp_replace(
+      btrim(lower(split_part(split_part(COALESCE(road_type, ''), ';', 1), ',', 1))),
+      '_link$',
+      ''
+    )
+      WHEN 'motorway' THEN 6
+      WHEN 'trunk' THEN 5
+      WHEN 'primary' THEN 4
+      WHEN 'secondary' THEN 3
+      WHEN 'tertiary' THEN 2
+      WHEN 'unclassified' THEN 1
+      WHEN 'residential' THEN 1
+      ELSE 0
+    END >= %s
 ),
 paged_candidate_ids AS MATERIALIZED (
   SELECT segment_id
@@ -87,6 +101,20 @@ WITH spatial_candidate_ids AS MATERIALIZED (
       point(min_longitude, min_latitude),
       point(max_longitude, max_latitude)
     ) && box(point(%s, %s), point(%s, %s))
+    AND CASE regexp_replace(
+      btrim(lower(split_part(split_part(COALESCE(road_type, ''), ';', 1), ',', 1))),
+      '_link$',
+      ''
+    )
+      WHEN 'motorway' THEN 6
+      WHEN 'trunk' THEN 5
+      WHEN 'primary' THEN 4
+      WHEN 'secondary' THEN 3
+      WHEN 'tertiary' THEN 2
+      WHEN 'unclassified' THEN 1
+      WHEN 'residential' THEN 1
+      ELSE 0
+    END >= %s
 ),
 paged_candidate_ids AS MATERIALIZED (
   SELECT segment_id
@@ -184,6 +212,7 @@ class PostgresMapRepository:
         limit: int,
         cursor: str | None = None,
         map_only: bool = False,
+        min_road_rank: int = 0,
     ) -> list[dict[str, Any]]:
         west, south, east, north = bbox
         after_segment_id = cursor or ""
@@ -195,14 +224,23 @@ class PostgresMapRepository:
                 query_started_at = time.perf_counter()
                 database_cursor.execute(
                     ROAD_MAP_SEGMENTS_SQL if map_only else ROAD_SEGMENTS_SQL,
-                    (west, south, east, north, after_segment_id, limit + 1),
+                    (
+                        west,
+                        south,
+                        east,
+                        north,
+                        min_road_rank,
+                        after_segment_id,
+                        limit + 1,
+                    ),
                 )
                 rows = _rows(database_cursor)
                 completed_at = time.perf_counter()
         LOGGER.info(
-            "road_segments completed map_only=%s limit=%d rows=%d "
+            "road_segments completed map_only=%s min_road_rank=%d limit=%d rows=%d "
             "connect_ms=%.1f query_ms=%.1f total_ms=%.1f",
             map_only,
+            min_road_rank,
             limit,
             len(rows),
             (connected_at - started_at) * 1000,
