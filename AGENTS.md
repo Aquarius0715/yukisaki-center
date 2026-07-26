@@ -23,7 +23,7 @@
 - GPSシミュレータは1つのECS Fargateタスク内で3台の除雪車を5秒間隔で走行させ、3台の経路の和集合でマッピング済み全道路区間を巡回する。固定デモ時刻`observed_at`と実受信時刻`received_at`を分離し、最新位置は`received_at`で更新する。EventBridgeカスタムバスから2つのSQSへfan-outし、S3 `raw/`への不変保存と、道路区間へマッチングした`normalized/`・`curated/snowplow-passages/`を経由する共通RDS投影を分離する
 - 走りやすさ指数はデモ開始時に全道路を一括評価し、その後はGPSロード後にSQSから通過区間を差分評価する。気象、勾配、消雪パイプ、最終除雪時刻を決定的なルールへ入力し、S3 `curated/drivability-scores/`を正本として共通RDS `drivability_scores`へ投影する
 - 消雪パイプ仮データは`road-name-active-v2`を使い、道路名がある区間を`snow_pipe=true`かつ`operation_status=active`、道路名がない区間を`inactive`とする
-- REST APIはAPI Gateway HTTP APIとDockerイメージLambdaで実装し、共通RDSの道路・指数・消雪パイプ・最新除雪車位置をGeoJSONで返す。道路Geometryの外接矩形をRDSへ保持し、DB側の`bbox`条件とSQL件数上限で絞る。GPSは別エンドポイントから更新できる
+- REST APIはAPI Gateway HTTP APIとDockerイメージLambdaで実装し、共通RDSの道路・指数・消雪パイプ・最新除雪車位置をGeoJSONで返す。道路Geometryの外接矩形をRDSへ保持し、DB側の`bbox`条件とSQL件数上限で絞る。Web地図は`view=map`の軽量道路投影を使い、指数根拠・勾配・除雪履歴等は道路選択時の詳細APIで取得する。GPSは別エンドポイントから更新できる
 - 地点名称検索はApple Maps Server API専用のVPC外Docker Lambdaへ分離し、長岡市内の検索・入力補完だけを公開する。`server_api`秘密鍵はSecrets Managerへ置き、ブラウザ用MapKit JSトークンと分離する。Webへの接続は未実施
 - 2026-07-24にApple Maps地点名称検索をAWSへデプロイ済み。署名JWTをToken APIでaccess tokenへ交換し、`GET /v1/places/search`と`GET /v1/places/autocomplete`で長岡市内の実検索結果を確認済み
 - 経路探索は道路収集時のOSMノード・分割ノード・方向・速度・accessをS3 curatedからPostGIS/pgRoutingへ投影し、地点スナップ、動的な指数コスト、K最短候補、危険区間集計を行うDocker Lambdaと`POST /v1/routes`をAWSへデプロイ済み。道路グラフもロード済みで、公開APIから最大3候補を利用できる

@@ -88,24 +88,126 @@ export type Snowplow = {
 }
 export type WeatherData = { temperatureC: number; condition: string; observedAt: string; isSimulated: boolean }
 export type Destination = Position & { id: string; name: string; address: string }
+export type DestinationSuggestion = {
+  id: string
+  name: string
+  address: string
+  query: string
+}
 export type RoutePreference = 'fastest' | 'recommended' | 'snow-priority'
-export type RouteRecommendationRequest = { origin: Position; destination: Position; preference: RoutePreference }
+export type RouteRecommendationRequest = {
+  origin: Position
+  destination: Position
+  preference: RoutePreference
+  avoid?: Array<'steep_road' | 'bridge'>
+  prefer?: Array<'main_road' | 'recently_plowed'>
+  maxDetourMinutes?: number
+}
 export type RecommendedRoute = {
-  id: RoutePreference
+  id: string
   label: string
   durationMinutes: number
   distanceKm: number
   drivabilityScore: number
   plowedRatio: number
   snowmeltPipeRatio: number
-  noPlowRecordSegmentCount: number
+  noPlowRecordSegmentCount: number | null
   hasNarrowRoad: boolean
   hasSteepSlope: boolean
   geometry: LineString
   warnings: string[]
   reasons: string[]
 }
-export type RouteRecommendationResponse = { routes: RecommendedRoute[]; generatedAt: string; isSimulated: boolean }
+
+export type ApiHazardGroup = {
+  segment_ids: string[]
+  minimum_drivability_score: number | null
+  factors: string[]
+  geometry: LineString
+}
+
+export type ApiRoute = {
+  route_id: string
+  rank: number
+  label: 'fastest' | 'balanced' | 'most_drivable' | 'alternative'
+  geometry: LineString
+  segment_ids: string[]
+  distance_m: number
+  duration_s: number
+  weighted_cost_s: number
+  average_drivability_score: number | null
+  minimum_drivability_score: number | null
+  score_coverage: number
+  minimum_confidence: number | null
+  plowed_ratio: number
+  snow_pipe_ratio: number
+  hazard_group_count: number
+  hazard_groups: ApiHazardGroup[]
+  is_simulated: boolean
+}
+
+export type ApiRouteResponse = {
+  request_id: string
+  mode: 'time_priority' | 'balanced' | 'drivability_priority'
+  reference_time: string
+  graph_version: string
+  score_rule_version: string
+  cost_config_version: string
+  data_timestamp: string
+  is_simulated: boolean
+  routes: ApiRoute[]
+  warnings: string[]
+}
+
+export type RouteRecommendationResponse = {
+  routes: RecommendedRoute[]
+  generatedAt: string
+  isSimulated: boolean
+  apiResponse?: ApiRouteResponse
+}
+
+export type AssistantMetadata = {
+  model_id: string
+  fallback_used: boolean
+  is_simulated: boolean
+  data_timestamp: string | null
+}
+
+export type ParsedRouteRequest = {
+  originQuery: string | null
+  destinationQuery: string | null
+  viaQueries: string[]
+  priority: 'time' | 'balanced' | 'safety'
+  avoidConditions: string[]
+  preferConditions: string[]
+  driverExperience: string
+  missingFields: string[]
+  needsConfirmation: boolean
+  metadata: AssistantMetadata
+}
+
+export type RouteExplanation = {
+  recommendedRouteId: string
+  recommendationReason: string
+  routes: Array<{
+    routeId: string
+    summary: string
+    advantages: string[]
+    cautions: string[]
+  }>
+  metadata: AssistantMetadata
+}
+
+export type DangerExplanation = {
+  hazards: Array<{
+    hazardId: string
+    explanation: string
+    cautions: string[]
+  }>
+  metadata: AssistantMetadata
+}
+
+export type ApiHealth = { status: string }
 
 export type MapDataMeta = {
   schemaVersion: string
@@ -134,20 +236,20 @@ export type ApiRoadProperties = {
   segment_id: string
   road_name: string | null
   road_type: string | null
-  length_m: number | null
-  max_slope_percent: number | null
   snow_pipe: boolean | null
   snow_pipe_operation_status: 'active' | 'inactive' | 'unknown' | null
-  snow_pipe_effectiveness: number | null
   drivability_score: number | null
-  confidence: number
-  score_factors: Record<string, number | boolean | string | null> | null
-  score_rule_version: string | null
-  last_plowed_at: string | null
-  last_plowed_by: string | null
-  data_timestamp: string | null
-  source: string | null
-  is_simulated: boolean
+  length_m?: number | null
+  max_slope_percent?: number | null
+  snow_pipe_effectiveness?: number | null
+  confidence?: number
+  score_factors?: Record<string, number | boolean | string | null> | null
+  score_rule_version?: string | null
+  last_plowed_at?: string | null
+  last_plowed_by?: string | null
+  data_timestamp?: string | null
+  source?: string | null
+  is_simulated?: boolean
 }
 
 export type ApiRoadCollection = FeatureCollection<RoadGeometry, ApiRoadProperties> & {
@@ -155,6 +257,7 @@ export type ApiRoadCollection = FeatureCollection<RoadGeometry, ApiRoadPropertie
   count: number
   truncated: boolean
   next_cursor: string | null
+  view?: 'detail' | 'map'
   data_timestamp: string | null
   confidence: number
   is_simulated: boolean
@@ -194,15 +297,21 @@ export type ApiMapSnapshot = {
 }
 
 export interface YukisakiApi {
+  getHealth(signal?: AbortSignal): Promise<ApiHealth>
   getMapSnapshot(bounds?: MapBounds, signal?: AbortSignal): Promise<MapSnapshot>
   getMapRoadPage(bounds?: MapBounds, cursor?: string, signal?: AbortSignal, limit?: number): Promise<MapRoadPage>
   getRoadSegments(bounds?: MapBounds, signal?: AbortSignal): Promise<RoadSegmentFeatureCollection>
+  getRoadSegment(segmentId: string, signal?: AbortSignal): Promise<{ road: RoadSegmentFeature; condition: RoadCondition }>
   getRoadConditions(segmentIds?: string[]): Promise<RoadCondition[]>
   getSnowmeltPipes(bounds?: MapBounds): Promise<SnowmeltPipeStatus[]>
   getSnowplows(bounds?: MapBounds, signal?: AbortSignal): Promise<Snowplow[]>
   getWeather(position: Position): Promise<WeatherData>
+  autocompleteDestinations(query: string, signal?: AbortSignal): Promise<DestinationSuggestion[]>
   getDestinations(query: string): Promise<Destination[]>
   recommendRoutes(request: RouteRecommendationRequest): Promise<RouteRecommendationResponse>
+  parseRouteRequest(text: string): Promise<ParsedRouteRequest>
+  explainRoutes(routes: ApiRouteResponse): Promise<RouteExplanation>
+  explainDangerPoints(routes: ApiRouteResponse, routeId: string): Promise<DangerExplanation>
 }
 
 export function isRoadFeatureCollection(value: unknown): value is RoadSegmentFeatureCollection {

@@ -35,6 +35,7 @@ function statusOf(properties: ApiRoadProperties): RoadConditionStatus {
   const factors = properties.score_factors ?? {}
   if ('steep_slope' in factors) return 'warning'
   if (properties.snow_pipe && properties.snow_pipe_operation_status === 'active') return 'snowmelt'
+  if (properties.last_plowed_at === undefined && properties.score_factors === undefined) return 'no_plow_record'
   if (!properties.last_plowed_at || 'no_plow_history' in factors) return 'no_plow_record'
   if ('plowed_over_180_minutes_ago' in factors || 'plowed_60_to_180_minutes_ago' in factors) return 'stale_plow_data'
   if ('plowed_within_60_minutes' in factors) return 'recently_plowed'
@@ -49,7 +50,12 @@ function factorMessages(factors: ApiRoadProperties['score_factors']) {
   }))
 }
 
-function adaptRoadFeature(feature: ApiRoadCollection['features'][number]): RoadSegmentFeature {
+type RoadCollectionMetadata = Pick<ApiRoadCollection, 'confidence' | 'data_timestamp' | 'is_simulated'>
+
+export function adaptRoadFeature(
+  feature: ApiRoadCollection['features'][number],
+  metadata?: RoadCollectionMetadata,
+): RoadSegmentFeature {
   const input = feature.properties
   const points = coordinates(feature.geometry)
   const start = points[0] ?? [0, 0]
@@ -63,9 +69,9 @@ function adaptRoadFeature(feature: ApiRoadCollection['features'][number]): RoadS
       source_edge_id: null,
       osm_id: null,
       osmid: null,
-      road_name: input.road_name,
-      name: input.road_name,
-      highway: input.road_type,
+      road_name: input.road_name ?? null,
+      name: input.road_name ?? null,
+      highway: input.road_type ?? null,
       oneway: null,
       maxspeed: null,
       lanes: null,
@@ -82,14 +88,17 @@ function adaptRoadFeature(feature: ApiRoadCollection['features'][number]): RoadS
       start_lat: start[1] ?? 0,
       end_lon: end[0] ?? 0,
       end_lat: end[1] ?? 0,
-      confidence: input.confidence,
-      data_timestamp: input.data_timestamp,
-      is_simulated: input.is_simulated,
+      confidence: input.confidence ?? metadata?.confidence,
+      data_timestamp: input.data_timestamp ?? metadata?.data_timestamp,
+      is_simulated: input.is_simulated ?? metadata?.is_simulated,
     },
   }
 }
 
-function adaptCondition(properties: ApiRoadProperties): RoadCondition {
+export function adaptCondition(
+  properties: ApiRoadProperties,
+  metadata?: RoadCollectionMetadata,
+): RoadCondition {
   const score = properties.drivability_score ?? 0
   const messages = factorMessages(properties.score_factors)
   const warnings = messages.filter(({ key, value }) => key === 'no_plow_history' || key === 'steep_slope' || (typeof value === 'number' && value < 0)).map(({ label }) => label)
@@ -98,10 +107,10 @@ function adaptCondition(properties: ApiRoadProperties): RoadCondition {
     segmentId: properties.segment_id,
     hasSnowmeltPipe: properties.snow_pipe === true,
     snowmeltPipeOperating: properties.snow_pipe_operation_status === 'active',
-    lastPlowedAt: properties.last_plowed_at,
-    plowVehicleId: properties.last_plowed_by,
+    lastPlowedAt: properties.last_plowed_at ?? null,
+    plowVehicleId: properties.last_plowed_by ?? null,
     roadWidthM: null,
-    slopePercent: properties.max_slope_percent,
+    slopePercent: properties.max_slope_percent ?? null,
     drivabilityScore: score,
     hasDrivabilityScore: properties.drivability_score !== null,
     status: statusOf(properties),
@@ -110,15 +119,16 @@ function adaptCondition(properties: ApiRoadProperties): RoadCondition {
     scoreFactorDetails: messages.map(({ label, value }) => ({ label, value })),
     reasons,
     warnings,
-    updatedAt: properties.data_timestamp ?? '',
-    isSimulated: properties.is_simulated,
+    updatedAt: properties.data_timestamp ?? metadata?.data_timestamp ?? '',
+    isSimulated: properties.is_simulated ?? metadata?.is_simulated ?? false,
   }
 }
 
 export function adaptRoads(collection: ApiRoadCollection): { roads: RoadSegmentFeatureCollection; conditions: RoadCondition[] } {
+  const metadata: RoadCollectionMetadata = collection
   return {
-    roads: { type: 'FeatureCollection', features: collection.features.map(adaptRoadFeature) },
-    conditions: collection.features.map((feature) => adaptCondition(feature.properties)),
+    roads: { type: 'FeatureCollection', features: collection.features.map((feature) => adaptRoadFeature(feature, metadata)) },
+    conditions: collection.features.map((feature) => adaptCondition(feature.properties, metadata)),
   }
 }
 

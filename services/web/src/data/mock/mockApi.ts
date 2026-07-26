@@ -1,6 +1,16 @@
 import { appConfig } from '../../api/config'
 import { requestJson } from '../../api/client'
-import { isRoadFeatureCollection, type Destination, type RoadCondition, type RoadSegmentFeatureCollection, type RecommendedRoute, type RouteRecommendationRequest, type Snowplow, type YukisakiApi } from '../../api/contracts'
+import {
+  isRoadFeatureCollection,
+  type ApiRouteResponse,
+  type Destination,
+  type RoadCondition,
+  type RoadSegmentFeatureCollection,
+  type RecommendedRoute,
+  type RouteRecommendationRequest,
+  type Snowplow,
+  type YukisakiApi,
+} from '../../api/contracts'
 
 let roadsPromise: Promise<RoadSegmentFeatureCollection> | undefined
 const generatedAt = '2026-01-23T12:00:00+09:00'
@@ -73,6 +83,7 @@ function routeGeometry(destination: Destination, variant: number) {
 }
 
 export class MockYukisakiApi implements YukisakiApi {
+  async getHealth() { return { status: 'mock' } }
   async getMapSnapshot() {
     const roads = await this.getRoadSegments()
     const conditions = await this.getRoadConditions()
@@ -104,6 +115,15 @@ export class MockYukisakiApi implements YukisakiApi {
     }
   }
   getRoadSegments(bounds?: Parameters<YukisakiApi['getRoadSegments']>[0]) { return this.roadsIn(bounds) }
+  async getRoadSegment(segmentId: string) {
+    const roads = await loadRoads()
+    const road = roads.features.find((feature) => feature.properties.segment_id === segmentId)
+    if (!road) throw new Error('道路区間が見つかりません。')
+    return {
+      road,
+      condition: conditionFor(road.properties.segment_id, road.properties.highway, road.properties.width),
+    }
+  }
   async getRoadConditions(segmentIds?: string[]) {
     const roads = await loadRoads()
     return roads.features.filter((feature) => !segmentIds || segmentIds.includes(feature.properties.segment_id)).map((feature) => conditionFor(feature.properties.segment_id, feature.properties.highway, feature.properties.width))
@@ -111,6 +131,14 @@ export class MockYukisakiApi implements YukisakiApi {
   async getSnowmeltPipes() { return (await this.getRoadConditions()).map((condition) => ({ segmentId: condition.segmentId, installed: condition.hasSnowmeltPipe, operating: condition.snowmeltPipeOperating, lastUpdatedAt: condition.updatedAt })) }
   async getSnowplows() { return plows }
   async getWeather() { return { temperatureC: -1, condition: '雪', observedAt: generatedAt, isSimulated: true } }
+  async autocompleteDestinations(query: string) {
+    return (await this.getDestinations(query)).map((item) => ({
+      id: `suggestion-${item.id}`,
+      name: item.name,
+      address: item.address,
+      query: item.name,
+    }))
+  }
   async getDestinations(query: string) { const normalized = query.trim().toLocaleLowerCase('ja'); return destinations.filter((item) => !normalized || `${item.name}${item.address}`.toLocaleLowerCase('ja').includes(normalized)) }
   async recommendRoutes(request: RouteRecommendationRequest) {
     const destination = destinations.find((item) => item.latitude === request.destination.latitude && item.longitude === request.destination.longitude) ?? { id: 'map', name: '地図で指定した地点', address: 'デモ道路内', ...request.destination }
@@ -120,6 +148,44 @@ export class MockYukisakiApi implements YukisakiApi {
       { id: 'snow-priority', label: '雪道優先ルート', durationMinutes: 22, distanceKm: 7.1, drivabilityScore: 93, plowedRatio: .97, snowmeltPipeRatio: .78, noPlowRecordSegmentCount: 0, hasNarrowRoad: false, hasSteepSlope: false, warnings: [], reasons: ['消雪パイプ区間を最優先','幹線道路を優先'] },
     ]
     return { routes: specs.map((route, index) => ({ ...route, geometry: routeGeometry(destination, index) })), generatedAt, isSimulated: true }
+  }
+  async parseRouteRequest(text: string) {
+    return {
+      originQuery: null,
+      destinationQuery: text.trim() || null,
+      viaQueries: [],
+      priority: 'balanced' as const,
+      avoidConditions: [],
+      preferConditions: [],
+      driverExperience: 'unknown',
+      missingFields: ['origin'],
+      needsConfirmation: true,
+      metadata: { model_id: 'mock', fallback_used: true, is_simulated: true, data_timestamp: generatedAt },
+    }
+  }
+  async explainRoutes(routes: ApiRouteResponse) {
+    return {
+      recommendedRouteId: routes.routes[0]?.route_id ?? '',
+      recommendationReason: 'モック環境の経路説明です。',
+      routes: routes.routes.map((route) => ({
+        routeId: route.route_id,
+        summary: `平均走りやすさ指数は${route.average_drivability_score ?? '未算出'}です。`,
+        advantages: [],
+        cautions: route.hazard_groups.flatMap((hazard) => hazard.factors),
+      })),
+      metadata: { model_id: 'mock', fallback_used: true, is_simulated: true, data_timestamp: generatedAt },
+    }
+  }
+  async explainDangerPoints(routes: ApiRouteResponse, routeId: string) {
+    const route = routes.routes.find((item) => item.route_id === routeId)
+    return {
+      hazards: (route?.hazard_groups ?? []).map((hazard, index) => ({
+        hazardId: `${routeId}-hazard-${index + 1}`,
+        explanation: 'モック環境の注意箇所です。',
+        cautions: hazard.factors,
+      })),
+      metadata: { model_id: 'mock', fallback_used: true, is_simulated: true, data_timestamp: generatedAt },
+    }
   }
 }
 

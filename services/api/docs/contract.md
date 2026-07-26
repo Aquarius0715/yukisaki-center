@@ -5,7 +5,7 @@
 | メソッド | パス | 用途 |
 |---|---|---|
 | GET | `/healthz` | Lambdaの稼働確認 |
-| GET | `/v1/road-segments` | 表示範囲の道路・指数・消雪パイプ・最終除雪をGeoJSONで取得 |
+| GET | `/v1/road-segments` | 表示範囲の道路を通常または地図用軽量GeoJSONで取得 |
 | GET | `/v1/road-segments/{id}` | 道路区間1件を取得 |
 | GET | `/v1/snowplows` | 除雪車の最新位置をPoint GeoJSONで取得 |
 | GET | `/v1/map/snapshot` | 初期表示用に道路と除雪車を一括取得 |
@@ -21,8 +21,11 @@
 - `bbox=west,south,east,north`: 地図の表示範囲。省略時は長岡市全域`138.643056,37.176389,139.124444,37.710278`
 - `limit=1..5000`: 1ページの最大道路件数。省略時は5,000件。Webは75件を使用する
 - `cursor`: 前ページの`next_cursor`。同じ`bbox`の続きを取得する場合だけ指定する
+- `view=detail|map`: 省略時は後方互換の`detail`。Web地図は`map`を指定する
 
 レスポンスに続きがある場合は`truncated: true`と`next_cursor`が返る。Web地図はブラウザ保護のため、現在の表示範囲の最初のページだけを描画する。
+
+`view=map`は地図描画に必要な`segment_id`、Geometry、`road_name`、`road_type`、`drivability_score`、`snow_pipe`、`snow_pipe_operation_status`だけをFeatureへ含める。信頼度、データ時刻、仮データ区分はコレクションのメタデータに保持する。指数根拠、勾配、延長、消雪効果、最終除雪情報は返さず、道路選択時に`GET /v1/road-segments/{id}`から取得する。省略時の`view=detail`は従来契約を維持する。
 
 ```json
 {

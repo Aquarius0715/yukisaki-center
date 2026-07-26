@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date, datetime, time, timezone
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 DEMO_BBOX = (138.643056, 37.176389, 139.124444, 37.710278)
 MAX_FEATURES = 5000
@@ -20,6 +20,7 @@ class MapQuery:
     bbox: tuple[float, float, float, float]
     limit: int
     cursor: str | None
+    view: Literal["detail", "map"]
 
     @classmethod
     def parse(cls, params: dict[str, str] | None) -> "MapQuery":
@@ -43,7 +44,10 @@ class MapQuery:
         cursor = params.get("cursor") or None
         if cursor is not None and (len(cursor) > 200 or any(ord(char) < 32 for char in cursor)):
             raise RequestError("cursor is invalid")
-        return cls(bbox=(west, south, east, north), limit=limit, cursor=cursor)
+        view = params.get("view", "detail")
+        if view not in {"detail", "map"}:
+            raise RequestError("view must be detail or map")
+        return cls(bbox=(west, south, east, north), limit=limit, cursor=cursor, view=view)
 
 
 def _iso(value: Any) -> str | None:
@@ -64,16 +68,44 @@ def _number(value: Any) -> float | int | None:
     return value
 
 
-def _road_feature(row: dict[str, Any]) -> dict[str, Any]:
-    score_timestamp = _iso(row.get("data_timestamp"))
-    snow_timestamp = _iso(row.get("snow_pipe_updated_at"))
-    snapshot_timestamp = _iso(row.get("snapshot_date"))
-    timestamp = score_timestamp or snow_timestamp or snapshot_timestamp
-    simulated = bool(
+def _road_timestamp(row: dict[str, Any]) -> str | None:
+    return (
+        _iso(row.get("data_timestamp"))
+        or _iso(row.get("snow_pipe_updated_at"))
+        or _iso(row.get("snapshot_date"))
+    )
+
+
+def _road_is_simulated(row: dict[str, Any]) -> bool:
+    return bool(
         row.get("road_is_simulated")
         or row.get("snow_pipe_is_simulated")
         or row.get("score_is_simulated")
     )
+
+
+def _road_confidence(row: dict[str, Any]) -> float | int:
+    value = row.get("confidence")
+    return _number(value) if value is not None else 0.5
+
+
+def _map_road_feature(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "Feature",
+        "id": row["segment_id"],
+        "geometry": row["geometry_geojson"],
+        "properties": {
+            "segment_id": row["segment_id"],
+            "road_name": row.get("road_name"),
+            "road_type": row.get("road_type"),
+            "snow_pipe": row.get("snow_pipe"),
+            "snow_pipe_operation_status": row.get("operation_status"),
+            "drivability_score": row.get("score"),
+        },
+    }
+
+
+def _road_feature(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "type": "Feature",
         "id": row["segment_id"],
@@ -88,14 +120,14 @@ def _road_feature(row: dict[str, Any]) -> dict[str, Any]:
             "snow_pipe_operation_status": row.get("operation_status"),
             "snow_pipe_effectiveness": _number(row.get("effectiveness")),
             "drivability_score": row.get("score"),
-            "confidence": _number(row.get("confidence")) if row.get("confidence") is not None else 0.5,
+            "confidence": _road_confidence(row),
             "score_factors": row.get("factors"),
             "score_rule_version": row.get("rule_version"),
             "last_plowed_at": _iso(row.get("observed_at")),
             "last_plowed_by": row.get("vehicle_id"),
-            "data_timestamp": timestamp,
+            "data_timestamp": _road_timestamp(row),
             "source": row.get("source"),
-            "is_simulated": simulated,
+            "is_simulated": _road_is_simulated(row),
         },
     }
 
@@ -128,12 +160,19 @@ class MapService:
         self.repository = repository
 
     def roads(self, query: MapQuery) -> dict[str, Any]:
-        matched = self.repository.road_segments(query.bbox, query.limit, query.cursor)
-        features = [_road_feature(row) for row in matched[: query.limit]]
-        timestamps = [item["properties"]["data_timestamp"] for item in features if item["properties"]["data_timestamp"]]
+        matched = self.repository.road_segments(
+            query.bbox,
+            query.limit,
+            query.cursor,
+            query.view == "map",
+        )
+        rows = matched[: query.limit]
+        feature_builder = _map_road_feature if query.view == "map" else _road_feature
+        features = [feature_builder(row) for row in rows]
+        timestamps = [timestamp for row in rows if (timestamp := _road_timestamp(row))]
         next_cursor = (
-            features[-1]["properties"]["segment_id"]
-            if len(matched) > query.limit and features
+            rows[-1]["segment_id"]
+            if len(matched) > query.limit and rows
             else None
         )
         return {
@@ -143,9 +182,10 @@ class MapService:
             "count": len(features),
             "truncated": next_cursor is not None,
             "next_cursor": next_cursor,
+            "view": query.view,
             "data_timestamp": max(timestamps, default=None),
-            "confidence": min((item["properties"]["confidence"] for item in features), default=0.0),
-            "is_simulated": any(item["properties"]["is_simulated"] for item in features),
+            "confidence": min((_road_confidence(row) for row in rows), default=0.0),
+            "is_simulated": any(_road_is_simulated(row) for row in rows),
         }
 
     def road(self, segment_id: str) -> dict[str, Any] | None:

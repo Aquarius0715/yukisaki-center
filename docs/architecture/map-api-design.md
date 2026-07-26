@@ -121,7 +121,7 @@ infrastructure/cdk/
 | メソッド | パス | 用途 | DB参照 |
 |---|---|---|---|
 | GET | `/healthz` | LambdaのLiveness確認 | なし |
-| GET | `/v1/road-segments` | 表示範囲の道路GeoJSON | あり |
+| GET | `/v1/road-segments` | 表示範囲の道路GeoJSON。`view=map`で地図用軽量投影 | あり |
 | GET | `/v1/road-segments/{id}` | 道路区間1件 | あり |
 | GET | `/v1/snowplows` | 除雪車の最新位置 | あり |
 | GET | `/v1/map/snapshot` | 道路と除雪車の一括取得 | あり |
@@ -143,14 +143,14 @@ infrastructure/cdk/
 
 ### 7.1 道路
 
-`road_segments`を基点に、bboxで対象道路を先に絞ってから各道路区間の最新情報を結合する。
+`road_segments`を基点に、bboxで対象道路を先に絞ってから各道路区間の最新情報を結合する。Web地図は`view=map`を指定し、道路形状・名称・種別、指数、消雪パイプ状態だけを取得する。この軽量SQLは除雪履歴を結合せず、指数根拠JSON、勾配、延長、消雪効果もSELECTしない。道路選択時の詳細APIだけが従来の全結合を行う。
 
 | 公開プロパティ | PostgreSQL取得元 |
 |---|---|
 | `segment_id`、道路形状・名称・種別・勾配 | `road_segments` |
 | `snow_pipe`、稼働状態、効果 | `snow_pipe_history`の区間別最新行 |
 | `drivability_score`、根拠、信頼度 | `drivability_scores`の区間別最新行 |
-| `last_plowed_at`、`last_plowed_by` | `snowplow_segment_passages`の区間別最新行 |
+| `last_plowed_at`、`last_plowed_by` | `snowplow_segment_passages`の区間別最新行。詳細APIのみ |
 
 道路はLineStringまたはMultiLineStringのGeoJSON Featureとして返す。`feature.id`と`properties.segment_id`は同じ値とする。
 
