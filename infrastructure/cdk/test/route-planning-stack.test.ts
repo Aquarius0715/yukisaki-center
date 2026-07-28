@@ -39,7 +39,7 @@ describe('RoutePlanningStack', () => {
       PackageType: 'Image',
       Architectures: ['arm64'],
       ReservedConcurrentExecutions: 0,
-      Timeout: 28,
+      Timeout: 29,
       Environment: { Variables: Match.objectLike({ DATABASE_NAME: 'yukisaki' }) },
     });
   });

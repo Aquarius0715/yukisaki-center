@@ -61,7 +61,9 @@ export class RoutePlanningStack extends Stack {
         path.join(__dirname, '../../../services/route-planning'),
         { target: 'runtime', platform: ecrAssets.Platform.LINUX_ARM64 },
       ),
-      timeout: Duration.seconds(28),
+      // API Gateway HTTP API hard-caps the integration timeout at 30s, so 29s
+      // is the most headroom available before the client sees a 504 either way.
+      timeout: Duration.seconds(29),
       memorySize: 2048,
       reservedConcurrentExecutions: 0,
       logGroup,
