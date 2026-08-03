@@ -486,7 +486,7 @@ class RoutingRepository:
                      WHERE operation = 'snow_removal'
                      GROUP BY segment_id
                      HAVING count(*) >= 2
-                     ORDER BY segment_id
+                     ORDER BY random()
                      LIMIT %s
                    )
                    SELECT p.segment_id, p.observed_at

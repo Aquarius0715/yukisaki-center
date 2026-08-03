@@ -548,13 +548,22 @@ function DepartureRecommendationCard({ recommendation }: { recommendation: ApiDe
   if (recommendation.evaluated_segment_ids.length === 0) {
     return <div className="ai-explanation departure-recommendation"><b>おすすめ出発時刻</b><p>この経路の全区間で、直近60分以内に除雪車が通過した実績があります。今すぐの出発で問題ありません。</p><small>実績データに基づく判定です</small></div>
   }
-  const zeroOffsetProbability = recommendation.candidates.find((item) => item.offset_minutes === 0)?.minimum_plow_probability
+  const bestCandidate = recommendation.candidates.find((item) => item.offset_minutes === recommendation.recommended_offset_minutes)
+  const bestProbabilityPercent = Math.round((bestCandidate?.minimum_plow_probability ?? 0) * 100)
+  if (!recommendation.meets_probability_threshold) {
+    return <div className="ai-explanation departure-recommendation">
+      <b>おすすめ出発時刻</b>
+      <p>
+        直近60分の除雪実績が確認できない区間があります。除雪車の通過間隔の統計予測では、今後90分以内に出発時刻をずらしても除雪済みとなっている確率は大きく改善しません（最も高い場合でも約{bestProbabilityPercent}%の推定）。
+      </p>
+      <small>予測（シミュレーション）・指数の判定には使用していません</small>
+    </div>
+  }
   if (recommendation.recommended_offset_minutes === 0) {
     return <div className="ai-explanation departure-recommendation">
       <b>おすすめ出発時刻</b>
       <p>
-        直近60分の除雪実績が確認できない区間がありますが、除雪車の通過間隔の統計予測では、今すぐの出発でも除雪済みとなっている確率は約
-        {Math.round((zeroOffsetProbability ?? 0) * 100)}%と推定されます。今すぐの出発でおおむね問題ありません。
+        直近60分の除雪実績が確認できない区間がありますが、除雪車の通過間隔の統計予測では、今すぐの出発でも除雪済みとなっている確率は約{bestProbabilityPercent}%と推定されます。今すぐの出発で問題ありません。
       </p>
       <small>予測（シミュレーション）・指数の判定には使用していません</small>
     </div>
@@ -564,8 +573,7 @@ function DepartureRecommendationCard({ recommendation }: { recommendation: ApiDe
     <p>
       直近60分の除雪実績が確認できない区間があります。除雪車の通過間隔の統計予測では、
       {departureTimeLabel(recommendation.recommended_departure_time)}
-      （{recommendation.recommended_offset_minutes}分後）の出発だと、除雪が行き届いている見込みが
-      {recommendation.meets_probability_threshold ? '高くなります' : '多少高まります'}。
+      （{recommendation.recommended_offset_minutes}分後）の出発だと、除雪済みとなっている確率が約{bestProbabilityPercent}%まで高くなる見込みです。
     </p>
     <small>予測（シミュレーション）・指数の判定には使用していません</small>
   </div>

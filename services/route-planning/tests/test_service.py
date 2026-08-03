@@ -191,6 +191,31 @@ class PlaceholderCheckingCursor:
         return []
 
 
+class _FakeCursorContext:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def __enter__(self):
+        return self._cursor
+
+    def __exit__(self, *args):
+        return False
+
+
+class _FakeConnection:
+    def __init__(self, cursor):
+        self._cursor = cursor
+
+    def cursor(self):
+        return _FakeCursorContext(self._cursor)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
 class RouteServiceTest(unittest.TestCase):
     def test_validates_public_request_allow_lists(self):
         parsed = RouteRequest.parse(request_payload())
@@ -448,6 +473,20 @@ class RouteServiceTest(unittest.TestCase):
 
         cost_sql = next(sql for sql, _ in cursor.executed if "latest_scores" in sql)
         self.assertIn("e.length_m::float8 / 13.8888888889", cost_sql)
+
+    def test_training_passage_query_samples_segments_randomly(self):
+        # An alphabetical ORDER BY would let whichever segment_ids happen to
+        # sort first dominate the pooled training set every time (and any
+        # mock data seeded for testing could simply never be selected).
+        cursor = PlaceholderCheckingCursor()
+        repository = RoutingRepository(connection_factory=lambda: _FakeConnection(cursor))
+
+        repository.fetch_training_passage_samples(300)
+
+        candidate_sql, parameters = cursor.executed[0]
+        self.assertIn("ORDER BY random()", candidate_sql)
+        self.assertNotIn("ORDER BY segment_id", candidate_sql)
+        self.assertEqual((300,), parameters)
 
     def test_handler_returns_http_response(self):
         planned = RoutePlanningService(FakeRepository()).plan(request_payload())
