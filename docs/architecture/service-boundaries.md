@@ -62,11 +62,11 @@ Snow PipeスタックのCloudTrail data eventは、既存道路スタックや�
 
 ## 除雪車GPSと指数計算
 
-GPS Simulatorは別サービスのECS Fargate Serviceとして1タスク内で3台を走らせる。3台の連続経路を合わせてcurated道路グラフの全道路区間を巡回し、走行距離を均等化する。EventBridgeからRaw専用SQSと前処理専用SQSへfan-outし、Raw ArchiverとMap Matcherを独立させる。Map MatcherはS3 curated道路へ最近傍マッチングし、S3へ保存してからGPS DB LoaderとDrivability ScorerへSQSで通知する。固定デモ時刻`observed_at`と実受信時刻`received_at`を分離し、最新位置は`received_at`で更新する。指数計算はデモ開始時に全道路の初期スナップショットを一括生成し、その後はGPSロード完了をDBの`data_load_runs`で確認して通過区間だけを差分更新する。どちらもS3 `curated/drivability-scores/`へ保存した後に共通RDSへ投影する。
+GPS Simulatorは別サービスのECS Fargate Serviceとして1タスク内で30台を走らせる。30台の連続経路を合わせてcurated道路グラフの全道路区間を巡回し、走行距離を均等化する。EventBridgeからRaw専用SQSと前処理専用SQSへfan-outし、Raw ArchiverとMap Matcherを独立させる。Map MatcherはS3 curated道路へ最近傍マッチングし、S3へ保存してからGPS DB LoaderとDrivability ScorerへSQSで通知する。固定デモ時刻`observed_at`と実受信時刻`received_at`を分離し、最新位置は`received_at`で更新する。指数計算はデモ開始時に全道路の初期スナップショットを一括生成し、その後はGPSロード完了をDBの`data_load_runs`で確認して通過区間だけを差分更新する。どちらもS3 `curated/drivability-scores/`へ保存した後に共通RDSへ投影する。
 
 ## 地図・除雪車の公開API
 
-API Gateway HTTP APIから、private subnetのDockerイメージLambdaを呼び出す。Lambdaだけが専用Security Groupを使って共通RDSの5432番へ接続し、Secrets Managerから共通認証情報を取得する。道路・指数・消雪パイプ・最終除雪はLineString GeoJSON、除雪車3台はPoint GeoJSONで返し、`matched_segment_id`を道路の`segment_id`へ結合する。APIは読み取り専用であり、S3原本の更新、指数再計算、GPS投入は公開しない。
+API Gateway HTTP APIから、private subnetのDockerイメージLambdaを呼び出す。Lambdaだけが専用Security Groupを使って共通RDSの5432番へ接続し、Secrets Managerから共通認証情報を取得する。道路・指数・消雪パイプ・最終除雪はLineString GeoJSON、除雪車30台はPoint GeoJSONで返し、`matched_segment_id`を道路の`segment_id`へ結合する。APIは読み取り専用であり、S3原本の更新、指数再計算、GPS投入は公開しない。
 
 道路形状は地図の`bbox`変更時、除雪車位置は約5秒間隔で別々に取得できる。これにより、位置更新のたびに全道路GeoJSONを再送しない。初期表示用に両方をまとめたスナップショットも提供する。
 

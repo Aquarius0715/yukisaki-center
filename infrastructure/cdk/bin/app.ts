@@ -85,7 +85,7 @@ new GpsPipelineStack(app, `YukisakiGpsPipeline-${environment}`, {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,
   },
-  description: 'Three simulated snowplows streamed through EventBridge, S3, PostgreSQL, and scoring',
+  description: 'Thirty simulated snowplows streamed through EventBridge, S3, PostgreSQL, and scoring',
 });
 
 const routePlanningStack = new RoutePlanningStack(app, `YukisakiRoutePlanning-${environment}`, {

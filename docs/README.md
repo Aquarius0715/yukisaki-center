@@ -10,6 +10,8 @@
 - [地図・除雪車REST API設計書](architecture/map-api-design.md)
 - [雪道経路探索サービス設計書](architecture/route-planning-design.md)
 - [Bedrock AIアシスタント設計書](architecture/ai-assistant-design.md)
+- [走りやすさ指数 数理仕様（PDF）](architecture/drivability-score-formula.pdf) / [TeX](architecture/drivability-score-formula.tex)
+- [走りやすさ指数 総合式スライド（PDF）](architecture/drivability-score-formula-slide.pdf) / [TeX](architecture/drivability-score-formula-slide.tex)
 
 ## 実装ガイド
 

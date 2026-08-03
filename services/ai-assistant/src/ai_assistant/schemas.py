@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 
@@ -97,3 +98,18 @@ DANGER_EXPLANATION_SCHEMA: dict[str, Any] = {
         },
     },
 }
+
+
+def danger_explanation_schema(hazard_ids: list[str]) -> dict[str, Any]:
+    """Restrict hazard_id to exactly the given input values.
+
+    A natural-language "return one item per input hazard" instruction is not
+    reliable enough on its own: the model occasionally fabricates an extra
+    hazard_id that was never in the input. Bedrock's structured-output schema
+    rejects minItems/maxItems above 1 for arrays, so only enum is enforceable
+    here; the response-shape validator in service.py still catches count or
+    ordering mismatches and falls back to the deterministic explanation.
+    """
+    schema = deepcopy(DANGER_EXPLANATION_SCHEMA)
+    schema["properties"]["hazards"]["items"]["properties"]["hazard_id"]["enum"] = hazard_ids
+    return schema

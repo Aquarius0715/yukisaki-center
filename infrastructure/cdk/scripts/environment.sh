@@ -372,7 +372,7 @@ case "${ACTION}" in
     echo "roadSchedule=${ROAD_SCHEDULE} state=$(rule_state "${ROAD_SCHEDULE}")"
     echo "snowManifestRule=${SNOW_MANIFEST_RULE} state=$(rule_state "${SNOW_MANIFEST_RULE}")"
     echo "roadFargate cluster=${ROAD_CLUSTER} runningTasks=$(road_running_task_count)"
-    echo "gpsSimulator cluster=${GPS_CLUSTER} service=${GPS_SERVICE} desiredTasks=$(gps_desired_task_count) runningTasks=$(gps_running_task_count) vehicles=3"
+    echo "gpsSimulator cluster=${GPS_CLUSTER} service=${GPS_SERVICE} desiredTasks=$(gps_desired_task_count) runningTasks=$(gps_running_task_count) vehicles=30"
     if web_is_deployed; then
       echo "web distribution=${WEB_DISTRIBUTION_ID} enabled=$(web_distribution_enabled) status=$(web_distribution_status) url=${WEB_URL}"
     else
@@ -435,7 +435,7 @@ case "${ACTION}" in
     if web_is_deployed; then
       set_web_distribution_enabled true
     fi
-    echo "The unified database is available. Lambda execution and collection rules are enabled, the three-vehicle GPS simulator is starting, and CloudFront Web is enabling when deployed."
+    echo "The unified database is available. Lambda execution and collection rules are enabled, the thirty-vehicle GPS simulator is starting, and CloudFront Web is enabling when deployed."
     ;;
   web-enable)
     require_web_deployment

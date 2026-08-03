@@ -7,6 +7,7 @@ import hashlib
 import logging
 import os
 import time
+from collections import defaultdict
 from typing import Any
 
 from .config import (
@@ -435,6 +436,70 @@ class RoutingRepository:
                 LOGGER.info("route corridor selected margin_degrees=%.2f", margin_degrees)
                 return rows
         return []
+
+    def fetch_latest_passages(
+        self,
+        segment_ids: list[str],
+        before_time: Any,
+    ) -> dict[str, Any]:
+        """Most recent snow_removal passage at or before `before_time`, per segment.
+
+        Feeds the departure-time predictor's "elapsed since last plow" input,
+        so it only ever sees passages already known as of the query's
+        reference_time.
+        """
+        if not segment_ids:
+            return {}
+        with self._connection_factory() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """SELECT s.segment_id, latest.observed_at
+                   FROM unnest(%s::text[]) AS s(segment_id)
+                   LEFT JOIN LATERAL (
+                     SELECT p.observed_at
+                     FROM snowplow_segment_passages p
+                     WHERE p.segment_id = s.segment_id
+                       AND p.operation = 'snow_removal'
+                       AND p.observed_at <= %s
+                     ORDER BY p.observed_at DESC LIMIT 1
+                   ) latest ON true""",
+                (list(segment_ids), before_time),
+            )
+            return {
+                segment_id: observed_at
+                for segment_id, observed_at in cursor.fetchall()
+                if observed_at is not None
+            }
+
+    def fetch_training_passage_samples(self, limit_segments: int) -> dict[str, list[Any]]:
+        """Full passage history for a bounded, network-wide segment sample.
+
+        Unlike `fetch_latest_passages`, this is not bounded by any request's
+        reference_time: it trains the general plow-cadence model on whatever
+        passage history is available, the same way a real deployment would
+        train on past seasons rather than the specific day being queried.
+        """
+        with self._connection_factory() as connection, connection.cursor() as cursor:
+            cursor.execute(
+                """WITH candidate_segments AS (
+                     SELECT segment_id
+                     FROM snowplow_segment_passages
+                     WHERE operation = 'snow_removal'
+                     GROUP BY segment_id
+                     HAVING count(*) >= 2
+                     ORDER BY segment_id
+                     LIMIT %s
+                   )
+                   SELECT p.segment_id, p.observed_at
+                   FROM candidate_segments c
+                   JOIN snowplow_segment_passages p
+                     ON p.segment_id = c.segment_id AND p.operation = 'snow_removal'
+                   ORDER BY p.segment_id, p.observed_at""",
+                (limit_segments,),
+            )
+            grouped: dict[str, list[Any]] = defaultdict(list)
+            for segment_id, observed_at in cursor.fetchall():
+                grouped[segment_id].append(observed_at)
+            return dict(grouped)
 
     def plan(self, request: RouteRequest, max_snap_distance_m: float) -> dict[str, Any]:
         with self._connection_factory() as connection, connection.cursor() as cursor:

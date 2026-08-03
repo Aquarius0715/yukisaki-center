@@ -15,6 +15,8 @@ from .route import build_routes, sample_route
 LOGGER = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
+PUT_EVENTS_MAX_ENTRIES = 10
+
 
 def _latest_road_object(s3: Any, bucket: str) -> dict[str, Any]:
     response = s3.list_objects_v2(Bucket=bucket, Prefix="curated/road-segments/")
@@ -63,7 +65,7 @@ def run_forever() -> None:
         float(os.environ.get("TARGET_LONGITUDE", "138.790865")),
         float(os.environ.get("TARGET_LATITUDE", "37.442762")),
     )
-    if scenario_start.tzinfo is None or vehicle_count != 3 or interval_seconds <= 0:
+    if scenario_start.tzinfo is None or vehicle_count <= 0 or interval_seconds <= 0:
         raise ValueError("scenario time, vehicle count, or interval is invalid")
     s3 = boto3.client("s3")
     eventbridge = boto3.client("events")
@@ -100,9 +102,11 @@ def run_forever() -> None:
                 "EventBusName": event_bus_name,
                 "Time": datetime.now(timezone.utc),
             })
-        response = eventbridge.put_events(Entries=entries)
-        if response.get("FailedEntryCount"):
-            raise RuntimeError(f"EventBridge rejected {response['FailedEntryCount']} GPS events")
+        for batch_start in range(0, len(entries), PUT_EVENTS_MAX_ENTRIES):
+            batch = entries[batch_start:batch_start + PUT_EVENTS_MAX_ENTRIES]
+            response = eventbridge.put_events(Entries=batch)
+            if response.get("FailedEntryCount"):
+                raise RuntimeError(f"EventBridge rejected {response['FailedEntryCount']} GPS events")
         LOGGER.info("Emitted %d GPS events at %s", len(entries), observed_at.isoformat())
         time.sleep(interval_seconds)
 

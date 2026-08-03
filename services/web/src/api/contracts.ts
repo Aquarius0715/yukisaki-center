@@ -156,6 +156,26 @@ export type ApiRoute = {
   is_simulated: boolean
 }
 
+export type ApiDepartureCandidate = {
+  offset_minutes: number
+  departure_time: string
+  minimum_plow_probability: number
+  average_plow_probability: number
+}
+
+export type ApiDepartureRecommendation = {
+  model_version: string
+  is_prediction: boolean
+  is_simulated: boolean
+  basis: string
+  evaluated_segment_ids: string[]
+  recommended_offset_minutes: number
+  recommended_departure_time: string
+  meets_probability_threshold: boolean
+  insufficient_data: boolean
+  candidates: ApiDepartureCandidate[]
+}
+
 export type ApiRouteResponse = {
   request_id: string
   mode: 'time_priority' | 'balanced' | 'drivability_priority' | 'distance_priority' | 'comparison'
@@ -167,6 +187,7 @@ export type ApiRouteResponse = {
   is_simulated: boolean
   recommended_route_id?: string
   routes: ApiRoute[]
+  departure_recommendation: ApiDepartureRecommendation
   warnings: string[]
 }
 

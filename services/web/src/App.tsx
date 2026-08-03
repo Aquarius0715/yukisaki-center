@@ -2,6 +2,7 @@ import { Component, useCallback, useEffect, useMemo, useRef, useState, type Erro
 import { appConfig } from './api/config'
 import { yukisakiApi } from './api/createYukisakiApi'
 import type {
+  ApiDepartureRecommendation,
   ApiRouteResponse,
   DangerExplanation,
   Destination,
@@ -529,18 +530,41 @@ function AppContent() {
     <YukisakiMap roads={data.roads} conditions={data.conditions} snowplows={data.snowplows} layers={layers} currentPosition={currentPosition} destination={destination} routes={screen === 'routes' || screen === 'navigation' ? routes : undefined} activeRouteId={activeRoute} hazards={screen === 'routes' || screen === 'navigation' ? hazardPoints : undefined} onRoadSelect={selectRoad} onPlowSelect={(item) => { setPlow(item); setSheet('plow') }} onHazardSelect={(item) => { setActiveHazardId(item.hazardId); setSheet('hazard') }} onMapDestination={selectDestination} onViewportChange={data.refreshMap} animateSnowplows/>
     {layers.snowEffects && <div className="map-snow" aria-hidden="true"/>}
     {screen === 'home' && <><Search onChoose={selectDestination}/><div className="map-actions"><button onClick={() => setSheet('layers')} aria-label="地図レイヤーを選択">◇</button></div><div className="legend"><b>走りやすさ指数</b><span className="score-gradient"/><small><em>注意 0–59</em><em>60–74</em><em>75–84</em><em>良好 85–100</em></small><span className="legend-unknown"><i/>未算出</span></div>{routeError && <div className="api-warning route-error" role="alert"><b>経路探索エラー</b><span>{routeError}</span></div>}{data.updateStopped && <div className="api-warning" role="alert"><b>更新停止</b><span>最後に取得したデータを表示しています</span></div>}{data.viewportRefreshing && <div className="api-warning truncated" role="status"><b>表示範囲を更新中</b><span>道路データを再取得しています</span></div>}<section className="home-card"><div><small>現在地周辺の走りやすさ</small><h2>{appConfig.demo.area}</h2><p>走りやすさ指数・消雪パイプを道路上に表示</p></div><Score value={averageScore}/><footer><span>更新 {data.meta?.dataTimestamp ? new Date(data.meta.dataTimestamp).toLocaleString('ja-JP',{ timeZone:'Asia/Tokyo' }) : appConfig.demo.label}</span><b>{data.apiOnline === false ? 'API停止中' : data.meta?.source === 'api' ? 'API・デモデータ' : 'モックデータ'}</b></footer></section></>}
-    {screen === 'routes' && <RoutePanel routes={routes} active={activeRoute} setActive={selectRoute} explanation={routeExplanation} aiLoading={aiLoading} back={() => setScreen('home')} start={() => setScreen('navigation')}/>}
+    {screen === 'routes' && <RoutePanel routes={routes} active={activeRoute} setActive={selectRoute} explanation={routeExplanation} aiLoading={aiLoading} departureRecommendation={routeResponse?.departure_recommendation} back={() => setScreen('home')} start={() => setScreen('navigation')}/>}
     {screen === 'navigation' && <NavigationPanel route={routes.find((item) => item.id === activeRoute)} back={() => setScreen('home')}/>} 
     {routeLoading && <div className="route-loading" role="status"><div className="spinner"/>ルート候補を準備しています</div>}
     {sheet === 'layers' && <LayerSheet layers={layers} setLayers={setLayers} close={() => setSheet(undefined)}/>} {sheet === 'road' && road && <RoadSheet road={road} condition={condition} loading={roadDetailLoading} error={roadDetailError} close={() => setSheet(undefined)}/>} {sheet === 'plow' && plow && <PlowSheet plow={plow} close={() => setSheet(undefined)}/>} {sheet === 'hazard' && activeHazard && <HazardSheet hazard={activeHazard} close={() => setSheet(undefined)}/>}
   </div>
 }
 
-function RoutePanel({ routes,active,setActive,explanation,aiLoading,back,start }: { routes: RecommendedRoute[]; active: string; setActive: (id:string) => void; explanation?: RouteExplanation; aiLoading: boolean; back: () => void; start: () => void }) {
+function departureTimeLabel(iso: string) {
+  return new Date(iso).toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })
+}
+
+function DepartureRecommendationCard({ recommendation }: { recommendation: ApiDepartureRecommendation }) {
+  if (recommendation.insufficient_data) {
+    return <div className="ai-explanation departure-recommendation"><b>おすすめ出発時刻</b><p>除雪車の通過実績が少なく、出発時刻の予測はできません（情報不足）。</p></div>
+  }
+  if (recommendation.evaluated_segment_ids.length === 0 || recommendation.recommended_offset_minutes === 0) {
+    return <div className="ai-explanation departure-recommendation"><b>おすすめ出発時刻</b><p>この経路は現在の時刻ですでに直近の除雪範囲内です。今すぐの出発で問題ありません。</p><small>予測（シミュレーション）・指数の判定には使用していません</small></div>
+  }
+  return <div className="ai-explanation departure-recommendation">
+    <b>おすすめ出発時刻</b>
+    <p>
+      {departureTimeLabel(recommendation.recommended_departure_time)}
+      （{recommendation.recommended_offset_minutes}分後）の出発だと、除雪が行き届いている見込みが
+      {recommendation.meets_probability_threshold ? '高くなります' : '多少高まります'}。
+    </p>
+    <small>予測（シミュレーション）・指数の判定には使用していません</small>
+  </div>
+}
+
+function RoutePanel({ routes,active,setActive,explanation,aiLoading,departureRecommendation,back,start }: { routes: RecommendedRoute[]; active: string; setActive: (id:string) => void; explanation?: RouteExplanation; aiLoading: boolean; departureRecommendation?: ApiDepartureRecommendation; back: () => void; start: () => void }) {
   const selectedExplanation = explanation?.routes.find((item) => item.routeId === active)
   return <section className="route-panel"><header><button className="icon-button" onClick={back} aria-label="ホームへ戻る">‹</button><div><b>ルートを選択</b><small>走りやすさの根拠を比較</small></div></header><div className="route-list">
     {explanation && <div className="ai-explanation"><b>AIによる比較説明</b><p>{explanation.recommendationReason}</p>{selectedExplanation && (selectedExplanation.advantages.length > 0 || selectedExplanation.cautions.length > 0) && <div className="reason-list">{selectedExplanation.advantages.map((item) => <span key={item}>✓ {item}</span>)}{selectedExplanation.cautions.map((item) => <span className="warn" key={item}>△ {item}</span>)}</div>}<small>{explanation.metadata.fallback_used ? '定型フォールバック' : explanation.metadata.model_id}</small></div>}
     {!explanation && aiLoading && <div className="ai-explanation ai-loading" role="status"><div className="spinner"/>AIが経路とルート上の注意箇所を分析しています</div>}
+    {departureRecommendation && <DepartureRecommendationCard recommendation={departureRecommendation}/>}
     {routes.map((route) => <button className={`route-card ${active === route.id ? 'active' : ''}`} key={route.id} onClick={() => setActive(route.id)}><div><em>{route.label}</em>{route.label === 'AIおすすめ' && <mark>総合推薦</mark>}<h3>{route.durationMinutes}<small>分</small> <span>{route.distanceKm} km</span></h3></div><Score value={route.drivabilityScore}/><dl><div><dt>直近の除雪実績</dt><dd>{Math.round(route.plowedRatio * 100)}%</dd></div><div><dt>消雪パイプ区間</dt><dd>{Math.round(route.snowmeltPipeRatio * 100)}%</dd></div><div><dt>実績未確認区間</dt><dd>{route.noPlowRecordSegmentCount ?? 'API提供なし'}</dd></div></dl><p>{route.reasons.join('・')}</p>{route.warnings.map((warning) => <span className="route-warning" key={warning}>△ {warning}</span>)}</button>)}
   </div><button className="primary start" onClick={start}>経路の全体を確認</button></section>
 }

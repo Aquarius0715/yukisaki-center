@@ -1,9 +1,9 @@
 import json
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
-from route_planning.config import K_SHORTEST_PATHS
+from route_planning.config import DEPARTURE_CANDIDATE_OFFSETS_MINUTES, K_SHORTEST_PATHS
 from route_planning.handler import handler
 from route_planning.models import Point, RequestValidationError, RouteRequest
 from route_planning.repository import PointNotOnRoadError, RoutingRepository
@@ -40,7 +40,15 @@ def edge(
     }
 
 
-class FakeRepository:
+class NoDeparturePassagesMixin:
+    def fetch_training_passage_samples(self, limit_segments):
+        return {}
+
+    def fetch_latest_passages(self, segment_ids, before_time):
+        return {}
+
+
+class FakeRepository(NoDeparturePassagesMixin):
     def plan(self, request, max_snap_distance_m):
         return {
             "graph_version": "graph-v1", "score_rule_version": "score-v1",
@@ -56,7 +64,7 @@ class FakeRepository:
         }
 
 
-class HazardFactorRepository:
+class HazardFactorRepository(NoDeparturePassagesMixin):
     def plan(self, request, max_snap_distance_m):
         return {
             "graph_version": "graph-v1", "score_rule_version": "score-v1",
@@ -80,7 +88,7 @@ class HazardFactorRepository:
         }
 
 
-class SimilarRoutesRepository:
+class SimilarRoutesRepository(NoDeparturePassagesMixin):
     def plan(self, request, max_snap_distance_m):
         rows = []
         for path_id, final_segment, cost in (
@@ -112,7 +120,7 @@ class SimilarRoutesRepository:
         }
 
 
-class ComparisonRepository:
+class ComparisonRepository(NoDeparturePassagesMixin):
     def __init__(self):
         self.modes = []
 
@@ -144,6 +152,22 @@ class ComparisonRepository:
                 ),
             ],
         }
+
+
+class DeparturePredictionRepository(HazardFactorRepository):
+    """Same single-segment route as HazardFactorRepository, but with enough
+    pooled passage history elsewhere on the network for the departure model
+    to train instead of falling back to insufficient_data."""
+
+    def fetch_training_passage_samples(self, limit_segments):
+        base = datetime.fromisoformat("2026-01-20T00:00:00+09:00")
+        return {
+            f"train-{i}": [base + timedelta(hours=i), base + timedelta(hours=i, minutes=80)]
+            for i in range(30)
+        }
+
+    def fetch_latest_passages(self, segment_ids, before_time):
+        return {}
 
 
 class PlaceholderCheckingCursor:
@@ -187,6 +211,39 @@ class RouteServiceTest(unittest.TestCase):
         self.assertEqual(1, first["routes"][0]["hazard_group_count"])
         self.assertEqual(1.0, first["routes"][0]["score_coverage"])
         self.assertTrue(first["is_simulated"])
+        self.assertNotIn("_path", first["routes"][0])
+        # Every edge in this fixture was plowed 30 minutes before reference_time,
+        # so the top route is already fresh and needs no departure delay.
+        self.assertEqual(0, first["departure_recommendation"]["recommended_offset_minutes"])
+        self.assertFalse(first["departure_recommendation"]["insufficient_data"])
+        self.assertEqual([], first["departure_recommendation"]["evaluated_segment_ids"])
+
+    def test_departure_recommendation_reports_insufficient_data_without_passage_history(self):
+        result = RoutePlanningService(HazardFactorRepository()).plan(request_payload())
+
+        recommendation = result["departure_recommendation"]
+        self.assertTrue(recommendation["insufficient_data"])
+        self.assertEqual(["hazard-seg"], recommendation["evaluated_segment_ids"])
+        self.assertEqual([], recommendation["candidates"])
+        self.assertTrue(recommendation["is_prediction"])
+        self.assertTrue(recommendation["is_simulated"])
+
+    def test_departure_recommendation_predicts_offsets_when_network_history_exists(self):
+        result = RoutePlanningService(DeparturePredictionRepository()).plan(request_payload())
+
+        recommendation = result["departure_recommendation"]
+        self.assertFalse(recommendation["insufficient_data"])
+        self.assertEqual(["hazard-seg"], recommendation["evaluated_segment_ids"])
+        self.assertEqual(len(DEPARTURE_CANDIDATE_OFFSETS_MINUTES), len(recommendation["candidates"]))
+        self.assertIn(recommendation["recommended_offset_minutes"], DEPARTURE_CANDIDATE_OFFSETS_MINUTES)
+        reference_time = datetime.fromisoformat(request_payload()["reference_time"])
+        expected_departure = reference_time + timedelta(minutes=recommendation["recommended_offset_minutes"])
+        self.assertEqual(expected_departure.isoformat(), recommendation["recommended_departure_time"])
+        for candidate in recommendation["candidates"]:
+            self.assertGreaterEqual(candidate["minimum_plow_probability"], 0.0)
+            self.assertLessEqual(candidate["minimum_plow_probability"], 1.0)
+            self.assertGreaterEqual(candidate["average_plow_probability"], 0.0)
+            self.assertLessEqual(candidate["average_plow_probability"], 1.0)
 
     def test_hazard_factors_unwrap_applied_rules_not_the_score_envelope(self):
         service = RoutePlanningService(HazardFactorRepository())

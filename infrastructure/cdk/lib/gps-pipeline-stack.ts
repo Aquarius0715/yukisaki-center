@@ -89,7 +89,7 @@ export class GpsPipelineStack extends Stack {
       environment: {
         ROAD_BUCKET_NAME: props.roadCuratedBucket.bucketName,
         GPS_EVENT_BUS_NAME: this.eventBus.eventBusName,
-        VEHICLE_COUNT: '3',
+        VEHICLE_COUNT: '30',
         EMIT_INTERVAL_SECONDS: String(props.emitIntervalSeconds),
         SCENARIO_START_TIME: props.targetReferenceTime,
         TARGET_LATITUDE: String(props.targetLatitude),

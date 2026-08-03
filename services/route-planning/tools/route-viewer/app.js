@@ -224,8 +224,14 @@ function render(data) {
   if (bounds.length) map.fitBounds(L.latLngBounds(bounds), { padding: [42, 42] });
   selectRoute(0);
   const warnings = data.warnings?.length ? ` 注意: ${data.warnings.join(" / ")}` : "";
+  const departure = data.departure_recommendation;
+  const departureText = departure
+    ? departure.insufficient_data
+      ? " おすすめ出発時刻: 情報不足（予測）"
+      : ` おすすめ出発時刻: ${departure.recommended_departure_time}（${departure.recommended_offset_minutes}分後・予測）`
+    : "";
   setStatus(
-    `${data.routes.length}件を描画しました。グラフ版: ${data.graph_version ?? "不明"}。${warnings}`,
+    `${data.routes.length}件を描画しました。グラフ版: ${data.graph_version ?? "不明"}。${warnings}${departureText}`,
     "success",
   );
 }

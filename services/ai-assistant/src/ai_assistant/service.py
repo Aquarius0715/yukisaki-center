@@ -10,7 +10,7 @@ from .prompts import (
     DANGER_EXPLANATION_SYSTEM_PROMPT,
     ROUTE_EXPLANATION_SYSTEM_PROMPT,
 )
-from .schemas import CONDITION_SCHEMA, DANGER_EXPLANATION_SCHEMA, ROUTE_EXPLANATION_SCHEMA
+from .schemas import CONDITION_SCHEMA, ROUTE_EXPLANATION_SCHEMA, danger_explanation_schema
 
 
 MAX_TEXT_LENGTH = 1_000
@@ -116,24 +116,35 @@ class AssistantService:
         fallback = _fallback_danger_explanation(payload)
 
         def validator(result: dict[str, Any]) -> bool:
+            # Bedrock's structured-output schema can restrict hazard_id to the
+            # known set (enum) but cannot require an exact array length
+            # (minItems/maxItems above 1 are rejected). The model sometimes
+            # repeats the whole set instead of returning it once, so accept
+            # that by de-duplicating rather than forcing a fallback for
+            # otherwise-valid content.
             if set(result) != {"hazards"}:
                 return False
             output_hazards = result.get("hazards")
-            if not isinstance(output_hazards, list) or len(output_hazards) != len(hazard_ids):
+            if not isinstance(output_hazards, list):
                 return False
-            if [item.get("hazard_id") for item in output_hazards] != hazard_ids:
+            by_id: dict[str, dict[str, Any]] = {}
+            for item in output_hazards:
+                if (
+                    isinstance(item, dict)
+                    and set(item) == {"hazard_id", "explanation", "cautions"}
+                    and isinstance(item.get("hazard_id"), str)
+                    and isinstance(item.get("explanation"), str)
+                    and _is_string_list(item.get("cautions"))
+                ):
+                    by_id.setdefault(item["hazard_id"], item)
+            if set(by_id) != set(hazard_ids):
                 return False
-            return all(
-                isinstance(item, dict)
-                and set(item) == {"hazard_id", "explanation", "cautions"}
-                and isinstance(item.get("explanation"), str)
-                and _is_string_list(item.get("cautions"))
-                for item in output_hazards
-            )
+            result["hazards"] = [by_id[hazard_id] for hazard_id in hazard_ids]
+            return True
 
         result, fallback_used = self._generate_or_fallback(
             schema_name="danger_explanations",
-            schema=DANGER_EXPLANATION_SCHEMA,
+            schema=danger_explanation_schema(hazard_ids),
             system_prompt=DANGER_EXPLANATION_SYSTEM_PROMPT,
             payload=payload,
             fallback=fallback,

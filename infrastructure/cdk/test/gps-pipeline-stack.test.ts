@@ -39,7 +39,7 @@ describe('GpsPipelineStack', () => {
   });
   const template = Template.fromStack(stack);
 
-  test('provisions a disabled three-vehicle real-time pipeline', () => {
+  test('provisions a disabled thirty-vehicle real-time pipeline', () => {
     template.resourceCountIs('AWS::Events::EventBus', 1);
     template.resourceCountIs('AWS::Events::Rule', 2);
     template.hasResourceProperties('AWS::ECS::Service', { DesiredCount: 0 });

@@ -1,0 +1,141 @@
+% !TEX program = xelatex
+\documentclass[aspectratio=169,11pt]{beamer}
+
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{tikz}
+
+\setmainfont{Avenir Next}
+\setsansfont{Avenir Next}
+\setmonofont{Menlo}
+\setCJKmainfont{YuGothic}
+\setCJKsansfont{YuGothic}
+\setCJKmonofont{YuGothic}
+
+\definecolor{Night}{HTML}{111C31}
+\definecolor{Panel}{HTML}{1B2B47}
+\definecolor{SnowBlue}{HTML}{4D85FF}
+\definecolor{Ice}{HTML}{EDF5FF}
+\definecolor{Glacier}{HTML}{BBD8FF}
+\definecolor{Gold}{HTML}{FFC857}
+\definecolor{Mint}{HTML}{48D7B0}
+\definecolor{Coral}{HTML}{FF7D7D}
+\definecolor{Muted}{HTML}{AAB8CE}
+\definecolor{Ink}{HTML}{17253B}
+
+\setbeamercolor{background canvas}{bg=Night}
+\setbeamercolor{normal text}{fg=white}
+\setbeamercolor{formula}{fg=Ink,bg=Ice}
+\setbeamercolor{baseline}{fg=white,bg=Panel}
+\setbeamercolor{factors}{fg=white,bg=Panel}
+\setbeamercolor{clip}{fg=white,bg=Panel}
+\setbeamertemplate{navigation symbols}{}
+\setbeamersize{text margin left=9mm,text margin right=9mm}
+
+\newcommand{\score}{\mathcal{D}}
+\newcommand{\clip}{\Pi_{[0,100]}}
+\newcommand{\factor}[1]{\Delta_{\mathrm{#1}}}
+
+\begin{document}
+
+\begin{frame}[plain]
+  \begin{tikzpicture}[remember picture,overlay]
+    \fill[SnowBlue] ([xshift=-22mm,yshift=15mm]current page.north east) circle (31mm);
+    \fill[Night] ([xshift=-9mm,yshift=11mm]current page.north east) circle (29mm);
+    \fill[Mint,opacity=0.16] ([xshift=3mm,yshift=-4mm]current page.south west) circle (24mm);
+    \draw[SnowBlue,line width=1.2pt]
+      ([xshift=9mm,yshift=-13mm]current page.north west) --
+      ([xshift=-9mm,yshift=-13mm]current page.north east);
+  \end{tikzpicture}
+
+  \vspace{0mm}
+  {\sffamily\fontsize{7.5}{9}\selectfont\bfseries\color{SnowBlue}
+    YUKISAKI CENTER / DRIVABILITY SCORE
+  }\par
+  \vspace{1mm}
+  {\sffamily\fontsize{17.5}{20}\selectfont\bfseries
+    走りやすさ指数を、1本の式で表す
+  }\par
+  \vspace{0.5mm}
+  {\sffamily\fontsize{7.8}{9.5}\selectfont\color{Muted}
+    道路区間 $i$ を評価時刻 $t$ で採点し、基準点100に各要因の寄与を加える
+  }\par
+
+  \vspace{2mm}
+  \begin{beamercolorbox}[wd=\textwidth,sep=1.8mm,rounded=true]{formula}
+    \color{Ink}
+    \centering
+    {\fontsize{10.4}{12.5}\selectfont
+    \begin{equation*}
+      \boxed{\begin{aligned}
+      \score_i(t)
+      &=\clip\!\Bigl(
+        \underbrace{\score_0}_{\displaystyle 100}
+        + \factor{snow,i}(t)
+        + \factor{grade,i}
+        + \factor{plow,i}(t) \\
+      &\hspace{19mm}
+        + \factor{road,i}
+        + \factor{pipe,i}(t)
+        + \factor{freeze,i}(t)
+      \Bigr)
+      \end{aligned}}
+    \end{equation*}}
+    \vspace{-2mm}
+    {\fontsize{8.3}{10}\selectfont
+    \begin{equation*}
+      \clip(x)
+      \coloneqq
+      \min\!\left\{100,\,\max\{0,x\}\right\},
+      \qquad \score_0=100
+    \end{equation*}}
+  \end{beamercolorbox}
+
+  \vspace{1.5mm}
+  \begin{columns}[T,totalwidth=\textwidth]
+    \begin{column}{0.22\textwidth}
+      \begin{beamercolorbox}[wd=\linewidth,sep=2mm,rounded=true]{baseline}
+        {\sffamily\fontsize{7}{8}\selectfont\bfseries\color{Gold} 01 / BASELINE}\par
+        \vspace{1mm}
+        {\sffamily\fontsize{9.2}{11}\selectfont\bfseries 基準点は100}\par
+        \vspace{0.5mm}
+        {\fontsize{6.8}{8.2}\selectfont\color{Muted}
+          最も走りやすい状態から開始
+        }
+      \end{beamercolorbox}
+    \end{column}
+    \hfill
+    \begin{column}{0.50\textwidth}
+      \begin{beamercolorbox}[wd=\linewidth,sep=2mm,rounded=true]{factors}
+        {\sffamily\fontsize{7}{8}\selectfont\bfseries\color{SnowBlue} 02 / FACTORS}\par
+        \vspace{1mm}
+        {\sffamily\fontsize{9.2}{11}\selectfont\bfseries 6要因を加点・減点}\par
+        \vspace{0.5mm}
+        {\fontsize{6.8}{8.2}\selectfont
+          $\color{Coral}\Delta_{\mathrm{snow}}$ 降雪\quad
+          $\color{Coral}\Delta_{\mathrm{grade}}$ 勾配\quad
+          $\color{Mint}\Delta_{\mathrm{plow}}$ 除雪\quad
+          $\color{Coral}\Delta_{\mathrm{road}}$ 道路種別\\[0.8mm]
+          $\color{Mint}\Delta_{\mathrm{pipe}}$ 消雪パイプ\quad
+          $\color{Coral}\Delta_{\mathrm{freeze}}$ 凍結湿潤
+        }
+      \end{beamercolorbox}
+    \end{column}
+    \hfill
+    \begin{column}{0.22\textwidth}
+      \begin{beamercolorbox}[wd=\linewidth,sep=2mm,rounded=true]{clip}
+        {\sffamily\fontsize{7}{8}\selectfont\bfseries\color{Mint} 03 / CLIP}\par
+        \vspace{1mm}
+        {\sffamily\fontsize{9.2}{11}\selectfont\bfseries 0〜100に制限}\par
+        \vspace{0.5mm}
+        {\fontsize{6.8}{8.2}\selectfont\color{Muted}
+          有効な指数範囲へ射影
+        }
+      \end{beamercolorbox}
+    \end{column}
+  \end{columns}
+
+\end{frame}
+
+\end{document}

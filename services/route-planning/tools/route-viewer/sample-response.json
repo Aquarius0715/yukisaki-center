@@ -136,6 +136,25 @@
       "is_simulated": true
     }
   ],
+  "departure_recommendation": {
+    "model_version": "departure-logreg-v1",
+    "is_prediction": true,
+    "is_simulated": true,
+    "basis": "logistic regression trained on historical snowplow_segment_passages headways; predicts the probability that this route's least-recently plowed segments will be freshly plowed by a given departure time. Does not affect drivability_score, route cost, or ranking.",
+    "evaluated_segment_ids": ["fixture-3"],
+    "recommended_offset_minutes": 30,
+    "recommended_departure_time": "2026-01-23T12:30:00+09:00",
+    "meets_probability_threshold": true,
+    "insufficient_data": false,
+    "candidates": [
+      { "offset_minutes": 0, "departure_time": "2026-01-23T12:00:00+09:00", "minimum_plow_probability": 0.31, "average_plow_probability": 0.31 },
+      { "offset_minutes": 15, "departure_time": "2026-01-23T12:15:00+09:00", "minimum_plow_probability": 0.48, "average_plow_probability": 0.48 },
+      { "offset_minutes": 30, "departure_time": "2026-01-23T12:30:00+09:00", "minimum_plow_probability": 0.64, "average_plow_probability": 0.64 },
+      { "offset_minutes": 45, "departure_time": "2026-01-23T12:45:00+09:00", "minimum_plow_probability": 0.7, "average_plow_probability": 0.7 },
+      { "offset_minutes": 60, "departure_time": "2026-01-23T13:00:00+09:00", "minimum_plow_probability": 0.74, "average_plow_probability": 0.74 },
+      { "offset_minutes": 90, "departure_time": "2026-01-23T13:30:00+09:00", "minimum_plow_probability": 0.79, "average_plow_probability": 0.79 }
+    ]
+  },
   "warnings": [
     "このレスポンスはローカル地図表示確認専用のシミュレーションfixtureです"
   ]

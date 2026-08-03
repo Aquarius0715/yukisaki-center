@@ -2,10 +2,10 @@
 
 ## 概要
 
-2026年1月23日12:00 JSTをシナリオ開始時刻とし、3台の仮想除雪車を長岡市全域の既存道路上で走らせる。道路グラフをバックトラックを含む連続経路として全域走査し、走行距離が均等になるよう3台へ分割する。3台の経路の和集合はマッピング済みの全道路区間を含む。実在車両・実際の除雪状況ではなく、全データに`is_simulated: true`を保持する。
+2026年1月23日12:00 JSTをシナリオ開始時刻とし、30台の仮想除雪車を長岡市全域の既存道路上で走らせる。道路グラフをバックトラックを含む連続経路として全域走査し、走行距離が均等になるよう30台へ分割する。30台の経路の和集合はマッピング済みの全道路区間を含む。実在車両・実際の除雪状況ではなく、全データに`is_simulated: true`を保持する。
 
 ```text
-GPS Simulator ECS Fargate（1タスク・3台・5秒間隔）
+GPS Simulator ECS Fargate（1タスク・30台・5秒間隔）
   -> EventBridgeカスタムバス
      +-> Raw専用SQS -> Raw Archiver Lambda -> S3 raw/simulated/plow-gps/
      +-> 前処理専用SQS -> Map Matcher Lambda
@@ -24,7 +24,7 @@ S3が正本であり、PostgreSQLは再作成可能な投影である。GPS送�
 
 | 場所 | 責務 |
 |---|---|
-| `services/gps-simulator/` | curated道路から周回経路を作り、3台のGPSイベントをEventBridgeへ送信 |
+| `services/gps-simulator/` | curated道路から周回経路を作り、30台のGPSイベントをEventBridgeへ送信 |
 | `data-ingestion/plow_gps/` | SQSへfan-outされたイベントを検証してS3 rawへ不変保存 |
 | `data-processing/plow_gps/` | 道路マッチング、normalized/curated保存、PostgreSQLロード |
 | `drivability-scoring/` | 気象・道路・消雪パイプ・最終除雪時刻から決定的に指数計算 |
@@ -34,7 +34,7 @@ S3が正本であり、PostgreSQLは再作成可能な投影である。GPS送�
 ## PostgreSQL
 
 ```text
-snowplow_vehicles             車両マスタ（3台）
+snowplow_vehicles             車両マスタ（30台）
 snowplow_positions_latest     地図表示用の最新位置（実受信時刻received_atで更新判定）
 snowplow_segment_passages     道路区間ごとのGPS通過履歴（シナリオ時刻と実受信時刻を保持）
 drivability_scores            時刻・ルール版ごとの指数と根拠

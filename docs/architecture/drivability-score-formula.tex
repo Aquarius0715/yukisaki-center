@@ -1,0 +1,353 @@
+% !TEX program = xelatex
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=22mm,headheight=15pt]{geometry}
+\usepackage{fontspec}
+\usepackage{xeCJK}
+\usepackage{amsmath,amssymb,mathtools}
+\usepackage{booktabs,tabularx,array}
+\usepackage[dvipsnames,table]{xcolor}
+\usepackage{fancyhdr}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\setmainfont{Avenir Next}
+\setsansfont{Avenir Next}
+\setmonofont{Menlo}
+\setCJKmainfont{YuMincho}
+\setCJKsansfont{YuGothic}
+\setCJKmonofont{YuGothic}
+
+\definecolor{Ink}{HTML}{17253B}
+\definecolor{SnowBlue}{HTML}{2F6BFF}
+\definecolor{IceBlue}{HTML}{EAF2FF}
+\definecolor{Glacier}{HTML}{B9D8FF}
+\definecolor{SignalGold}{HTML}{F4B942}
+\definecolor{RiskRed}{HTML}{C74242}
+\definecolor{SafeGreen}{HTML}{16856B}
+\definecolor{Muted}{HTML}{607089}
+\definecolor{RuleGray}{HTML}{D8E0EB}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=SnowBlue,
+  urlcolor=SnowBlue,
+  pdftitle={走りやすさ指数 数理仕様},
+  pdfauthor={yukisaki-center}
+}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\sffamily\small\color{Muted} YUKISAKI CENTER / MODEL NOTE 01}
+\fancyhead[R]{\sffamily\small\color{Muted} RULE VERSION: mvp-2026-01-23-v1}
+\fancyfoot[L]{\sffamily\footnotesize\color{Muted} Deterministic rule-based scoring}
+\fancyfoot[R]{\sffamily\footnotesize\color{Muted} \thepage}
+\renewcommand{\headrulewidth}{0.3pt}
+\renewcommand{\headrule}{\hbox to\headwidth{\color{RuleGray}\leaders\hrule height \headrulewidth\hfill}}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+\setlist[itemize]{leftmargin=1.7em,itemsep=0.25em,topsep=0.25em}
+\renewcommand{\arraystretch}{1.35}
+
+\newcommand{\clip}[1]{\Pi_{[0,100]}\!\left(#1\right)}
+\newcommand{\ind}[1]{\mathbf{1}\!\left[#1\right]}
+\newcommand{\missing}{\varnothing}
+\newcommand{\score}{\mathcal{D}}
+\newcommand{\factor}[1]{\Delta_{\mathrm{#1}}}
+\newcommand{\code}[1]{\texttt{#1}}
+
+\newcommand{\callout}[2]{%
+  \begin{center}
+  \fcolorbox{Glacier}{IceBlue}{\begin{minipage}{0.92\linewidth}
+  \vspace{0.35em}\textsf{\bfseries\color{Ink}#1}\par\smallskip
+  #2
+  \vspace{0.25em}\end{minipage}}
+  \end{center}
+}
+
+\begin{document}
+
+\begin{titlepage}
+  \thispagestyle{empty}
+  \vspace*{13mm}
+  {\sffamily\small\bfseries\color{SnowBlue}\MakeUppercase{Yukisaki Center / Mathematical Specification}}\\[8mm]
+  {\sffamily\fontsize{28}{36}\selectfont\bfseries\color{Ink}
+    走りやすさ指数\\
+    数理仕様
+  }\\[4mm]
+  {\sffamily\Large\color{Muted}
+    Snow-road Drivability Score $\score_i(t)$
+  }
+
+  \vspace{12mm}
+  {\color{SnowBlue}\rule{\linewidth}{2.4pt}}
+  \vspace{9mm}
+
+  \callout{要旨}{
+    道路区間 $i$ の走りやすさを、基準点100に対する加点・減点の和として
+    評価する決定的ルールモデルである。降雪、勾配、除雪経過時間、道路種別、
+    消雪パイプ、凍結湿潤条件を入力し、最終値を $[0,100]$ に射影する。
+    機械学習およびLLMは指数の決定に使用しない。
+  }
+
+  \vfill
+  \begin{tabularx}{\linewidth}{@{}>{\sffamily\bfseries\color{Muted}}p{35mm}X@{}}
+    文書版 & 1.0 \\
+    対象ルール & \code{mvp-2026-01-23-v1} \\
+    対象日時 & 2026年1月23日 12:00 JST \\
+    対象地域 & 新潟県長岡市全域 \\
+    作成日 & 2026年8月3日 \\
+    実装参照 & \nolinkurl{services/drivability-scoring/src/drivability_scoring/engine.py}
+  \end{tabularx}
+\end{titlepage}
+
+\section*{1. 記号と基本モデル}
+
+道路区間 $i$、評価時刻 $t$ に対する走りやすさ指数を $\score_i(t)$ とする。
+実装は初期値 $\mathcal{D}_0=100$ に各要因の寄与 $\Delta$ を加え、クリップ関数で
+0以上100以下へ制限する。
+
+\begin{equation}
+\boxed{
+\score_i(t)
+=
+\clip{
+\mathcal{D}_0
++ \factor{snow,i}(t)
++ \factor{grade,i}
++ \factor{plow,i}(t)
++ \factor{road,i}
++ \factor{pipe,i}(t)
++ \factor{freeze,i}(t)
+}}
+\label{eq:main}
+\end{equation}
+
+\begin{equation}
+\Pi_{[0,100]}(x) \coloneqq \min\!\left\{100,\,\max\{0,x\}\right\},
+\qquad \mathcal{D}_0=100.
+\end{equation}
+
+ここで $\ind{A}$ は命題 $A$ が真なら1、偽なら0を返す指示関数である。
+すべての寄与は整数なので、$\score_i(t)$ も整数となる。大きいほど走りやすく、
+100は最も走りやすい状態、0は通行回避相当を表す。ただし、指数だけで通行可否を
+決定するものではない。
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabularx}{\linewidth}{@{}>{$}l<{$} X l@{}}
+\toprule
+\text{記号} & \textsf{意味} & \textsf{単位・値域} \\
+\midrule
+n_i(t) & 過去1時間降雪量 & cm \\
+g_i & 道路区間の最大勾配 & \% \\
+\tau_i(t) & 最終除雪からの経過時間 & min \\
+r_i & OSM由来の道路種別 & category \\
+p_i(t) & 消雪パイプが存在するか & $\{0,1\}$ \\
+a_i(t) & 消雪パイプの稼働状態 & \code{active} 等 \\
+\theta_i(t) & 気温 & ${}^\circ\mathrm{C}$ \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section*{2. 各要因の区分関数}
+
+\subsection*{2.1 過去1時間降雪量 $\factor{snow}$}
+
+\begin{equation}
+\factor{snow,i}(t)=
+\begin{cases}
+  0,   & n_i(t)\le 0,\\
+  -5,  & 0<n_i(t)<2,\\
+  -15, & 2\le n_i(t)<5,\\
+  -25, & 5\le n_i(t).
+\end{cases}
+\end{equation}
+
+\subsection*{2.2 最大勾配 $\factor{grade}$}
+
+\begin{equation}
+\factor{grade,i}=
+\begin{cases}
+  0,   & g_i<5,\\
+  -10, & 5\le g_i<8,\\
+  -20, & 8\le g_i.
+\end{cases}
+\end{equation}
+
+\subsection*{2.3 最終除雪からの経過時間 $\factor{plow}$}
+
+除雪履歴が存在するとき、未来時刻の誤差で負の経過時間が生じないように
+$\tau_i(t)$ を次式で定義する。
+
+\begin{equation}
+\tau_i(t) \coloneqq
+\max\!\left\{0,\,\frac{t-t_i^{\mathrm{plow}}}{60\ \mathrm{s}}\right\}.
+\end{equation}
+
+\begin{equation}
+\factor{plow,i}(t)=
+\begin{cases}
+  +10, & t_i^{\mathrm{plow}}\ne\missing \ \land\ 0\le\tau_i(t)\le60,\\
+  -8,  & t_i^{\mathrm{plow}}\ne\missing \ \land\ 60<\tau_i(t)<180,\\
+  -15, & t_i^{\mathrm{plow}}\ne\missing \ \land\ 180\le\tau_i(t),\\
+  -15, & t_i^{\mathrm{plow}}=\missing.
+\end{cases}
+\end{equation}
+
+履歴がない場合も「最近除雪された」と推測せず、明示的に $-15$ とする。
+
+\subsection*{2.4 道路種別 $\factor{road}$}
+
+集合
+\begin{align}
+\mathcal{R}_{15} &= \{\code{service},\ \code{track}\},\\
+\mathcal{R}_{10} &= \{\code{residential},\ \code{living\_street},\ \code{unclassified}\}
+\end{align}
+を定め、狭幅員相当の生活道路・サービス道路を次のように評価する。
+
+\begin{equation}
+\factor{road,i}=
+\begin{cases}
+  -15, & r_i\in\mathcal{R}_{15},\\
+  -10, & r_i\in\mathcal{R}_{10},\\
+  0,   & \text{otherwise}.
+\end{cases}
+\end{equation}
+
+\subsection*{2.5 稼働中の消雪パイプ $\factor{pipe}$}
+
+\begin{equation}
+\factor{pipe,i}(t)
+=15\,\ind{p_i(t)=1\ \land\ a_i(t)=\code{active}}.
+\end{equation}
+
+設備が存在するだけでは加点せず、稼働状態が \code{active} の場合に限り $+15$ とする。
+
+\subsection*{2.6 凍結湿潤条件 $\factor{freeze}$}
+
+\begin{equation}
+\factor{freeze,i}(t)
+=-20\,
+\ind{\theta_i(t)\ne\missing}\,
+\ind{-3\le\theta_i(t)\le1}\,
+\ind{n_i(t)>0}.
+\end{equation}
+
+現在の実装では、気温が $-3\,{}^\circ\mathrm{C}$ 以上 $1\,{}^\circ\mathrm{C}$ 以下で、
+かつ過去1時間降雪量が正の場合を凍結湿潤条件として扱う。気温欠損時にはこの要因を
+適用しない。
+
+\clearpage
+\section*{3. データ信頼度}
+
+指数 $\score_i(t)$ と信頼度 $\mathcal{C}_i(t)$ は分離する。実装が完全性を確認する
+5項目の集合を
+\begin{equation}
+\mathcal{K}=\{n_i,\ g_i,\ t_i^{\mathrm{plow}},\ p_i,\ \theta_i\}
+\end{equation}
+とすると、信頼度は次式である。
+
+\begin{equation}
+\boxed{
+\mathcal{C}_i(t)
+=\operatorname{round}_{2}
+\left(
+\frac{1}{|\mathcal{K}|}
+\sum_{x\in\mathcal{K}}\ind{x\ne\missing}
+\right)
+}
+\qquad 0\le\mathcal{C}_i(t)\le1.
+\end{equation}
+
+\code{road\_type} と \code{snow\_pipe\_operation\_status} は評価には使うが、現行の
+信頼度の分母・分子には含めない。信頼度が低いことだけを理由に $\score_i(t)$ を
+危険側へ変更しない。また、入力が仮データを含む場合は指数とは別に
+\code{is\_simulated=true} を保持する。
+
+\section*{4. 計算例}
+
+\subsection*{例A：降雪中だが直近除雪・消雪設備あり}
+
+入力を
+\[
+n=3,\quad g=5,\quad \tau=30,\quad p=1,\quad a=\code{active},
+\quad \theta=-1
+\]
+とする。道路種別による減点はないものとする。このとき
+\begin{align}
+\score
+&=\clip{100-15-10+10+0+15-20}\\
+&=\boxed{80}.
+\end{align}
+
+\subsection*{例B：急勾配かつ除雪履歴なし}
+
+入力を $n=0,\ g=9,\ t^{\mathrm{plow}}=\missing,\ p=0,\ \theta=-5$ とする。
+\begin{align}
+\score
+&=\clip{100+0-20-15+0+0+0}\\
+&=\boxed{65}.
+\end{align}
+
+\callout{クリップの意味}{
+  複数のリスクが重なって合計が0未満になっても指数は0、加点後に100を超えても
+  指数は100となる。したがって、出力契約 $\score\in[0,100]$ は常に維持される。
+}
+
+\clearpage
+\section*{5. 実装との対応}
+
+\begin{table}[h]
+\centering
+\footnotesize
+\begin{tabularx}{\linewidth}{@{}l r >{\raggedright\arraybackslash}X@{}}
+\toprule
+\textsf{寄与} & \textsf{点数} & \textsf{出力される要因識別子} \\
+\midrule
+降雪 & $-5,-15,-25$ & \nolinkurl{light_hourly_snowfall},\newline \nolinkurl{moderate_hourly_snowfall},\newline \nolinkurl{heavy_hourly_snowfall} \\
+勾配 & $-10,-20$ & \nolinkurl{moderate_slope}, \nolinkurl{steep_slope} \\
+除雪 & $+10,-8,-15$ & \nolinkurl{plowed_within_60_minutes},\newline \nolinkurl{plowed_60_to_180_minutes_ago},\newline \nolinkurl{plowed_over_180_minutes_ago}, \nolinkurl{no_plow_history} \\
+道路種別 & $-10,-15$ & \nolinkurl{narrow_road} \\
+消雪パイプ & $+15$ & \nolinkurl{active_snow_pipe} \\
+凍結湿潤 & $-20$ & \nolinkurl{freezing_wet_condition} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+計算結果には指数・信頼度だけでなく、入力値、適用要因、評価時刻、
+\nolinkurl{rule_version}、\nolinkurl{is_simulated} を保存する。S3の
+\nolinkurl{curated/drivability-scores/} を正本とし、その後PostgreSQLへ投影する。
+
+\section*{6. 適用範囲と今後の拡張}
+
+本式は「要件上の将来像」ではなく、\textbf{現在のコードが実際に実行する式}を表す。
+要件書にある次の候補は、現ルール版ではまだ $\score_i(t)$ に含まれない。
+
+\begin{itemize}
+  \item 除雪後累積降雪量、3時間降雪量、今後1時間の予測降雪量
+  \item 積雪深、再凍結、橋梁、風速・吹きだまり
+  \item 車線数、制限速度、標高、トンネル、通行規制
+  \item 観測地点距離やデータ鮮度を使った、より詳細な信頼度補正
+\end{itemize}
+
+これらを導入する場合は、新しい寄与 $\Delta_k$ として式へ追加し、閾値・点数・
+相関する要因の上限減点を定義したうえで \code{rule\_version} を更新する。
+通行止めは指数の加減点ではなく、経路探索グラフから除外する制約として扱う。
+
+\callout{安全境界}{
+  この指数はルールベースの比較指標であり、道路の通行可能性や絶対的な安全を保証しない。
+  LLMは確定済みの入力・要因・指数を自然言語で説明するだけで、指数、危険度、
+  通行可否を決定しない。
+}
+
+\vfill
+{\color{RuleGray}\rule{\linewidth}{0.5pt}}
+{\sffamily\footnotesize\color{Muted}
+Source of truth: \nolinkurl{services/drivability-scoring/src/drivability_scoring/engine.py}\\
+Rule version: \code{mvp-2026-01-23-v1}
+}
+
+\end{document}

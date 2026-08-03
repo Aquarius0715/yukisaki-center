@@ -4,15 +4,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
+from . import departure_advisor
 from .config import (
     COMPARISON_OVERLAP_LIMITS,
     COST_CONFIG_VERSION,
+    DEPARTURE_MIN_TRAINING_SAMPLES,
+    DEPARTURE_MODEL_CACHE_TTL_SECONDS,
+    DEPARTURE_TRAINING_SEGMENT_LIMIT,
     MAX_CANDIDATES,
     MAX_SNAP_DISTANCE_M,
     SIMILARITY_THRESHOLD,
@@ -164,6 +169,9 @@ def _aggregate(path: list[dict[str, Any]], request: RouteRequest, versions: dict
         "is_simulated": any(
             bool(edge["score_is_simulated"] or edge["edge_is_simulated"]) for edge in path
         ),
+        # Internal only: consumed by the departure-time predictor, stripped
+        # in _response before the route is serialized.
+        "_path": path,
     }
 
 
@@ -275,6 +283,8 @@ def _pick_profile_route(
 class RoutePlanningService:
     def __init__(self, repository: RoutingRepository | None = None):
         self.repository = repository or RoutingRepository()
+        self._departure_model: departure_advisor.LogisticModel | None = None
+        self._departure_model_trained_at: float = float("-inf")
 
     def plan(self, payload: Any) -> dict[str, Any]:
         request = RouteRequest.parse(payload)
@@ -282,7 +292,41 @@ class RoutePlanningService:
             return self._plan_comparison(payload, request)
         result, diverse, versions = self._plan_mode(request)
         _labels(diverse, request.mode)
-        return self._response(payload, request, result, diverse, versions)
+        departure_recommendation = self._departure_recommendation(diverse[0], request.reference_time)
+        return self._response(payload, request, result, diverse, versions, departure_recommendation)
+
+    def _get_departure_model(self) -> departure_advisor.LogisticModel | None:
+        now = time.monotonic()
+        if (
+            self._departure_model is not None
+            and now - self._departure_model_trained_at < DEPARTURE_MODEL_CACHE_TTL_SECONDS
+        ):
+            return self._departure_model
+        passages = self.repository.fetch_training_passage_samples(DEPARTURE_TRAINING_SEGMENT_LIMIT)
+        features, labels = departure_advisor.build_training_samples(passages)
+        model = (
+            departure_advisor.fit_logistic_regression(features, labels)
+            if len(features) >= DEPARTURE_MIN_TRAINING_SAMPLES
+            else None
+        )
+        self._departure_model = model
+        self._departure_model_trained_at = now
+        return model
+
+    def _departure_recommendation(
+        self,
+        primary_route: dict[str, Any],
+        reference_time: datetime,
+    ) -> dict[str, Any]:
+        path = primary_route["_path"]
+        weak_ids = departure_advisor.weak_segment_ids(path, reference_time)
+        if not weak_ids:
+            return departure_advisor.no_wait_needed_response(reference_time)
+        model = self._get_departure_model()
+        if model is None:
+            return departure_advisor.insufficient_data_response(reference_time, weak_ids)
+        latest_passages = self.repository.fetch_latest_passages(weak_ids, reference_time)
+        return departure_advisor.recommend_departure(model, weak_ids, latest_passages, reference_time)
 
     def _plan_mode(
         self,
@@ -348,7 +392,8 @@ class RoutePlanningService:
             if label == "balanced":
                 recommended_route_id = route["route_id"]
 
-        response = self._response(payload, request, balanced_result, selected, versions)
+        departure_recommendation = self._departure_recommendation(selected[0], request.reference_time)
+        response = self._response(payload, request, balanced_result, selected, versions, departure_recommendation)
         response["recommended_route_id"] = recommended_route_id or selected[0]["route_id"]
         return response
 
@@ -359,9 +404,11 @@ class RoutePlanningService:
         result: dict[str, Any],
         diverse: list[dict[str, Any]],
         versions: dict[str, str],
+        departure_recommendation: dict[str, Any],
     ) -> dict[str, Any]:
         for rank, route in enumerate(diverse, start=1):
             route["rank"] = rank
+            route.pop("_path", None)
         warnings = []
         if any(route["score_coverage"] < 1 for route in diverse):
             warnings.append("走りやすさ指数が未算出の区間を含みます")
@@ -379,5 +426,6 @@ class RoutePlanningService:
                 "origin": result["origin"], "destination": result["destination"],
             },
             "routes": diverse,
+            "departure_recommendation": departure_recommendation,
             "warnings": warnings,
         }

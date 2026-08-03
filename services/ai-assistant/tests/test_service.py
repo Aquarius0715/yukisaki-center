@@ -264,6 +264,49 @@ class AssistantTest(unittest.TestCase):
         self.assertEqual(response["result"], output)
         self.assertFalse(response["metadata"]["fallback_used"])
 
+    def test_danger_output_deduplicates_a_repeated_hazard_set_instead_of_falling_back(self):
+        # Observed live: Bedrock sometimes returns the whole hazard set twice
+        # instead of once. That's still fully grounded content, so it should
+        # be cleaned up and accepted rather than discarded for the fallback.
+        output = {
+            "hazards": [
+                {"hazard_id": "h-1", "explanation": "説明1", "cautions": ["注意1"]},
+                {"hazard_id": "h-2", "explanation": "説明2", "cautions": ["注意2"]},
+                {"hazard_id": "h-1", "explanation": "説明1重複", "cautions": ["注意1重複"]},
+                {"hazard_id": "h-2", "explanation": "説明2重複", "cautions": ["注意2重複"]},
+            ]
+        }
+        payload = {
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "is_simulated": True,
+            "hazards": [
+                {"hazard_id": "h-1", "rules": ["bridge"]},
+                {"hazard_id": "h-2", "rules": ["bridge"]},
+            ],
+        }
+        response = AssistantService(FakeGenerator(output)).explain_danger_points(payload)
+        self.assertFalse(response["metadata"]["fallback_used"])
+        self.assertEqual(
+            ["h-1", "h-2"],
+            [item["hazard_id"] for item in response["result"]["hazards"]],
+        )
+        self.assertEqual("説明1", response["result"]["hazards"][0]["explanation"])
+
+    def test_danger_output_falls_back_when_a_hazard_id_is_not_in_the_input(self):
+        output = {
+            "hazards": [
+                {"hazard_id": "h-1", "explanation": "説明1", "cautions": ["注意1"]},
+                {"hazard_id": "h-invented", "explanation": "捏造", "cautions": ["注意"]},
+            ]
+        }
+        payload = {
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "is_simulated": True,
+            "hazards": [{"hazard_id": "h-1", "rules": ["bridge"]}],
+        }
+        response = AssistantService(FakeGenerator(output)).explain_danger_points(payload)
+        self.assertTrue(response["metadata"]["fallback_used"])
+
     def test_danger_fallback_explains_rules_without_simulated_wording(self):
         payload = {
             "data_timestamp": "2026-01-23T12:00:00+09:00",
@@ -286,6 +329,31 @@ class AssistantTest(unittest.TestCase):
         self.assertIn("急勾配", response["result"]["hazards"][0]["explanation"])
         self.assertEqual(2, len(response["result"]["hazards"][0]["cautions"]))
         self.assertTrue(response["metadata"]["is_simulated"])
+
+    def test_danger_schema_pins_hazard_count_and_ids_to_prevent_fabrication(self):
+        # A natural-language "one item per input" instruction was not reliable
+        # enough on its own: Bedrock occasionally invented an extra hazard_id
+        # that was never in the input. The schema must hard-constrain this.
+        generator = FakeGenerator({
+            "hazards": [
+                {"hazard_id": "h-1", "explanation": "a", "cautions": ["b"]},
+                {"hazard_id": "h-2", "explanation": "c", "cautions": ["d"]},
+            ]
+        })
+        payload = {
+            "data_timestamp": "2026-01-23T12:00:00+09:00",
+            "is_simulated": True,
+            "hazards": [
+                {"hazard_id": "h-1", "rules": ["bridge"]},
+                {"hazard_id": "h-2", "rules": ["bridge"]},
+            ],
+        }
+
+        AssistantService(generator).explain_danger_points(payload)
+
+        schema = generator.calls[-1]["schema"]
+        hazards_schema = schema["properties"]["hazards"]
+        self.assertEqual(["h-1", "h-2"], hazards_schema["items"]["properties"]["hazard_id"]["enum"])
 
     def test_danger_fallback_differentiates_hazards_sharing_the_same_rules(self):
         payload = {

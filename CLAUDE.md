@@ -20,13 +20,14 @@
 - 道路ネットワークは独立したECS FargateスタックでOpenStreetMapから収集し、道路専用S3バケットの`raw/osm/road-network/`へ保存
 - 道路完了manifestをEventBridgeで検知し、Step FunctionsとLambdaで道路名に基づく消雪パイプ仮データを生成する。生成した`raw/simulated/snow-pipe/`と道路を統合した`curated/road-segments/`は、道路入力バケットとは別のSnow Pipe専用S3バケットへ保存
 - curated道路はSQSを介してprivate Lambdaから共通RDS PostgreSQL `yukisaki`の`road_segments`と`snow_pipe_history`へ冪等ロードする。気象と同じDBインスタンス・DBユーザー・Secrets Manager認証情報を使用し、RDS停止中もS3処理を継続してロード要求をキューに保持する
-- GPSシミュレータは1つのECS Fargateタスク内で3台の除雪車を5秒間隔で走行させ、3台の経路の和集合でマッピング済み全道路区間を巡回する。固定デモ時刻`observed_at`と実受信時刻`received_at`を分離し、最新位置は`received_at`で更新する。EventBridgeカスタムバスから2つのSQSへfan-outし、S3 `raw/`への不変保存と、道路区間へマッチングした`normalized/`・`curated/snowplow-passages/`を経由する共通RDS投影を分離する
+- GPSシミュレータは1つのECS Fargateタスク内で30台の除雪車を5秒間隔で走行させ、30台の経路の和集合でマッピング済み全道路区間を巡回する。固定デモ時刻`observed_at`と実受信時刻`received_at`を分離し、最新位置は`received_at`で更新する。EventBridgeカスタムバスから2つのSQSへfan-outし、S3 `raw/`への不変保存と、道路区間へマッチングした`normalized/`・`curated/snowplow-passages/`を経由する共通RDS投影を分離する
 - 走りやすさ指数はデモ開始時に全道路を一括評価し、その後はGPSロード後にSQSから通過区間を差分評価する。気象、勾配、消雪パイプ、最終除雪時刻を決定的なルールへ入力し、S3 `curated/drivability-scores/`を正本として共通RDS `drivability_scores`へ投影する
 - 消雪パイプ仮データは`road-name-active-v2`を使い、道路名がある区間を`snow_pipe=true`かつ`operation_status=active`、道路名がない区間を`inactive`とする
 - REST APIはAPI Gateway HTTP APIとDockerイメージLambdaで実装し、共通RDSの道路・指数・消雪パイプ・最新除雪車位置をGeoJSONで返す。道路Geometryの外接矩形をRDSへ保持し、GiST式インデックスを使う`bbox`条件、任意の`min_road_rank`、SQL件数上限の順で絞る。最新の指数と消雪パイプ状態は一覧向けインデックスから参照し、Web地図は`view=map`の軽量道路投影を使う。指数根拠・勾配・除雪履歴等は道路選択時の詳細APIで取得し、GPSは別エンドポイントから更新できる
 - 地点名称検索はApple Maps Server API専用のVPC外Docker Lambdaへ分離し、長岡市内の検索・入力補完だけを公開する。`server_api`秘密鍵はSecrets Managerへ置き、ブラウザ用MapKit JSトークンと分離する。Webへの接続は未実施
 - 2026-07-24にApple Maps地点名称検索をAWSへデプロイ済み。署名JWTをToken APIでaccess tokenへ交換し、`GET /v1/places/search`と`GET /v1/places/autocomplete`で長岡市内の実検索結果を確認済み
-- 経路探索は道路収集時のOSMノード・分割ノード・方向・速度・accessをS3 curatedからPostGIS/pgRoutingへ投影し、最寄りedge距離で検証する地点スナップ、版付き動的コストキャッシュ、二段階の探索回廊内でのK最短候補、危険区間集計を行うDocker Lambdaと`POST /v1/routes`をAWSへデプロイ済み。道路グラフもロード済みで、公開APIから最大3候補を利用できる。総合バランス、走りやすさ、距離の各上位20候補から全体・中間区間の重複率上限を満たす候補だけを返す`comparison`モードはローカル実装済み・AWS未デプロイ
+- 経路探索は道路収集時のOSMノード・分割ノード・方向・速度・accessをS3 curatedからPostGIS/pgRoutingへ投影し、最寄りedge距離で検証する地点スナップ、版付き動的コストキャッシュ、二段階の探索回廊内でのK最短候補、危険区間集計を行うDocker Lambdaと`POST /v1/routes`をAWSへデプロイ済み。道路グラフもロード済みで、公開APIから最大3候補を利用できる。総合バランス、走りやすさ、距離の各上位20候補から全体・中間区間の重複率上限を満たす候補だけを返す`comparison`モードもAWSへデプロイ済みで、`POST /v1/routes`の`mode: "comparison"`から利用できる
+- `POST /v1/routes`は代表経路のうち直近60分以内に除雪されていない区間を対象に、`snowplow_segment_passages`の通過間隔から学習したロジスティック回帰でおすすめ出発時刻を予測し、`departure_recommendation`として返す（route-planning内で完結、外部ML基盤は不使用）。この予測は`is_prediction`/`is_simulated`を明示する補助情報であり、走りやすさ指数・経路コスト・順位には影響しない。ローカル実装・テスト済みで、AWS未デプロイ
 - AIサービスはAmazon BedrockのStructured Outputsを使うDocker Lambdaとして実装し、自然言語の条件抽出、確定済み経路の比較説明、確定済み危険要因の説明を別APIで提供する。`POST /v1/ai/explain-routes`は従来の経路APIレスポンスを直接受け取り、Geometry等を除いた根拠だけをLLMへ渡す。詳細な自然文説明とフォールバック改善をAWSへデプロイ済み。識別子変更、根拠外推測、Bedrock失敗時は定型文へフォールバックし、指数・順位・通行可否は決定しない
 - WebはReactとApple MapKit JSで実装し、非公開S3とCloudFront OACで配信するCDKスタックを持つ。CloudFrontからAPI Gatewayへ`/v1/*`を同一オリジン転送し、道路一覧・道路詳細・snapshotは固定表示タイルと全クエリをキーに90秒間共有キャッシュする。除雪車やPOST APIはキャッシュしない。道路は広域を含めて最大2並列・1,500件単位で段階取得し、広域では縮尺別の`min_road_rank`で絞ってからページングする。MapKit Overlayは差分更新し、デプロイ直後はCloudFrontを無効とする
 - MapKit JSトークンはGit管理外の`services/web/env.local`からSecrets Managerへ同期し、CDKデプロイ時だけ取得する。トークンはCloudFrontドメインへ制限し、ログやCloudFormationへ直接出力しない
@@ -37,6 +38,7 @@
 - 2026-07-23に長岡市全域版をAWSへデプロイ・再収集済み。共通RDSで気象35地点245件、道路133,013件、道路名あり36,383件すべての消雪パイプ`active`、全道路133,013件の走りやすさ指数を確認した。S3 raw/normalized/curatedを正本として維持し、公開APIで消雪パイプ`active`と指数を確認済み
 - 2026-07-26にAnthropic use case details formの提出とAWS Marketplace初回購読を完了し、Claude Sonnet 4.5の直接呼び出しと`POST /v1/ai/parse-route-request`で`fallback_used: false`の実推論を確認済み
 - 2026-07-26に経路候補の選抜改善とAI詳細説明をAWSへデプロイし、公開`POST /v1/routes`の3候補、`POST /v1/ai/explain-routes`のClaude実推論、仮データ文言と根拠外推測を説明本文へ含めない安全境界を確認済み
+- 2026-07-29に全8スタックのAWS実環境をローカルコードと突合し、bastion AMIの定型差分以外は差分なし（AI・経路探索を含む全Lambdaイメージが一致）と確認したうえで`env:start`を実行し、RDS・全Lambda・3つのEventBridge Rule・道路/GPS Fargate・Web CloudFrontを起動。公開APIで`comparison`モード、`POST /v1/ai/parse-route-request`の`fallback_used: false`実推論、除雪車3台のGPS追従を確認済み
 - 旧JMA Atom Collector、旧Normalizer、固定fixture Lambda、旧気象用EventBridge SchedulerはAWSから削除済み
 - AWS実行系は開発・デモ時だけ起動し、`npm run env:start|stop|status`で管理する。S3等の正本は停止対象にしない
 - RDSの直接確認は`db:start|stop`でRDSとSSM踏み台をまとめて起動・停止し、Session Managerで入って踏み台内の`yukisaki-psql`から行う。RDSは非公開とし、踏み台には受信ルールを設けない
@@ -58,7 +60,7 @@ docs/                         要件、設計、運用手順
   guides/                     実装ガイド
 
 services/                     アプリケーションサービス
-  gps-simulator/              除雪車3台のGPSモック送信
+  gps-simulator/              除雪車30台のGPSモック送信
   data-ingestion/             外部・仮データをS3 rawへ収集
   data-processing/            正規化、curated化、PostgreSQLロード
   drivability-scoring/        ルールベースの走りやすさ指数

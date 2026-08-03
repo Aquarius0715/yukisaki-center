@@ -303,11 +303,27 @@ Content-Type: application/json
       "is_simulated": true
     }
   ],
+  "departure_recommendation": {
+    "model_version": "departure-logreg-v1",
+    "is_prediction": true,
+    "is_simulated": true,
+    "basis": "logistic regression trained on historical snowplow_segment_passages headways ...",
+    "evaluated_segment_ids": ["..."],
+    "recommended_offset_minutes": 30,
+    "recommended_departure_time": "2026-01-23T12:30:00+09:00",
+    "meets_probability_threshold": true,
+    "insufficient_data": false,
+    "candidates": [
+      {"offset_minutes": 0, "departure_time": "2026-01-23T12:00:00+09:00", "minimum_plow_probability": 0.31, "average_plow_probability": 0.31}
+    ]
+  },
   "warnings": []
 }
 ```
 
 `route_id`は、正規化したリクエスト、グラフ版、指数版、edge列から決定的に生成する。同じ入力・同じデータ版で同じ結果を再現できるようにする。
+
+`departure_recommendation`は、先頭経路（`comparison`では`recommended_route_id`と同じ経路）のうち直近60分以内に除雪されていない区間を対象に、そのおすすめ出発時刻を予測する補助情報である。`snowplow_segment_passages`の通過間隔から学習したロジスティック回帰で、候補待ち時間（0/15/30/45/60/90分）ごとに「対象区間が除雪済みとなっている確率」を推定し、閾値0.6を満たす最短の待ち時間を`recommended_offset_minutes`とする。対象区間が無ければ`recommended_offset_minutes: 0`で即時出発を返し、学習に十分な通過履歴が無ければ`insufficient_data: true`とする。この値は`is_prediction: true`・`is_simulated: true`を伴う統計的な予測であり、経路のコスト計算・順位・`drivability_score`には反映しない（[要件定義書](../requirements/snow_safe_route_requirements.md)4節が定める「走りやすさ指数はルールベースで算出する」という基本方針を維持するため、経路選択とは完全に切り離す）。
 
 ### 10.3 エラー
 
@@ -347,6 +363,8 @@ API Gatewayを公開の入口とし、経路探索は`services/route-planning`�
 LLMによる比較説明は探索後の別処理とする。`POST /v1/routes`のレスポンスを`POST /v1/ai/explain-routes`へ渡し、AIサービス側でGeometryと区間IDを除去してから、順位、距離、所要時間、指数、除雪率、消雪パイプ率、危険要因だけをBedrockへ送る。LLMは順位・指数・危険度を変更しない。
 
 低頻度のMVPではFargate常駐サービスよりLambdaを優先する。探索がLambdaの時間・メモリ制約を継続的に超える、対象地域が大幅に拡大する、またはGraphHopper/Valhallaを採用する段階でECS Fargate Serviceへ移行する。
+
+おすすめ出発時刻の予測（`departure_advisor.py`）も同じLambda内で完結する追加処理であり、`snowplow_segment_passages`の読み取り専用問い合わせとPython実装のロジスティック回帰だけで完結する（外部ML基盤・推論エンドポイントは使用しない）。学習済みモデルはLambdaインスタンス内でのみキャッシュし、他サービスやAPIレスポンスの他フィールドへは波及させない。
 
 ## 12. AWS構成
 

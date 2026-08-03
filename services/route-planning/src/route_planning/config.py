@@ -42,3 +42,27 @@ STEEP_ROAD_PENALTY_S = 300.0
 BRIDGE_PENALTY_S = 300.0
 NON_MAIN_ROAD_PENALTY_S = 15.0
 STALE_PLOW_PENALTY_S = 20.0
+
+# Predictive departure-time recommendation. This is a separate, clearly
+# labelled statistical layer on top of the route response — it estimates
+# how likely a plow will have freshly passed the route's weakest segments by
+# a candidate departure time. It never recomputes drivability_score, route
+# cost, or ranking, which stay rule-based per AGENTS.md.
+DEPARTURE_MODEL_VERSION = "departure-logreg-v1"
+# Matches the 60-minute "freshly plowed" window already used for
+# plowed_ratio and the drivability scoring +10 rule.
+DEPARTURE_FRESH_WINDOW_MINUTES = 60
+DEPARTURE_CANDIDATE_OFFSETS_MINUTES = (0, 15, 30, 45, 60, 90)
+DEPARTURE_SAMPLE_STEP_MINUTES = 5
+DEPARTURE_MIN_TRAINING_SAMPLES = 20
+DEPARTURE_PROBABILITY_THRESHOLD = 0.6
+# Segments with no observed plow history get this sentinel elapsed time fed
+# to the model. It sits outside the range real elapsed values can take in
+# training, so the model treats it as "long stale".
+DEPARTURE_NO_HISTORY_ELAPSED_MINUTES = 240.0
+# How many distinct segments (each needing >=2 historical passages) feed the
+# pooled headway model. Bounds the training query, not the per-request one.
+DEPARTURE_TRAINING_SEGMENT_LIMIT = 300
+# Retrain only this often per warm Lambda container; passage cadence changes
+# slowly relative to a single route request.
+DEPARTURE_MODEL_CACHE_TTL_SECONDS = 600
