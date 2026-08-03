@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
@@ -24,6 +25,8 @@ from .config import (
 )
 from .models import RouteRequest
 from .repository import GraphUnavailableError, RoutingRepository
+
+LOGGER = logging.getLogger(__name__)
 
 
 def _path_groups(rows: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -309,6 +312,11 @@ class RoutePlanningService:
             if len(features) >= DEPARTURE_MIN_TRAINING_SAMPLES
             else None
         )
+        LOGGER.info(
+            "departure model trained pooled_segments=%d samples=%d model_trained=%s max_observed_elapsed=%s",
+            len(passages), len(features), model is not None,
+            getattr(model, "max_observed_elapsed_minutes", None),
+        )
         self._departure_model = model
         self._departure_model_trained_at = now
         return model
@@ -324,8 +332,19 @@ class RoutePlanningService:
             return departure_advisor.no_wait_needed_response(reference_time)
         model = self._get_departure_model()
         if model is None:
+            LOGGER.info("departure recommendation insufficient_data reason=no_model weak_segments=%d", len(weak_ids))
             return departure_advisor.insufficient_data_response(reference_time, weak_ids)
         latest_passages = self.repository.fetch_latest_passages(weak_ids, reference_time)
+        elapsed_values = sorted({
+            round((reference_time - latest_passages[segment_id]).total_seconds() / 60.0, 1)
+            if segment_id in latest_passages else None
+            for segment_id in weak_ids
+        }, key=lambda value: (value is None, value))
+        LOGGER.info(
+            "departure recommendation weak_segments=%d matched_latest_passages=%d "
+            "distinct_elapsed_values=%s model_max_observed_elapsed=%.1f",
+            len(weak_ids), len(latest_passages), elapsed_values[:5], model.max_observed_elapsed_minutes,
+        )
         return departure_advisor.recommend_departure(model, weak_ids, latest_passages, reference_time)
 
     def _plan_mode(
