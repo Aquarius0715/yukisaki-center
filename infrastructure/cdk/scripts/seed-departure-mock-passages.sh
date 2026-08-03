@@ -78,10 +78,12 @@ fi
 
 echo "Running ${SQL_FILE} against ${DATABASE_ID} via bastion ${BASTION_INSTANCE_ID}..."
 
+# aws-docker.sh runs the CLI inside a container that only mounts
+# ${HOME}/.aws, so a file:// path on the host filesystem (e.g. from
+# mktemp) does not resolve inside it. Piping through file:///dev/stdin
+# works because `docker run -i` connects the container's stdin to ours.
 SQL_BODY="$(cat "${SQL_FILE}")"
-PARAMS_FILE="$(mktemp)"
-trap 'rm -f "${PARAMS_FILE}"' EXIT
-python3 - "${SQL_BODY}" > "${PARAMS_FILE}" <<'PYEOF'
+PARAMS_JSON="$(python3 - "${SQL_BODY}" <<'PYEOF'
 import json
 import sys
 
@@ -93,12 +95,13 @@ commands = [
 ]
 json.dump({"commands": commands}, sys.stdout)
 PYEOF
+)"
 
 COMMAND_ID="$(aws_cli ssm send-command \
   --instance-ids "${BASTION_INSTANCE_ID}" \
   --document-name "AWS-RunShellScript" \
-  --parameters "file://${PARAMS_FILE}" \
-  --query "Command.CommandId" --output text)"
+  --parameters file:///dev/stdin \
+  --query "Command.CommandId" --output text <<< "${PARAMS_JSON}")"
 
 echo "Command ${COMMAND_ID} submitted, waiting for it to finish..."
 STATUS="Pending"
