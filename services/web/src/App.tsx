@@ -543,14 +543,26 @@ function departureTimeLabel(iso: string) {
 
 function DepartureRecommendationCard({ recommendation }: { recommendation: ApiDepartureRecommendation }) {
   if (recommendation.insufficient_data) {
-    return <div className="ai-explanation departure-recommendation"><b>おすすめ出発時刻</b><p>除雪車の通過実績が少なく、出発時刻の予測はできません（情報不足）。</p></div>
+    return <div className="ai-explanation departure-recommendation"><b>おすすめ出発時刻</b><p>除雪車の通過実績が少なく、出発時刻の予測はできません(情報不足)。</p></div>
   }
-  if (recommendation.evaluated_segment_ids.length === 0 || recommendation.recommended_offset_minutes === 0) {
-    return <div className="ai-explanation departure-recommendation"><b>おすすめ出発時刻</b><p>この経路は現在の時刻ですでに直近の除雪範囲内です。今すぐの出発で問題ありません。</p><small>予測（シミュレーション）・指数の判定には使用していません</small></div>
+  if (recommendation.evaluated_segment_ids.length === 0) {
+    return <div className="ai-explanation departure-recommendation"><b>おすすめ出発時刻</b><p>この経路の全区間で、直近60分以内に除雪車が通過した実績があります。今すぐの出発で問題ありません。</p><small>実績データに基づく判定です</small></div>
+  }
+  const zeroOffsetProbability = recommendation.candidates.find((item) => item.offset_minutes === 0)?.minimum_plow_probability
+  if (recommendation.recommended_offset_minutes === 0) {
+    return <div className="ai-explanation departure-recommendation">
+      <b>おすすめ出発時刻</b>
+      <p>
+        直近60分の除雪実績が確認できない区間がありますが、除雪車の通過間隔の統計予測では、今すぐの出発でも除雪済みとなっている確率は約
+        {Math.round((zeroOffsetProbability ?? 0) * 100)}%と推定されます。今すぐの出発でおおむね問題ありません。
+      </p>
+      <small>予測（シミュレーション）・指数の判定には使用していません</small>
+    </div>
   }
   return <div className="ai-explanation departure-recommendation">
     <b>おすすめ出発時刻</b>
     <p>
+      直近60分の除雪実績が確認できない区間があります。除雪車の通過間隔の統計予測では、
       {departureTimeLabel(recommendation.recommended_departure_time)}
       （{recommendation.recommended_offset_minutes}分後）の出発だと、除雪が行き届いている見込みが
       {recommendation.meets_probability_threshold ? '高くなります' : '多少高まります'}。
