@@ -160,9 +160,13 @@ class DeparturePredictionRepository(HazardFactorRepository):
     to train instead of falling back to insufficient_data."""
 
     def fetch_training_passage_samples(self, limit_segments):
+        # Gaps must comfortably exceed the no-history sentinel
+        # (DEPARTURE_NO_HISTORY_ELAPSED_MINUTES = 240) so the model's
+        # training range covers "hazard-seg" below and the extrapolation
+        # guard in recommend_departure doesn't reject it.
         base = datetime.fromisoformat("2026-01-20T00:00:00+09:00")
         return {
-            f"train-{i}": [base + timedelta(hours=i), base + timedelta(hours=i, minutes=80)]
+            f"train-{i}": [base + timedelta(hours=i), base + timedelta(hours=i, minutes=260)]
             for i in range(30)
         }
 

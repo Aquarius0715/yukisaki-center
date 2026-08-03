@@ -323,7 +323,7 @@ Content-Type: application/json
 
 `route_id`は、正規化したリクエスト、グラフ版、指数版、edge列から決定的に生成する。同じ入力・同じデータ版で同じ結果を再現できるようにする。
 
-`departure_recommendation`は、先頭経路（`comparison`では`recommended_route_id`と同じ経路）のうち直近60分以内に除雪されていない区間を対象に、そのおすすめ出発時刻を予測する補助情報である。`snowplow_segment_passages`の通過間隔から学習したロジスティック回帰で、候補待ち時間（0/15/30/45/60/90分）ごとに「対象区間が除雪済みとなっている確率」を推定し、閾値0.6を満たす最短の待ち時間を`recommended_offset_minutes`とする。対象区間が無ければ`recommended_offset_minutes: 0`で即時出発を返し、学習に十分な通過履歴が無ければ`insufficient_data: true`とする。この値は`is_prediction: true`・`is_simulated: true`を伴う統計的な予測であり、経路のコスト計算・順位・`drivability_score`には反映しない（[要件定義書](../requirements/snow_safe_route_requirements.md)4節が定める「走りやすさ指数はルールベースで算出する」という基本方針を維持するため、経路選択とは完全に切り離す）。
+`departure_recommendation`は、先頭経路（`comparison`では`recommended_route_id`と同じ経路）のうち直近60分以内に除雪されていない区間を対象に、そのおすすめ出発時刻を予測する補助情報である。`snowplow_segment_passages`の通過間隔から学習したロジスティック回帰で、候補待ち時間（0/15/30/45/60/90分）ごとに「対象区間が除雪済みとなっている確率」を推定し、閾値0.6を満たす最短の待ち時間を`recommended_offset_minutes`とする。対象区間が無ければ`recommended_offset_minutes: 0`で即時出発を返し、学習に十分な通過履歴が無ければ`insufficient_data: true`とする。対象区間の経過時間が、学習データが実際に観測した経過時間の最大値を一つでも超える場合も`insufficient_data: true`とする。線形モデルは学習範囲外への外挿で現実と無関係な方向へ確率が飽和し得るため（例: デモのGPSシミュレータが短時間しか稼働せず、学習データの経過時間が数分程度に偏っている場合、除雪履歴が全く無い区間に対して不当に高い確率を出してしまう）、範囲外の入力は数値を出さず情報不足として扱う。この値は`is_prediction: true`・`is_simulated: true`を伴う統計的な予測であり、経路のコスト計算・順位・`drivability_score`には反映しない（[要件定義書](../requirements/snow_safe_route_requirements.md)4節が定める「走りやすさ指数はルールベースで算出する」という基本方針を維持するため、経路選択とは完全に切り離す）。
 
 ### 10.3 エラー
 

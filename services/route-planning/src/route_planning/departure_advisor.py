@@ -59,12 +59,21 @@ class LogisticModel:
     weights: tuple[float, float, float]
     means: tuple[float, float]
     scales: tuple[float, float]
+    # Largest elapsed-since-last-pass value actually seen in training. A
+    # linear model extrapolates arbitrarily (and can saturate toward either
+    # 0 or 1 for reasons unrelated to the real world) once fed an input far
+    # outside the range it was fit on, so callers must not trust predict()
+    # for elapsed_minutes beyond this bound -- see covers().
+    max_observed_elapsed_minutes: float
 
     def predict(self, elapsed_minutes: float, horizon_minutes: float) -> float:
         bias, w1, w2 = self.weights
         x1 = (elapsed_minutes - self.means[0]) / self.scales[0]
         x2 = (horizon_minutes - self.means[1]) / self.scales[1]
         return _sigmoid(bias + w1 * x1 + w2 * x2)
+
+    def covers(self, elapsed_minutes: float) -> bool:
+        return elapsed_minutes <= self.max_observed_elapsed_minutes
 
 
 def fit_logistic_regression(
@@ -99,6 +108,7 @@ def fit_logistic_regression(
         weights=(weights[0], weights[1], weights[2]),
         means=(elapsed_mean, horizon_mean),
         scales=(elapsed_scale, horizon_scale),
+        max_observed_elapsed_minutes=max(f[0] for f in features),
     )
 
 
@@ -202,13 +212,20 @@ def recommend_departure(
     latest_passages: dict[str, datetime],
     reference_time: datetime,
 ) -> dict[str, Any]:
+    elapsed_by_segment = {
+        segment_id: _elapsed_minutes_for_prediction(latest_passages.get(segment_id), reference_time)
+        for segment_id in evaluated_segment_ids
+    }
+    if any(not model.covers(elapsed) for elapsed in elapsed_by_segment.values()):
+        # At least one segment's current elapsed-since-last-pass falls
+        # outside anything the pooled training data actually observed.
+        # Extrapolating the fitted line that far is not a real estimate, so
+        # be honest about the gap instead of reporting a number.
+        return insufficient_data_response(reference_time, evaluated_segment_ids)
     candidates = []
     for offset in DEPARTURE_CANDIDATE_OFFSETS_MINUTES:
         probabilities = [
-            model.predict(
-                _elapsed_minutes_for_prediction(latest_passages.get(segment_id), reference_time),
-                float(offset),
-            )
+            model.predict(elapsed_by_segment[segment_id], float(offset))
             for segment_id in evaluated_segment_ids
         ]
         candidates.append({

@@ -81,12 +81,22 @@ class LogisticRegressionTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             departure_advisor.fit_logistic_regression([(1.0, 2.0)], [])
 
+    def test_max_observed_elapsed_tracks_training_data_and_gates_covers(self):
+        features = [(5.0, 0.0), (12.0, 30.0), (7.0, 60.0)]
+        labels = [1, 0, 1]
+
+        model = departure_advisor.fit_logistic_regression(features, labels, iterations=10)
+
+        self.assertEqual(12.0, model.max_observed_elapsed_minutes)
+        self.assertTrue(model.covers(12.0))
+        self.assertFalse(model.covers(12.1))
+
 
 class RecommendDepartureTest(unittest.TestCase):
-    def _model(self):
+    def _model(self, *, max_elapsed=250.0):
         features = []
         labels = []
-        for elapsed in (10.0, 70.0, 130.0, 200.0):
+        for elapsed in (10.0, 70.0, 130.0, 200.0, max_elapsed):
             for horizon in (float(o) for o in DEPARTURE_CANDIDATE_OFFSETS_MINUTES):
                 label = 1 if (elapsed + horizon) >= 120 else 0
                 features.append((elapsed, horizon))
@@ -107,17 +117,42 @@ class RecommendDepartureTest(unittest.TestCase):
         )
         expected_time = REFERENCE_TIME + timedelta(minutes=recommendation["recommended_offset_minutes"])
         self.assertEqual(expected_time.isoformat(), recommendation["recommended_departure_time"])
-
-    def test_missing_passage_uses_no_history_sentinel_not_a_crash(self):
-        model = self._model()
-        recommendation = departure_advisor.recommend_departure(
-            model, ["seg-without-history"], {}, REFERENCE_TIME,
-        )
         for candidate in recommendation["candidates"]:
             self.assertGreaterEqual(candidate["minimum_plow_probability"], 0.0)
             self.assertLessEqual(candidate["minimum_plow_probability"], 1.0)
-        # Sanity check the sentinel itself stays a fixed, out-of-training-range value.
+
+    def test_missing_passage_uses_no_history_sentinel_when_in_range(self):
+        # The sentinel (240) is comfortably below this model's training max
+        # (250), so it's a legitimate in-range prediction, not extrapolation.
+        model = self._model(max_elapsed=250.0)
+        recommendation = departure_advisor.recommend_departure(
+            model, ["seg-without-history"], {}, REFERENCE_TIME,
+        )
+        self.assertFalse(recommendation["insufficient_data"])
         self.assertEqual(240.0, DEPARTURE_NO_HISTORY_ELAPSED_MINUTES)
+
+    def test_elapsed_beyond_training_range_reports_insufficient_data_not_a_guess(self):
+        # This is the bug we hit in production: a model trained on a narrow
+        # burst of short gaps (max ~8 minutes observed) was asked to predict
+        # for a segment with no plow history at all (sentinel 240 minutes).
+        # Extrapolating a linear model that far outside its training domain
+        # saturates the sigmoid toward 0 or 1 for reasons that have nothing
+        # to do with the real world, so it must not be reported as a number.
+        model = self._model(max_elapsed=8.0)
+        recommendation = departure_advisor.recommend_departure(
+            model, ["seg-without-history"], {}, REFERENCE_TIME,
+        )
+        self.assertTrue(recommendation["insufficient_data"])
+        self.assertEqual([], recommendation["candidates"])
+        self.assertEqual(["seg-without-history"], recommendation["evaluated_segment_ids"])
+
+    def test_elapsed_within_training_range_is_not_flagged(self):
+        model = self._model(max_elapsed=250.0)
+        latest_passages = {"seg-1": REFERENCE_TIME - timedelta(minutes=100)}
+        recommendation = departure_advisor.recommend_departure(
+            model, ["seg-1"], latest_passages, REFERENCE_TIME,
+        )
+        self.assertFalse(recommendation["insufficient_data"])
 
     def test_no_wait_needed_response_recommends_reference_time_itself(self):
         response = departure_advisor.no_wait_needed_response(REFERENCE_TIME)
