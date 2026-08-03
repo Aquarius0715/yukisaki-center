@@ -11,8 +11,15 @@
 -- insufficient_data. The real GPS simulator run captured so far only
 -- produced gaps under 8 minutes (30 vehicles converging near a shared
 -- starting point within the first few minutes), which is nowhere near
--- enough. This script fills that gap with clearly labelled mock data
--- spanning 5 to 350 minutes so the model has a real range to learn from.
+-- enough. This script fills that gap with clearly labelled mock data.
+--
+-- Gaps deliberately span up to 1200 minutes (20 hours), not just past the
+-- 240-minute sentinel: a seeded segment that happens to already have real
+-- burst passages around the demo reference_time (2026-08-03 production
+-- verification hit exactly this) creates its own extra-long gap between
+-- that real cluster and this seed's mock cluster, and 350 minutes of
+-- headroom was not enough to safely cover that combined timeline in every
+-- random training draw. 1200 minutes leaves comfortable margin.
 --
 -- Safe to re-run: every insert is idempotent (ON CONFLICT DO NOTHING), nothing
 -- is deleted, and every row is explicitly is_simulated = true. To remove
@@ -30,12 +37,13 @@ WITH seed_segments AS (
   ORDER BY segment_id
   LIMIT 80
 ),
--- A spread of gaps from 5 minutes up to 350 minutes: comfortably brackets
--- the 240-minute sentinel on both sides, and gives the model short, medium,
--- and long examples instead of an all-or-nothing boundary.
+-- A spread of gaps from 5 minutes up to 1200 minutes: comfortably brackets
+-- the 240-minute sentinel with a wide margin on both sides, and gives the
+-- model short, medium, and long examples instead of an all-or-nothing
+-- boundary.
 gap_choices (gap_index, gap_minutes) AS (
-  VALUES (0, 5), (1, 20), (2, 45), (3, 75), (4, 110),
-         (5, 150), (6, 200), (7, 250), (8, 300), (9, 350)
+  VALUES (0, 5), (1, 20), (2, 45), (3, 90), (4, 150),
+         (5, 240), (6, 350), (7, 500), (8, 750), (9, 1200)
 ),
 seed_pairs AS (
   SELECT
