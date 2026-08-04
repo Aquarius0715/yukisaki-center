@@ -2,6 +2,7 @@ import unittest
 from datetime import datetime
 from unittest.mock import Mock, patch
 
+from drivability_scoring import pipeline
 from drivability_scoring.pipeline import handler, score_message
 
 
@@ -11,6 +12,12 @@ class FakeCursor:
         self.all_segment_ids = all_segment_ids or ["s-1"]
         self.requested_segment_ids = []
         self.projected_rows = []
+        # Matches the segment row's (37.44, 138.79) below, so the nearest-point
+        # match is exact and the resulting score inputs stay -1 / 1 / 0.2 as
+        # before the weather lookup moved out of the per-segment SQL query.
+        self.weather_points = [(37.44, 138.79, -1, 1, 0.2)]
+        self.weather_query_count = 0
+        self.schema_query_count = 0
 
     def __enter__(self):
         return self
@@ -20,6 +27,10 @@ class FakeCursor:
 
     def execute(self, statement, params=None):
         self.statement = statement
+        if "FROM weather_hourly_windows" in statement:
+            self.weather_query_count += 1
+        if "CREATE TABLE" in statement:
+            self.schema_query_count += 1
         if "FROM road_segments r" in statement:
             self.requested_segment_ids = list(params[1])
 
@@ -32,8 +43,10 @@ class FakeCursor:
     def fetchall(self):
         if "SELECT segment_id FROM road_segments" in self.statement:
             return [("s-1",), ("s-2",)]
+        if "FROM weather_hourly_windows" in self.statement:
+            return self.weather_points
         return [(
-            "s-1", 3, "residential", -1, 1, 0.2, True, "active",
+            "s-1", 3, "residential", 37.44, 138.79, True, "active",
             datetime.fromisoformat("2026-01-23T11:59:00+09:00"),
         )]
 
@@ -53,6 +66,12 @@ class FakeConnection:
 
 
 class PipelineTest(unittest.TestCase):
+    def setUp(self):
+        # These caches are process-global (persist across warm Lambda
+        # invocations by design); reset them so tests stay isolated.
+        pipeline._WEATHER_POINTS = None
+        pipeline._SCORE_SCHEMA_ENSURED = False
+
     @patch.dict("os.environ", {"DATA_BUCKET": "data-bucket"})
     @patch("drivability_scoring.pipeline.s3_client")
     @patch("drivability_scoring.pipeline.connect_database")
@@ -70,6 +89,40 @@ class PipelineTest(unittest.TestCase):
         self.assertEqual(result["recordCount"], 1)
         self.assertEqual(len(connection.fake_cursor.projected_rows), 1)
         self.assertTrue(s3.put_object.call_args.kwargs["Key"].startswith("curated/drivability-scores/"))
+
+    @patch.dict("os.environ", {"DATA_BUCKET": "data-bucket"})
+    @patch("drivability_scoring.pipeline.s3_client")
+    @patch("drivability_scoring.pipeline.connect_database")
+    def test_weather_points_are_fetched_once_and_reused_across_warm_invocations(self, connect, s3_factory):
+        first_connection = FakeConnection()
+        second_connection = FakeConnection()
+        connect.side_effect = [first_connection, second_connection]
+        s3_factory.return_value = Mock()
+        for _ in range(2):
+            score_message({
+                "processingRunId": "gps-process-test",
+                "segmentIds": ["s-1"],
+                "latestObservedAt": "2026-01-23T12:00:00+09:00",
+            })
+        self.assertEqual(1, first_connection.fake_cursor.weather_query_count)
+        self.assertEqual(0, second_connection.fake_cursor.weather_query_count)
+
+    @patch.dict("os.environ", {"DATA_BUCKET": "data-bucket"})
+    @patch("drivability_scoring.pipeline.s3_client")
+    @patch("drivability_scoring.pipeline.connect_database")
+    def test_score_schema_ddl_runs_once_across_warm_invocations(self, connect, s3_factory):
+        first_connection = FakeConnection()
+        second_connection = FakeConnection()
+        connect.side_effect = [first_connection, second_connection]
+        s3_factory.return_value = Mock()
+        for _ in range(2):
+            score_message({
+                "processingRunId": "gps-process-test",
+                "segmentIds": ["s-1"],
+                "latestObservedAt": "2026-01-23T12:00:00+09:00",
+            })
+        self.assertEqual(1, first_connection.fake_cursor.schema_query_count)
+        self.assertEqual(0, second_connection.fake_cursor.schema_query_count)
 
     @patch("drivability_scoring.pipeline.score_message")
     @patch("drivability_scoring.pipeline.connect_database")

@@ -21,6 +21,7 @@ from .config import (
     DEPARTURE_TRAINING_SEGMENT_LIMIT,
     MAX_CANDIDATES,
     MAX_SNAP_DISTANCE_M,
+    ROUTE_RESULT_CACHE_TTL_SECONDS,
     SIMILARITY_THRESHOLD,
 )
 from .models import RouteRequest
@@ -288,6 +289,7 @@ class RoutePlanningService:
         self.repository = repository or RoutingRepository()
         self._departure_model: departure_advisor.LogisticModel | None = None
         self._departure_model_trained_at: float = float("-inf")
+        self._plan_cache: dict[RouteRequest, tuple[float, dict[str, Any]]] = {}
 
     def plan(self, payload: Any) -> dict[str, Any]:
         request = RouteRequest.parse(payload)
@@ -347,13 +349,22 @@ class RoutePlanningService:
         )
         return departure_advisor.recommend_departure(model, weak_ids, latest_passages, reference_time)
 
+    def _cached_repository_plan(self, request: RouteRequest) -> dict[str, Any]:
+        now = time.monotonic()
+        cached = self._plan_cache.get(request)
+        if cached is not None and now - cached[0] < ROUTE_RESULT_CACHE_TTL_SECONDS:
+            return cached[1]
+        result = self.repository.plan(request, MAX_SNAP_DISTANCE_M)
+        self._plan_cache[request] = (now, result)
+        return result
+
     def _plan_mode(
         self,
         request: RouteRequest,
         *,
         comparison_pool: bool = False,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, str]]:
-        result = self.repository.plan(request, MAX_SNAP_DISTANCE_M)
+        result = self._cached_repository_plan(request)
         versions = {
             "graph_version": result["graph_version"],
             "score_rule_version": result["score_rule_version"],
@@ -376,6 +387,13 @@ class RoutePlanningService:
         return result, diverse, versions
 
     def _plan_comparison(self, payload: Any, request: RouteRequest) -> dict[str, Any]:
+        # Run profiles concurrently: three sequential pgr_ksp/cost-cache
+        # passes risk summing past the Lambda's 29s timeout, whereas running
+        # them in parallel keeps wall-clock close to the slowest single
+        # profile. Connection-storm risk is bounded instead by capping this
+        # function's own Lambda concurrency (see environment.sh), which
+        # limits worst-case simultaneous connections against the shared RDS
+        # instance without penalizing every request's latency.
         modes = ("balanced", "drivability_priority", "distance_priority")
         with ThreadPoolExecutor(max_workers=len(modes)) as executor:
             futures = {

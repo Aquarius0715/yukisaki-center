@@ -8,6 +8,7 @@ import {
   Tags,
 } from 'aws-cdk-lib';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
 import * as ecs from 'aws-cdk-lib/aws-ecs';
@@ -44,8 +45,10 @@ export class GpsPipelineStack extends Stack {
   public readonly simulatorService: ecs.FargateService;
   public readonly archiverFunction: lambda.DockerImageFunction;
   public readonly processorFunction: lambda.DockerImageFunction;
+  public readonly liveTrackerFunction: lambda.DockerImageFunction;
   public readonly loaderFunction: lambda.DockerImageFunction;
   public readonly scoringFunction: lambda.DockerImageFunction;
+  public readonly snowplowLiveTable: dynamodb.Table;
 
   constructor(scope: Construct, id: string, props: GpsPipelineStackProps) {
     super(scope, id, props);
@@ -191,8 +194,54 @@ export class GpsPipelineStack extends Stack {
       maxBatchingWindow: Duration.seconds(10),
     }));
     this.processorFunction.addEventSource(new lambdaEventSources.SqsEventSource(processingIngressQueue, {
+      // Wider than the raw-archive queue on purpose: this batch drives the
+      // RDS-bound loader and scorer downstream, so a bigger window means
+      // fewer DB connections opened per minute. 30s is the documented upper
+      // bound for GPS data cadence (snow_safe_route_requirements.md §17),
+      // so this stays within spec while cutting DB writes roughly 3-6x.
+      batchSize: 180,
+      maxBatchingWindow: Duration.seconds(30),
+    }));
+
+    // Fast, RDS-free read cache for the live map: a third fan-out branch off
+    // the same EventBridge bus, decoupled from the RDS-bound batching above
+    // so the visible map stays fresh (~5s) even though durable RDS writes
+    // are now batched to ~30s. No road-matching, no VPC — just raw position
+    // fields for display.
+    this.snowplowLiveTable = new dynamodb.Table(this, 'SnowplowLiveTable', {
+      partitionKey: { name: 'vehicle_id', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      timeToLiveAttribute: 'expires_at',
+      removalPolicy: RemovalPolicy.DESTROY,
+    });
+    Tags.of(this.snowplowLiveTable).add('Lifecycle', 'persistent');
+    Tags.of(this.snowplowLiveTable).add('Service', 'gps-simulator');
+
+    const liveTrackingDlq = this.deadLetterQueue('GpsLiveTrackingDeadLetterQueue');
+    const liveTrackingQueue = this.processingQueue('GpsLiveTrackingQueue', liveTrackingDlq);
+    new events.Rule(this, 'GpsLiveTrackingRule', {
+      eventBus: this.eventBus,
+      eventPattern: gpsEventPattern,
+      targets: [new eventTargets.SqsQueue(liveTrackingQueue, {
+        deadLetterQueue: liveTrackingDlq,
+        retryAttempts: 3,
+      })],
+    });
+
+    this.liveTrackerFunction = this.imageFunction('GpsLiveTracker', {
+      servicePath: '../../../services/data-processing', target: 'lambda-loader',
+      command: 'data_processing.plow_gps.pipeline.live_tracker_handler',
+      description: 'Writes raw simulated GPS positions to a DynamoDB read cache for live map display',
+      memorySize: 256,
+      environment: {
+        SNOWPLOW_LIVE_TABLE_NAME: this.snowplowLiveTable.tableName,
+      },
+    });
+    this.snowplowLiveTable.grantWriteData(this.liveTrackerFunction);
+    this.liveTrackerFunction.addEventSource(new lambdaEventSources.SqsEventSource(liveTrackingQueue, {
       batchSize: 30,
-      maxBatchingWindow: Duration.seconds(10),
+      maxBatchingWindow: Duration.seconds(5),
+      reportBatchItemFailures: true,
     }));
 
     const databaseConsumersSecurityGroup = new ec2.SecurityGroup(this, 'GpsDatabaseConsumersSecurityGroup', {
@@ -250,6 +299,7 @@ export class GpsPipelineStack extends Stack {
     for (const [id, queue] of [
       ['GpsRawIngressDlqAlarm', rawIngressDlq],
       ['GpsProcessingIngressDlqAlarm', processingIngressDlq],
+      ['GpsLiveTrackingDlqAlarm', liveTrackingDlq],
       ['GpsDatabaseLoadDlqAlarm', loadDlq],
       ['GpsScoringDlqAlarm', scoringDlq],
     ] as const) {
@@ -267,6 +317,8 @@ export class GpsPipelineStack extends Stack {
     new CfnOutput(this, 'GpsSimulatorServiceName', { value: this.simulatorService.serviceName });
     new CfnOutput(this, 'GpsRawArchiverFunctionName', { value: this.archiverFunction.functionName });
     new CfnOutput(this, 'GpsMapMatcherFunctionName', { value: this.processorFunction.functionName });
+    new CfnOutput(this, 'GpsLiveTrackerFunctionName', { value: this.liveTrackerFunction.functionName });
+    new CfnOutput(this, 'SnowplowLiveTableName', { value: this.snowplowLiveTable.tableName });
     new CfnOutput(this, 'GpsDatabaseLoaderFunctionName', { value: this.loaderFunction.functionName });
     new CfnOutput(this, 'DrivabilityScorerFunctionName', { value: this.scoringFunction.functionName });
     new CfnOutput(this, 'GpsDatabaseLoadQueueUrl', { value: loadQueue.queueUrl });

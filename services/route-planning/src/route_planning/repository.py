@@ -18,6 +18,7 @@ from .config import (
     MISSING_SCORE_PENALTY_RATIO,
     NON_MAIN_ROAD_PENALTY_S,
     ROUTE_CORRIDOR_MARGIN_DEGREES,
+    ROUTE_RESULT_CACHE_TTL_SECONDS,
     STALE_PLOW_PENALTY_S,
     STEEP_ROAD_PENALTY_S,
     UNKNOWN_ACCESS_PENALTY_RATIO,
@@ -77,9 +78,17 @@ def connect_database():
 class RoutingRepository:
     def __init__(self, connection_factory=connect_database):
         self._connection_factory = connection_factory
+        self._schema_ensured = False
+        self._active_versions_cache: tuple[Any, float, tuple[str, str, str]] | None = None
 
-    @staticmethod
-    def _active_versions(cursor, reference_time) -> tuple[str, str, str]:
+    def _active_versions(self, cursor, reference_time) -> tuple[str, str, str]:
+        # graph_version/score_rule_version rarely change mid-demo (only on a
+        # deliberate road/score reload), so avoid two SELECTs on every
+        # request that misses the response cache.
+        now = time.monotonic()
+        cached = self._active_versions_cache
+        if cached is not None and cached[0] == reference_time and now - cached[1] < ROUTE_RESULT_CACHE_TTL_SECONDS:
+            return cached[2]
         cursor.execute(
             "SELECT graph_version FROM routing_graph_state WHERE singleton = true"
         )
@@ -98,7 +107,9 @@ class RoutingRepository:
         score = cursor.fetchone()
         if not score:
             raise GraphUnavailableError("drivability score snapshot is unavailable")
-        return str(graph[0]), str(score[0]), score[1].isoformat()
+        result = (str(graph[0]), str(score[0]), score[1].isoformat())
+        self._active_versions_cache = (reference_time, now, result)
+        return result
 
     @staticmethod
     def _snap(cursor, point: Point, graph_version: str, max_distance_m: float) -> dict[str, Any]:
@@ -164,8 +175,12 @@ class RoutingRepository:
         ).hexdigest()
         return f"route-cost-{digest[:32]}"
 
-    @staticmethod
-    def _ensure_cost_cache_schema(cursor) -> None:
+    def _ensure_cost_cache_schema(self, cursor) -> None:
+        # These are idempotent CREATE ... IF NOT EXISTS statements, but
+        # Postgres still checks the catalog on every call. Skip once this
+        # warm container has confirmed the schema exists.
+        if self._schema_ensured:
+            return
         cursor.execute(
             """CREATE TABLE IF NOT EXISTS routing_cost_snapshots (
                  cache_key TEXT PRIMARY KEY,
@@ -209,6 +224,7 @@ class RoutingRepository:
             """CREATE INDEX IF NOT EXISTS drivability_scores_version_time_idx
                ON drivability_scores (rule_version, data_timestamp DESC)"""
         )
+        self._schema_ensured = True
 
     @classmethod
     def _prepare_cost_edges(

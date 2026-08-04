@@ -14,6 +14,11 @@
     "gpsSimulatorEnabled": false,
     "gpsEmitIntervalSeconds": 5,
     "bedrockModelId": "jp.anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "webDomainName": "yukisaki.life",
+    "webDomainAliases": ["www.yukisaki.life"],
+    "webHostedZoneId": "Z05330843RFDI0EBCMI55",
+    "webHostedZoneName": "yukisaki.life",
+    "webCertificateArn": "arn:aws:acm:us-east-1:179260492296:certificate/318abbdf-bb4a-4532-b927-d2f20de611d9",
     "@aws-cdk/core:defaultCrossStackReferences": "strong"
   }
 }

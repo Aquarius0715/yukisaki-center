@@ -67,7 +67,7 @@ const snowPipePipelineStack = new SnowPipePipelineStack(app, `YukisakiSnowPipePi
   description: 'Simulated snow-pipe enrichment loaded into the unified PostgreSQL database',
 });
 
-new GpsPipelineStack(app, `YukisakiGpsPipeline-${environment}`, {
+const gpsPipelineStack = new GpsPipelineStack(app, `YukisakiGpsPipeline-${environment}`, {
   environment,
   targetReferenceTime:
     app.node.tryGetContext('targetReferenceTime') ?? '2026-01-23T12:00:00+09:00',
@@ -110,6 +110,7 @@ const apiStack = new ApiStack(app, `YukisakiApi-${environment}`, {
   databaseSecret: dataPipelineStack.database.secret!,
   databaseName: 'yukisaki',
   routePlanningFunction: routePlanningStack.routeFunction,
+  snowplowLiveTable: gpsPipelineStack.snowplowLiveTable,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,
@@ -136,6 +137,17 @@ new WebStack(app, `YukisakiWeb-${environment}`, {
   environment,
   apiEndpoint: apiStack.httpApi.apiEndpoint,
   mapKitToken: process.env.VITE_MAPKIT_TOKEN,
+  customDomain: app.node.tryGetContext('webDomainName')
+    ? {
+      domainNames: [
+        app.node.tryGetContext('webDomainName'),
+        ...(app.node.tryGetContext('webDomainAliases') ?? []),
+      ],
+      hostedZoneId: app.node.tryGetContext('webHostedZoneId'),
+      hostedZoneName: app.node.tryGetContext('webHostedZoneName'),
+      certificateArn: app.node.tryGetContext('webCertificateArn'),
+    }
+    : undefined,
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region,

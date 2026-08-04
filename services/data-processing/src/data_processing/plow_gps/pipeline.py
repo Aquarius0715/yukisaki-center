@@ -9,6 +9,7 @@ import math
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 LOGGER = logging.getLogger()
@@ -19,7 +20,13 @@ _SQS_CLIENT = None
 _SECRETS_CLIENT = None
 _DATABASE_SECRET = None
 _ROAD_INDEX = None
+_DYNAMODB_RESOURCE = None
+_GPS_SCHEMA_ENSURED = False
 ROAD_INDEX_CELL_DEGREES = 0.01
+# Live positions are a disposable read cache, not a record of truth (S3/RDS
+# already own that). Expire a vehicle's row a few hours after its last
+# update instead of tracking simulator lifecycle explicitly.
+LIVE_POSITION_TTL_SECONDS = 6 * 60 * 60
 
 RoadSegment = tuple[str, list[tuple[float, float]]]
 
@@ -62,6 +69,15 @@ def secrets_client():
 
         _SECRETS_CLIENT = boto3.client("secretsmanager")
     return _SECRETS_CLIENT
+
+
+def dynamodb_resource():
+    global _DYNAMODB_RESOURCE
+    if _DYNAMODB_RESOURCE is None:
+        import boto3
+
+        _DYNAMODB_RESOURCE = boto3.resource("dynamodb")
+    return _DYNAMODB_RESOURCE
 
 
 def database_secret() -> dict[str, Any]:
@@ -319,73 +335,98 @@ def _verified_object(bucket: str, key: str, expected_checksum: str) -> list[dict
     return [json.loads(line) for line in body.decode().splitlines() if line.strip()]
 
 
+def _ensure_gps_schema(cursor: Any) -> None:
+    # SCHEMA_SQL is idempotent (CREATE/ALTER ... IF NOT EXISTS), but Postgres
+    # still checks the catalog on every call. Skip once this warm container
+    # has confirmed the schema exists.
+    global _GPS_SCHEMA_ENSURED
+    if _GPS_SCHEMA_ENSURED:
+        return
+    cursor.execute(SCHEMA_SQL)
+    _GPS_SCHEMA_ENSURED = True
+
+
 def load_message(message: dict[str, Any]) -> dict[str, Any]:
     records = _verified_object(message["bucket"], message["curatedKey"], message["checksumSha256"])
     if len(records) != message["recordCount"]:
         raise ValueError("curated GPS record count does not match load message")
+    # A wider batching window (see gps-pipeline-stack.ts) means a batch now
+    # holds several ticks per vehicle. Bulk-write with executemany instead of
+    # one execute() per record per table, and only upsert each vehicle_id
+    # once per batch (its row is identical on every tick within a batch).
+    run_id = message["processingRunId"]
+    vehicle_rows = list({
+        record["vehicle_id"]: (record["vehicle_id"], record["vehicle_id"], record["source"])
+        for record in records
+    }.values())
+    # process_events() already sorts records by observed_at before writing
+    # them to S3, so this preserves the "keep the latest position" ordering
+    # the ON CONFLICT guard below relies on.
+    position_rows = [
+        (
+            record["vehicle_id"], record["observed_at"], record["received_at"],
+            record["latitude"], record["longitude"], record["speed_kmh"], record["heading_degrees"],
+            record["accuracy_m"], record["operation"], record["matched_segment_id"],
+            record["match_distance_m"], run_id,
+        )
+        for record in records
+    ]
+    passage_rows = [
+        (
+            record["event_id"], record["vehicle_id"], record["matched_segment_id"],
+            record["observed_at"], record["received_at"], record["operation"], record["speed_kmh"],
+            record["latitude"], record["longitude"], record["match_distance_m"],
+            record.get("ground_truth_segment_id"), record.get("ground_truth_match"),
+            record["source"], run_id,
+        )
+        for record in records
+    ]
     with connect_database() as connection:
         with connection.cursor() as cursor:
             cursor.execute(
                 "SELECT pg_advisory_xact_lock(hashtext('yukisaki-snowplow-gps-loader'))"
             )
-            cursor.execute(SCHEMA_SQL)
-            for record in records:
-                cursor.execute(
-                    """INSERT INTO snowplow_vehicles (vehicle_id, display_name, source, is_simulated)
-                       VALUES (%s, %s, %s, true)
-                       ON CONFLICT (vehicle_id) DO UPDATE SET source = EXCLUDED.source""",
-                    (record["vehicle_id"], record["vehicle_id"], record["source"]),
-                )
-                cursor.execute(
-                    """INSERT INTO snowplow_positions_latest (
-                         vehicle_id, observed_at, received_at, latitude, longitude, speed_kmh, heading_degrees,
-                         accuracy_m, operation, matched_segment_id, match_distance_m, run_id, is_simulated
-                       ) VALUES (%s, %s::timestamptz, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s, %s, %s, true)
-                       ON CONFLICT (vehicle_id) DO UPDATE SET
-                         observed_at=EXCLUDED.observed_at, received_at=EXCLUDED.received_at,
-                         latitude=EXCLUDED.latitude,
-                         longitude=EXCLUDED.longitude, speed_kmh=EXCLUDED.speed_kmh,
-                         heading_degrees=EXCLUDED.heading_degrees, accuracy_m=EXCLUDED.accuracy_m,
-                         operation=EXCLUDED.operation, matched_segment_id=EXCLUDED.matched_segment_id,
-                         match_distance_m=EXCLUDED.match_distance_m, run_id=EXCLUDED.run_id,
-                         is_simulated=true, updated_at=now()
-                       WHERE EXCLUDED.received_at >= snowplow_positions_latest.received_at""",
-                    (
-                        record["vehicle_id"], record["observed_at"], record["received_at"],
-                        record["latitude"],
-                        record["longitude"], record["speed_kmh"], record["heading_degrees"],
-                        record["accuracy_m"], record["operation"], record["matched_segment_id"],
-                        record["match_distance_m"], message["processingRunId"],
-                    ),
-                )
-                cursor.execute(
-                    """INSERT INTO snowplow_segment_passages (
-                         event_id, vehicle_id, segment_id, observed_at, received_at, operation, speed_kmh,
-                         latitude, longitude, match_distance_m, ground_truth_segment_id,
-                         ground_truth_match, source, run_id, is_simulated
-                       ) VALUES (%s, %s, %s, %s::timestamptz, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s, %s, %s, true)
-                       ON CONFLICT (event_id) DO NOTHING""",
-                    (
-                        record["event_id"], record["vehicle_id"], record["matched_segment_id"],
-                        record["observed_at"], record["received_at"], record["operation"],
-                        record["speed_kmh"],
-                        record["latitude"], record["longitude"], record["match_distance_m"],
-                        record.get("ground_truth_segment_id"), record.get("ground_truth_match"),
-                        record["source"], message["processingRunId"],
-                    ),
-                )
+            _ensure_gps_schema(cursor)
+            cursor.executemany(
+                """INSERT INTO snowplow_vehicles (vehicle_id, display_name, source, is_simulated)
+                   VALUES (%s, %s, %s, true)
+                   ON CONFLICT (vehicle_id) DO UPDATE SET source = EXCLUDED.source""",
+                vehicle_rows,
+            )
+            cursor.executemany(
+                """INSERT INTO snowplow_positions_latest (
+                     vehicle_id, observed_at, received_at, latitude, longitude, speed_kmh, heading_degrees,
+                     accuracy_m, operation, matched_segment_id, match_distance_m, run_id, is_simulated
+                   ) VALUES (%s, %s::timestamptz, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s, %s, %s, true)
+                   ON CONFLICT (vehicle_id) DO UPDATE SET
+                     observed_at=EXCLUDED.observed_at, received_at=EXCLUDED.received_at,
+                     latitude=EXCLUDED.latitude,
+                     longitude=EXCLUDED.longitude, speed_kmh=EXCLUDED.speed_kmh,
+                     heading_degrees=EXCLUDED.heading_degrees, accuracy_m=EXCLUDED.accuracy_m,
+                     operation=EXCLUDED.operation, matched_segment_id=EXCLUDED.matched_segment_id,
+                     match_distance_m=EXCLUDED.match_distance_m, run_id=EXCLUDED.run_id,
+                     is_simulated=true, updated_at=now()
+                   WHERE EXCLUDED.received_at >= snowplow_positions_latest.received_at""",
+                position_rows,
+            )
+            cursor.executemany(
+                """INSERT INTO snowplow_segment_passages (
+                     event_id, vehicle_id, segment_id, observed_at, received_at, operation, speed_kmh,
+                     latitude, longitude, match_distance_m, ground_truth_segment_id,
+                     ground_truth_match, source, run_id, is_simulated
+                   ) VALUES (%s, %s, %s, %s::timestamptz, %s::timestamptz, %s, %s, %s, %s, %s, %s, %s, %s, %s, true)
+                   ON CONFLICT (event_id) DO NOTHING""",
+                passage_rows,
+            )
             cursor.execute(
                 """INSERT INTO data_load_runs (run_id, dataset, source_key, record_count)
                    VALUES (%s, 'snowplow-passages', %s, %s)
                    ON CONFLICT (run_id) DO UPDATE SET source_key=EXCLUDED.source_key,
                      record_count=EXCLUDED.record_count, loaded_at=now()""",
-                (
-                    message["processingRunId"],
-                    f"s3://{message['bucket']}/{message['curatedKey']}", len(records),
-                ),
+                (run_id, f"s3://{message['bucket']}/{message['curatedKey']}", len(records)),
             )
     LOGGER.info("Loaded %d simulated GPS passages", len(records))
-    return {"runId": message["processingRunId"], "recordCount": len(records)}
+    return {"runId": run_id, "recordCount": len(records)}
 
 
 def processor_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
@@ -400,6 +441,36 @@ def processor_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
         DelaySeconds=int(os.environ.get("SCORING_DELAY_SECONDS", "60")),
     )
     return message
+
+
+def write_live_positions(events: list[dict[str, Any]], *, table_name: str) -> int:
+    ordered = sorted(events, key=lambda item: (item["vehicle_id"], item["observed_at"]))
+    expires_at = int(datetime.now(timezone.utc).timestamp()) + LIVE_POSITION_TTL_SECONDS
+    table = dynamodb_resource().Table(table_name)
+    with table.batch_writer(overwrite_by_pkeys=["vehicle_id"]) as batch:
+        for event in ordered:
+            batch.put_item(Item={
+                "vehicle_id": event["vehicle_id"],
+                "run_id": event["run_id"],
+                "observed_at": event["observed_at"],
+                "received_at": event["received_at"],
+                "latitude": Decimal(str(event["latitude"])),
+                "longitude": Decimal(str(event["longitude"])),
+                "speed_kmh": Decimal(str(event["speed_kmh"])),
+                "heading_degrees": Decimal(str(event["heading_degrees"])),
+                "accuracy_m": Decimal(str(event["accuracy_m"])),
+                "operation": event["operation"],
+                "is_simulated": bool(event["is_simulated"]),
+                "expires_at": expires_at,
+            })
+    return len(ordered)
+
+
+def live_tracker_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:
+    events = decode_eventbridge_records(event.get("Records", []))
+    count = write_live_positions(events, table_name=os.environ["SNOWPLOW_LIVE_TABLE_NAME"])
+    LOGGER.info("Wrote %d live simulated snowplow positions to DynamoDB", count)
+    return {"recordCount": count}
 
 
 def loader_handler(event: dict[str, Any], _context: Any) -> dict[str, Any]:

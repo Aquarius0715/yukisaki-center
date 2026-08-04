@@ -66,3 +66,9 @@ DEPARTURE_TRAINING_SEGMENT_LIMIT = 300
 # Retrain only this often per warm Lambda container; passage cadence changes
 # slowly relative to a single route request.
 DEPARTURE_MODEL_CACHE_TTL_SECONDS = 600
+
+# Reuse repository.plan()'s raw pgRouting/cost-cache result for identical
+# requests within this window per warm Lambda container, instead of hitting
+# Postgres again. reference_time is pinned for this MVP, so graph/score
+# versions rarely change mid-demo; this bounds staleness if they ever do.
+ROUTE_RESULT_CACHE_TTL_SECONDS = 300

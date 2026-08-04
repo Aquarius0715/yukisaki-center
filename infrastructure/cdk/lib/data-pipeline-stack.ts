@@ -102,6 +102,12 @@ export class DataPipelineStack extends Stack {
     this.databaseVpc.addGatewayEndpoint('S3Endpoint', {
       service: ec2.GatewayVpcEndpointAwsService.S3,
     });
+    // Free gateway endpoint (same as S3 above) so isolated-subnet Lambdas -
+    // notably mapApi, reading the DynamoDB snowplow live-position cache -
+    // can reach DynamoDB without a NAT gateway.
+    this.databaseVpc.addGatewayEndpoint('DynamoDbEndpoint', {
+      service: ec2.GatewayVpcEndpointAwsService.DYNAMODB,
+    });
     const secretsManagerEndpoint = this.databaseVpc.addInterfaceEndpoint('SecretsManagerEndpoint', {
       service: ec2.InterfaceVpcEndpointAwsService.SECRETS_MANAGER,
       privateDnsEnabled: true,
@@ -117,6 +123,11 @@ export class DataPipelineStack extends Stack {
       engine: rds.DatabaseInstanceEngine.postgres({
         version: rds.PostgresEngineVersion.VER_16,
       }),
+      // NOTE: this account's plan rejects any DBInstanceClass other than the
+      // free-tier-eligible MICRO size ("This instance size isn't available
+      // with free plan accounts") - confirmed by a failed db.t4g.small
+      // deploy attempt that CloudFormation auto-rolled back. Do not change
+      // this without first resolving that account-level restriction.
       instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
       vpc: this.databaseVpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },

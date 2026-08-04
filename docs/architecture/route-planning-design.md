@@ -211,6 +211,8 @@ APIで許可する条件をallow-list化する。
 
 動的コストは`routing_cost_snapshots`と`routing_cost_edges_cache`へ版付きで保持する。同じグラフ・指数・条件のリクエストでは全edgeの指数・除雪履歴JOINを繰り返さず、生成済みコストのうち探索回廊に含まれるedgeだけをpgRoutingへ渡す。初回生成はPostgreSQL advisory lockで直列化し、未完了のスナップショットを他リクエストから参照させない。
 
+このRDS側コストキャッシュとは別に、`repository.plan()`（地点スナップ・コストキャッシュ確認・pgr_KSP実行を含む一連のDB往復）の生結果を、起点・終点・モード・条件・版が完全一致する場合に限り`RoutePlanningService`インスタンス単位でインメモリTTLキャッシュする（既定5分、`_get_departure_model`のTTLキャッシュと同じ方式）。ウォームなLambda実行環境内での再利用に限られ、最大同時実行数（`ROUTE_PLANNING_CONCURRENCY_LIMIT`、既定10）ぶんの実行環境ごとに独立する。候補選定・ラベリング・おすすめ出発時刻の予測はキャッシュヒット時も毎回再計算するため、除雪状況の最新性は失われない。
+
 経路ラベルは計算結果から決定する。
 
 - `distance_priority`: 距離優先コストが最小

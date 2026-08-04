@@ -9,6 +9,7 @@ import {
 } from 'aws-cdk-lib';
 import * as apigateway from 'aws-cdk-lib/aws-apigatewayv2';
 import * as integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as ecrAssets from 'aws-cdk-lib/aws-ecr-assets';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
@@ -24,6 +25,7 @@ export interface ApiStackProps extends StackProps {
   readonly databaseSecret: secretsmanager.ISecret;
   readonly databaseName: string;
   readonly routePlanningFunction?: lambda.IFunction;
+  readonly snowplowLiveTable: dynamodb.ITable;
 }
 
 /** Public read-only map API backed by the unified PostgreSQL serving projection. */
@@ -75,9 +77,11 @@ export class ApiStack extends Stack {
       environment: {
         DATABASE_NAME: props.databaseName,
         DATABASE_SECRET_ARN: props.databaseSecret.secretArn,
+        SNOWPLOW_LIVE_TABLE_NAME: props.snowplowLiveTable.tableName,
       },
     });
     props.databaseSecret.grantRead(this.apiFunction);
+    props.snowplowLiveTable.grantReadData(this.apiFunction);
     Tags.of(this.apiFunction).add('Lifecycle', 'runtime');
     Tags.of(this.apiFunction).add('Service', 'api');
 

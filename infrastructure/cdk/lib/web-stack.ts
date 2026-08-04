@@ -1,5 +1,6 @@
 import * as path from 'path';
 import {
+  AssetHashType,
   CfnOutput,
   DockerImage,
   Duration,
@@ -11,9 +12,19 @@ import {
 } from 'aws-cdk-lib';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as origins from 'aws-cdk-lib/aws-cloudfront-origins';
+import * as acm from 'aws-cdk-lib/aws-certificatemanager';
+import * as route53 from 'aws-cdk-lib/aws-route53';
+import * as route53Targets from 'aws-cdk-lib/aws-route53-targets';
 import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import { Construct } from 'constructs';
+
+export interface WebCustomDomainConfig {
+  readonly domainNames: string[];
+  readonly hostedZoneId: string;
+  readonly hostedZoneName: string;
+  readonly certificateArn: string;
+}
 
 export interface WebStackProps extends StackProps {
   readonly environment: string;
@@ -21,6 +32,7 @@ export interface WebStackProps extends StackProps {
   readonly mapKitToken?: string;
   readonly webSourcePath?: string;
   readonly bundleWebApp?: boolean;
+  readonly customDomain?: WebCustomDomainConfig;
 }
 
 /** Private S3 and CloudFront delivery for the React frontend. */
@@ -75,6 +87,17 @@ export class WebStack extends Stack {
       allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD_OPTIONS,
       cachePolicy: mapApiCachePolicy,
     };
+    const customDomainNames = props.customDomain?.domainNames ?? [];
+    if (props.customDomain && customDomainNames.length === 0) {
+      throw new Error('customDomain.domainNames must contain at least one domain name');
+    }
+    const certificate = props.customDomain
+      ? acm.Certificate.fromCertificateArn(
+        this,
+        'CustomDomainCertificate',
+        props.customDomain.certificateArn,
+      )
+      : undefined;
 
     this.distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: `Yukisaki Web (${props.environment})`,
@@ -82,6 +105,8 @@ export class WebStack extends Stack {
       defaultRootObject: 'index.html',
       priceClass: cloudfront.PriceClass.PRICE_CLASS_100,
       minimumProtocolVersion: cloudfront.SecurityPolicyProtocol.TLS_V1_2_2021,
+      certificate,
+      domainNames: customDomainNames.length > 0 ? customDomainNames : undefined,
       defaultBehavior: {
         origin: origins.S3BucketOrigin.withOriginAccessControl(this.websiteBucket),
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -105,6 +130,43 @@ export class WebStack extends Stack {
     Tags.of(this.distribution).add('Lifecycle', 'runtime');
     Tags.of(this.distribution).add('Service', 'web');
 
+    if (props.customDomain) {
+      const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
+        this,
+        'CustomDomainHostedZone',
+        {
+          hostedZoneId: props.customDomain.hostedZoneId,
+          zoneName: props.customDomain.hostedZoneName,
+        },
+      );
+      const zoneSuffix = `.${props.customDomain.hostedZoneName}`;
+      customDomainNames.forEach((domainName, index) => {
+        let recordName: string | undefined;
+        if (domainName === props.customDomain!.hostedZoneName) {
+          recordName = undefined;
+        } else if (domainName.endsWith(zoneSuffix)) {
+          recordName = domainName.slice(0, -zoneSuffix.length);
+        } else {
+          throw new Error(
+            `Custom domain ${domainName} is outside hosted zone ${props.customDomain!.hostedZoneName}`,
+          );
+        }
+        const target = route53.RecordTarget.fromAlias(
+          new route53Targets.CloudFrontTarget(this.distribution),
+        );
+        new route53.ARecord(this, `CustomDomainIpv4Record${index + 1}`, {
+          zone: hostedZone,
+          recordName,
+          target,
+        });
+        new route53.AaaaRecord(this, `CustomDomainIpv6Record${index + 1}`, {
+          zone: hostedZone,
+          recordName,
+          target,
+        });
+      });
+    }
+
     const webSourcePath = props.webSourcePath
       ?? path.join(__dirname, '../../../services/web');
     if (props.bundleWebApp !== false && !props.mapKitToken) {
@@ -115,6 +177,9 @@ export class WebStack extends Stack {
     const source = props.bundleWebApp === false
       ? s3deploy.Source.asset(webSourcePath)
       : s3deploy.Source.asset(webSourcePath, {
+        // The token is supplied only while bundling, so hash the output to ensure
+        // a token rotation produces and deploys a new website asset.
+        assetHashType: AssetHashType.OUTPUT,
         exclude: ['node_modules', 'dist', 'legacy-static'],
         bundling: {
           image: DockerImage.fromRegistry('node:22-alpine'),
@@ -150,5 +215,10 @@ export class WebStack extends Stack {
     new CfnOutput(this, 'WebUrl', {
       value: `https://${this.distribution.distributionDomainName}`,
     });
+    if (customDomainNames.length > 0) {
+      new CfnOutput(this, 'CustomWebUrl', {
+        value: `https://${customDomainNames[0]}`,
+      });
+    }
   }
 }

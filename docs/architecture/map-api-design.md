@@ -60,7 +60,10 @@ Amazon API Gateway HTTP API
     +-- Map API Lambda（Docker image / ARM64 / isolated subnet）
     |           |
     |           +--> AWS Secrets Manager
-    |                 共通DB認証情報
+    |           |     共通DB認証情報
+    |           |
+    |           +--> DynamoDB Gatewayエンドポイント経由
+    |                 SnowplowLivePositions（除雪車最新位置キャッシュ）
     |
     | TLS / TCP 5432
     v
@@ -69,14 +72,14 @@ Amazon RDS for PostgreSQL `yukisaki`
     +-- road_segments_enriched
     +-- drivability_scores
     +-- snowplow_segment_passages
-    +-- snowplow_positions_latest
-    +-- snowplow_vehicles
     |
     +-- Place Search Lambda（Docker image / ARM64 / VPC外）
           |
           +-- Secrets Manager（Apple Maps専用秘密鍵）
           +-- Apple Maps Server API（HTTPS）
 ```
+
+除雪車の最新位置（`GET /v1/snowplows`）の読み取りは2026-08-04にRDSの`snowplow_positions_latest`/`snowplow_vehicles`からDynamoDB `SnowplowLivePositions`テーブルへ切り替えた。全ブラウザタブが約5秒間隔でポーリングしCloudFrontでもキャッシュしないため、RDS接続数・CPU負荷への影響が最も大きいエンドポイントだったことが理由である。GPSイベントを道路マッチングなしで直接投影するため、`matched_segment_id`/`match_distance_m`は常に`null`になる（レスポンス契約上はもともと省略可能）。RDSの`snowplow_positions_latest`/`snowplow_vehicles`への書き込み（`GpsDatabaseLoader`経由）自体は変更しておらず、`snowplow_segment_passages`（走りやすさ指数・おすすめ出発時刻の根拠）と合わせて正本として残る。読み取り側だけがDynamoDBへ切り替わった。
 
 | コンポーネント | 設計 |
 |---|---|
@@ -158,16 +161,16 @@ infrastructure/cdk/
 
 ### 7.2 除雪車
 
-`snowplow_positions_latest`と`snowplow_vehicles`を結合し、車両ごとに最新位置1件を返す。
+DynamoDB `SnowplowLivePositions`テーブルを`Scan`し、車両ごとの最新位置1件（PKが`vehicle_id`のため自然に1件）をGeoJSONへ変換して返す。`display_name`は列自体を持たないため`vehicle_id`をそのまま使う。
 
 - Geometry: Point
-- 座標順: `[longitude, latitude]`
-- `matched_segment_id`: 直近のマップマッチング先道路ID
+- 座標順: `[longitude, latitude]`（DynamoDBの`Decimal`をAPI層で`float`へ変換してから使う）
+- `matched_segment_id`・`match_distance_m`: この経路は道路マッチングをしないため常に`null`
 - `operation`: 除雪作業状態
 - `run_id`: データ生成・ロードの追跡ID
 - `is_simulated`: 常にデモデータであることを明示
 
-フロントエンドは`matched_segment_id`と道路Featureの`segment_id`を同じキーとして扱う。
+フロントエンドは`matched_segment_id`と道路Featureの`segment_id`を同じキーとして扱う契約のため、`null`の場合は紐付けを行わない（既存のオプショナル項目のまま）。
 
 ## 8. 応答メタデータ
 

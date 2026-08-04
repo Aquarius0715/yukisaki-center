@@ -41,16 +41,29 @@ describe('GpsPipelineStack', () => {
 
   test('provisions a disabled thirty-vehicle real-time pipeline', () => {
     template.resourceCountIs('AWS::Events::EventBus', 1);
-    template.resourceCountIs('AWS::Events::Rule', 2);
+    template.resourceCountIs('AWS::Events::Rule', 3);
     template.hasResourceProperties('AWS::ECS::Service', { DesiredCount: 0 });
     template.hasResourceProperties('AWS::ECS::TaskDefinition', {
       Cpu: '1024', Memory: '2048', RuntimePlatform: Match.objectLike({ CpuArchitecture: 'ARM64' }),
     });
     template.resourcePropertiesCountIs('AWS::Lambda::Function', {
       PackageType: 'Image', ReservedConcurrentExecutions: 0,
-    }, 4);
-    template.resourceCountIs('AWS::SQS::Queue', 8);
+    }, 5);
+    template.resourceCountIs('AWS::SQS::Queue', 10);
     template.resourceCountIs('AWS::RDS::DBInstance', 0);
+  });
+
+  test('provisions an on-demand DynamoDB table for live snowplow positions', () => {
+    template.hasResourceProperties('AWS::DynamoDB::Table', {
+      BillingMode: 'PAY_PER_REQUEST',
+      KeySchema: [{ AttributeName: 'vehicle_id', KeyType: 'HASH' }],
+      TimeToLiveSpecification: { AttributeName: 'expires_at', Enabled: true },
+    });
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: { Variables: Match.objectLike({
+        SNOWPLOW_LIVE_TABLE_NAME: Match.anyValue(),
+      }) },
+    });
   });
 
   test('loads and scores against the shared database name', () => {

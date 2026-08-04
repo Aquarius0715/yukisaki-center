@@ -6,11 +6,11 @@ AWSリソースを次の3種類に分ける。
 
 | 種類 | 扱い | 現在の例 |
 |---|---|---|
-| `persistent` | 開発停止中も維持 | S3原本、Web配信S3、EventBridge、SQS、DLQ、ECR、ログ |
+| `persistent` | 開発停止中も維持 | S3原本、Web配信S3、EventBridge、SQS、DLQ、ECR、ログ、除雪車ライブ位置DynamoDBテーブル |
 | `runtime` | 開発・デモ時だけ起動 | 共通RDS、GPS Simulator、DBへ接続する処理、Web CloudFront配信 |
 | `on-demand` | リクエスト時だけ実行 | Collector Lambda、DB確認用SSM踏み台、API Gateway経由のAPI Lambda |
 
-S3を正本とし、PostgreSQLなどの`runtime`はS3から再構築できる状態を保つ。データを守るため、停止操作でS3を削除しない。
+S3を正本とし、PostgreSQLなどの`runtime`はS3から再構築できる状態を保つ。データを守るため、停止操作でS3を削除しない。除雪車ライブ位置DynamoDBテーブルはオンデマンド課金でインスタンス起動・停止の概念がないため`persistent`扱いとし、書き込みを行う`GpsLiveTracker` Lambda自体はGPSパイプラインの他Lambdaと同じ`runtime`として`env:start|stop`のLambda同時実行数管理対象に含める。テーブルの内容自体はRDSの`snowplow_positions_latest`と異なり正本ではなく、GPSイベントから再構築できる読み取り専用キャッシュである。
 
 Weather、道路、消雪パイプmanifestのEventBridge RuleはCDKデプロイ直後はすべて`DISABLED`である。リソースをデプロイしただけでは収集・連携処理を開始しない。
 
@@ -44,7 +44,17 @@ npm run web:enable -- --profile yukisaki-dev
 npm run web:disable -- --profile yukisaki-dev
 ```
 
-Webを初回デプロイするとき、またはMapKit JSトークンを更新するときは、Git管理外の`services/web/env.local`へ`VITE_MAPKIT_TOKEN`を設定し、`npm run web:secret:sync -- --profile yukisaki-dev`を実行する。通常のWebデプロイは`npm run web:deploy -- --profile yukisaki-dev`を使用し、Secrets Managerの`yukisaki/dev/web/mapkit-js-token`からトークンを取得する。
+WebはRoute 53の`yukisaki.life`と`www.yukisaki.life`を、ACM証明書付きで同じCloudFront Distributionへ向ける。通常のWebデプロイは`npm run web:deploy -- --profile yukisaki-dev`を使用し、Secrets Managerの`yukisaki/dev/web/mapkit-js-token`からMapKit JSトークンを取得する。
+
+MapKit JSトークンは、Apple Maps Server API用の秘密鍵をSecrets Managerから読み、許可ドメインをCDK contextから取得して更新できる。秘密鍵と生成したトークンは標準出力へ表示しない。生成トークンの有効期間は既定で180日なので、出力された期限より前に更新してWebを再デプロイする。
+
+```bash
+cd infrastructure/cdk
+npm run web:token:refresh -- --profile yukisaki-dev
+npm run web:deploy -- --profile yukisaki-dev
+```
+
+Apple Developerで別途発行したMapKit JSトークンを使用する場合は、Git管理外の`services/web/env.local`へ`VITE_MAPKIT_TOKEN`を設定し、`npm run web:secret:sync -- --profile yukisaki-dev`で同じSecretへ同期する。
 
 `env:stop`は次を行う。
 

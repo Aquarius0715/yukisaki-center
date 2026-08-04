@@ -49,7 +49,11 @@ class NoDeparturePassagesMixin:
 
 
 class FakeRepository(NoDeparturePassagesMixin):
+    def __init__(self):
+        self.calls = 0
+
     def plan(self, request, max_snap_distance_m):
+        self.calls += 1
         return {
             "graph_version": "graph-v1", "score_rule_version": "score-v1",
             "data_timestamp": "2026-01-23T12:00:00+09:00",
@@ -174,6 +178,18 @@ class DeparturePredictionRepository(HazardFactorRepository):
         return {}
 
 
+class SequentialFetchCursor:
+    def __init__(self, results):
+        self._results = list(results)
+        self.execute_count = 0
+
+    def execute(self, sql, parameters=None):
+        self.execute_count += 1
+
+    def fetchone(self):
+        return self._results.pop(0)
+
+
 class PlaceholderCheckingCursor:
     def __init__(self):
         self.executed = []
@@ -246,6 +262,18 @@ class RouteServiceTest(unittest.TestCase):
         self.assertEqual(0, first["departure_recommendation"]["recommended_offset_minutes"])
         self.assertFalse(first["departure_recommendation"]["insufficient_data"])
         self.assertEqual([], first["departure_recommendation"]["evaluated_segment_ids"])
+
+    def test_identical_requests_reuse_cached_repository_plan(self):
+        repository = FakeRepository()
+        service = RoutePlanningService(repository)
+        service.plan(request_payload())
+        service.plan(request_payload())
+        self.assertEqual(1, repository.calls)
+
+        other_payload = request_payload()
+        other_payload["destination"] = {"latitude": 37.4600, "longitude": 138.8200}
+        service.plan(other_payload)
+        self.assertEqual(2, repository.calls)
 
     def test_departure_recommendation_reports_insufficient_data_without_passage_history(self):
         result = RoutePlanningService(HazardFactorRepository()).plan(request_payload())
@@ -361,6 +389,34 @@ class RouteServiceTest(unittest.TestCase):
                 "graph-v1",
                 100.0,
             )
+
+    def test_ensure_cost_cache_schema_runs_ddl_once_per_repository_instance(self):
+        repository = RoutingRepository()
+        cursor = PlaceholderCheckingCursor()
+
+        repository._ensure_cost_cache_schema(cursor)
+        self.assertGreater(len(cursor.executed), 0)
+        self.assertTrue(repository._schema_ensured)
+
+        cursor.executed.clear()
+        repository._ensure_cost_cache_schema(cursor)
+        self.assertEqual([], cursor.executed)
+
+    def test_active_versions_are_cached_per_reference_time_within_ttl(self):
+        repository = RoutingRepository()
+        cursor = SequentialFetchCursor([
+            ("graph-v1",),
+            ("score-v1", datetime.fromisoformat("2026-01-23T12:00:00+09:00")),
+        ])
+        reference_time = datetime.fromisoformat("2026-01-23T12:00:00+09:00")
+
+        first = repository._active_versions(cursor, reference_time)
+        self.assertEqual(("graph-v1", "score-v1", "2026-01-23T12:00:00+09:00"), first)
+        self.assertEqual(2, cursor.execute_count)
+
+        second = repository._active_versions(cursor, reference_time)
+        self.assertEqual(first, second)
+        self.assertEqual(2, cursor.execute_count)
 
     def test_cost_cache_sql_parameters_match_with_and_without_plow_preference(self):
         for prefer in ([], ["recently_plowed"]):

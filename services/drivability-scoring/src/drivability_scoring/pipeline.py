@@ -16,6 +16,12 @@ LOGGER.setLevel(logging.INFO)
 _S3_CLIENT = None
 _SECRETS_CLIENT = None
 _DATABASE_SECRET = None
+_SCORE_SCHEMA_ENSURED = False
+# The 35 weather grid points are fixed for this MVP's pinned reference time
+# (collected once, not re-collected mid-demo). Every scored segment needs its
+# nearest point, so fetch them once per warm container instead of re-running
+# a per-segment nearest-neighbour subquery against Postgres on every call.
+_WEATHER_POINTS: list[dict[str, Any]] | None = None
 
 
 def s3_client():
@@ -55,28 +61,22 @@ def connect_database():
     )
 
 
+WEATHER_POINTS_SQL = """
+SELECT latitude, longitude, temperature_c, snowfall_cm, snow_depth_m
+FROM weather_hourly_windows
+WHERE relative_hour = 0
+  AND reference_time = (
+    SELECT max(reference_time) FROM weather_hourly_windows WHERE relative_hour = 0
+  )
+"""
+
 INPUT_SQL = """
 SELECT r.segment_id, r.max_slope_percent, r.road_type,
-       w.temperature_c, w.snowfall_cm, w.snow_depth_m,
+       (r.geometry_geojson #>> '{coordinates,0,1}')::double precision AS segment_latitude,
+       (r.geometry_geojson #>> '{coordinates,0,0}')::double precision AS segment_longitude,
        s.snow_pipe, s.operation_status,
        p.last_plowed_at
 FROM road_segments r
-LEFT JOIN LATERAL (
-  SELECT temperature_c, snowfall_cm, snow_depth_m
-  FROM weather_hourly_windows
-  WHERE relative_hour = 0
-    AND reference_time = (
-      SELECT max(reference_time) FROM weather_hourly_windows WHERE relative_hour = 0
-    )
-  ORDER BY
-    power(latitude - (r.geometry_geojson #>> '{coordinates,0,1}')::double precision, 2)
-    + power(
-        (longitude - (r.geometry_geojson #>> '{coordinates,0,0}')::double precision)
-        * cos(radians((r.geometry_geojson #>> '{coordinates,0,1}')::double precision)),
-        2
-      )
-  LIMIT 1
-) w ON true
 LEFT JOIN latest_snow_pipe_status s ON s.segment_id = r.segment_id
 LEFT JOIN LATERAL (
   SELECT max(observed_at) AS last_plowed_at
@@ -89,16 +89,53 @@ ORDER BY r.segment_id;
 """
 
 
+def _weather_points(cursor: Any) -> list[dict[str, Any]]:
+    global _WEATHER_POINTS
+    if _WEATHER_POINTS is None:
+        cursor.execute(WEATHER_POINTS_SQL)
+        _WEATHER_POINTS = [
+            {
+                "latitude": row[0], "longitude": row[1], "temperature_c": row[2],
+                "snowfall_cm": row[3], "snow_depth_m": row[4],
+            }
+            for row in cursor.fetchall()
+        ]
+    return _WEATHER_POINTS
+
+
+def _nearest_weather(
+    points: list[dict[str, Any]], latitude: float | None, longitude: float | None,
+) -> dict[str, Any] | None:
+    if not points or latitude is None or longitude is None:
+        return None
+    import math
+
+    def squared_distance(point: dict[str, Any]) -> float:
+        return (point["latitude"] - latitude) ** 2 + (
+            (point["longitude"] - longitude) * math.cos(math.radians(latitude))
+        ) ** 2
+
+    return min(points, key=squared_distance)
+
+
 def _input_rows(cursor: Any, segment_ids: list[str], timestamp: str) -> list[dict[str, Any]]:
+    weather_points = _weather_points(cursor)
     cursor.execute(INPUT_SQL, (timestamp, segment_ids))
     rows = []
     for row in cursor.fetchall():
+        (
+            segment_id, max_slope_percent, road_type, segment_latitude, segment_longitude,
+            snow_pipe, operation_status, last_plowed_at,
+        ) = row
+        weather = _nearest_weather(weather_points, segment_latitude, segment_longitude)
         rows.append({
-            "segment_id": row[0], "max_slope_percent": row[1], "road_type": row[2],
-            "temperature_c": row[3],
-            "snowfall_1h_cm": row[4], "snow_depth_m": row[5], "snow_pipe": row[6],
-            "snow_pipe_operation_status": row[7],
-            "last_plowed_at": row[8].isoformat() if row[8] else None,
+            "segment_id": segment_id, "max_slope_percent": max_slope_percent, "road_type": road_type,
+            "temperature_c": weather["temperature_c"] if weather else None,
+            "snowfall_1h_cm": weather["snowfall_cm"] if weather else None,
+            "snow_depth_m": weather["snow_depth_m"] if weather else None,
+            "snow_pipe": snow_pipe,
+            "snow_pipe_operation_status": operation_status,
+            "last_plowed_at": last_plowed_at.isoformat() if last_plowed_at else None,
             "data_timestamp": timestamp, "is_simulated": True,
         })
     return rows
@@ -124,6 +161,17 @@ CREATE INDEX IF NOT EXISTS drivability_scores_map_latest_idx
   ON drivability_scores (segment_id, data_timestamp DESC, rule_version DESC)
   INCLUDE (score, confidence, is_simulated);
 """
+
+
+def _ensure_score_schema(cursor: Any) -> None:
+    # SCORE_TABLE_SQL is idempotent (CREATE TABLE/INDEX ... IF NOT EXISTS),
+    # but Postgres still checks the catalog on every call. Skip once this
+    # warm container has confirmed the schema exists.
+    global _SCORE_SCHEMA_ENSURED
+    if _SCORE_SCHEMA_ENSURED:
+        return
+    cursor.execute(SCORE_TABLE_SQL)
+    _SCORE_SCHEMA_ENSURED = True
 
 
 def _validated_timestamp(value: Any) -> str:
@@ -206,7 +254,7 @@ def score_message(message: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("processingRunId is required")
     with connect_database() as connection:
         with connection.cursor() as cursor:
-            cursor.execute(SCORE_TABLE_SQL)
+            _ensure_score_schema(cursor)
             cursor.execute("SELECT 1 FROM data_load_runs WHERE run_id = %s", (processing_run_id,))
             if cursor.fetchone() is None:
                 raise RuntimeError("GPS PostgreSQL load is not complete; retry scoring later")
@@ -219,30 +267,6 @@ def score_message(message: dict[str, Any]) -> dict[str, Any]:
             )
     LOGGER.info("Scored %d GPS-touched road segments", result["recordCount"])
     return result
-
-
-def score_all_segments(event: dict[str, Any]) -> dict[str, Any]:
-    data_timestamp = _validated_timestamp(
-        event.get("dataTimestamp") or os.environ.get("TARGET_REFERENCE_TIME")
-    )
-    timestamp_token = datetime.fromisoformat(data_timestamp).astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    score_run_id = f"score-initial-all-roads-{timestamp_token}"
-    with connect_database() as connection:
-        with connection.cursor() as cursor:
-            cursor.execute(SCORE_TABLE_SQL)
-            cursor.execute("SELECT segment_id FROM road_segments ORDER BY segment_id")
-            segment_ids = [row[0] for row in cursor.fetchall()]
-            if not segment_ids:
-                raise RuntimeError("road_segments is empty")
-            result = _score_and_persist(
-                cursor,
-                segment_ids=segment_ids,
-                data_timestamp=data_timestamp,
-                score_run_id=score_run_id,
-                source_run_ids=[score_run_id],
-            )
-    LOGGER.info("Scored %d road segments", len(results))
-    return {"runId": score_run_id, "recordCount": len(results), "key": key}
 
 
 def score_all_segments(data_timestamp: str) -> dict[str, Any]:

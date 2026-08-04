@@ -18,6 +18,12 @@ API_STACK_NAME="${API_STACK_NAME:-YukisakiApi-dev}"
 ROUTE_STACK_NAME="${ROUTE_STACK_NAME:-YukisakiRoutePlanning-dev}"
 AI_STACK_NAME="${AI_STACK_NAME:-YukisakiAiAssistant-dev}"
 WEB_STACK_NAME="${WEB_STACK_NAME:-YukisakiWeb-dev}"
+# Caps route-planning's own worst-case connections against the shared RDS
+# instance (max_connections=79 on db.t4g.micro): comparison mode opens up to
+# 3 connections per request, so this bounds route-planning to at most
+# ROUTE_PLANNING_CONCURRENCY_LIMIT * 3 simultaneous connections, leaving
+# headroom for every other Lambda sharing the same database.
+ROUTE_PLANNING_CONCURRENCY_LIMIT="${ROUTE_PLANNING_CONCURRENCY_LIMIT:-10}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -113,6 +119,7 @@ GPS_CLUSTER="$(stack_output "${GPS_STACK_NAME}" GpsSimulatorClusterName)"
 GPS_SERVICE="$(stack_output "${GPS_STACK_NAME}" GpsSimulatorServiceName)"
 GPS_ARCHIVER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsRawArchiverFunctionName)"
 GPS_MATCHER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsMapMatcherFunctionName)"
+GPS_LIVE_TRACKER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsLiveTrackerFunctionName)"
 GPS_LOADER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" GpsDatabaseLoaderFunctionName)"
 GPS_SCORER_FUNCTION="$(stack_output "${GPS_STACK_NAME}" DrivabilityScorerFunctionName)"
 API_FUNCTION="$(stack_output "${API_STACK_NAME}" ApiFunctionName)"
@@ -129,7 +136,7 @@ for required_output in \
   "${DATABASE_ID}" "${COLLECTOR_FUNCTION}" "${LOADER_FUNCTION}" "${WEATHER_SCHEDULE}" \
   "${ROAD_SCHEDULE}" "${ROAD_CLUSTER}" "${SNOW_LOADER_FUNCTION}" \
   "${SNOW_MANIFEST_RULE}" "${GPS_CLUSTER}" "${GPS_SERVICE}" \
-  "${GPS_ARCHIVER_FUNCTION}" "${GPS_MATCHER_FUNCTION}" "${GPS_LOADER_FUNCTION}" \
+  "${GPS_ARCHIVER_FUNCTION}" "${GPS_MATCHER_FUNCTION}" "${GPS_LIVE_TRACKER_FUNCTION}" "${GPS_LOADER_FUNCTION}" \
   "${GPS_SCORER_FUNCTION}" "${API_FUNCTION}" "${API_URL}" "${AI_FUNCTION}" "${BEDROCK_MODEL_ID}"; do
   if [[ "${required_output}" == "None" || -z "${required_output}" ]]; then
     echo "Required CloudFormation outputs are missing. Deploy all latest CDK stacks first." >&2
@@ -196,6 +203,12 @@ pause_function() {
 
 resume_function() {
   aws_cli lambda delete-function-concurrency --function-name "$1" >/dev/null
+}
+
+resume_function_bounded() {
+  aws_cli lambda put-function-concurrency \
+    --function-name "$1" \
+    --reserved-concurrent-executions "$2" >/dev/null
 }
 
 function_state() {
@@ -354,6 +367,7 @@ case "${ACTION}" in
     echo "snowLoader=${SNOW_LOADER_FUNCTION} state=$(function_state "${SNOW_LOADER_FUNCTION}")"
     echo "gpsArchiver=${GPS_ARCHIVER_FUNCTION} state=$(function_state "${GPS_ARCHIVER_FUNCTION}")"
     echo "gpsMatcher=${GPS_MATCHER_FUNCTION} state=$(function_state "${GPS_MATCHER_FUNCTION}")"
+    echo "gpsLiveTracker=${GPS_LIVE_TRACKER_FUNCTION} state=$(function_state "${GPS_LIVE_TRACKER_FUNCTION}")"
     echo "gpsLoader=${GPS_LOADER_FUNCTION} state=$(function_state "${GPS_LOADER_FUNCTION}")"
     echo "drivabilityScorer=${GPS_SCORER_FUNCTION} state=$(function_state "${GPS_SCORER_FUNCTION}")"
     echo "mapApi=${API_FUNCTION} state=$(function_state "${API_FUNCTION}") url=${API_URL}"
@@ -389,6 +403,7 @@ case "${ACTION}" in
     pause_function "${SNOW_LOADER_FUNCTION}"
     pause_function "${GPS_ARCHIVER_FUNCTION}"
     pause_function "${GPS_MATCHER_FUNCTION}"
+    pause_function "${GPS_LIVE_TRACKER_FUNCTION}"
     pause_function "${GPS_LOADER_FUNCTION}"
     pause_function "${GPS_SCORER_FUNCTION}"
     pause_function "${API_FUNCTION}"
@@ -418,6 +433,7 @@ case "${ACTION}" in
     resume_function "${SNOW_LOADER_FUNCTION}"
     resume_function "${GPS_ARCHIVER_FUNCTION}"
     resume_function "${GPS_MATCHER_FUNCTION}"
+    resume_function "${GPS_LIVE_TRACKER_FUNCTION}"
     resume_function "${GPS_LOADER_FUNCTION}"
     resume_function "${GPS_SCORER_FUNCTION}"
     resume_function "${API_FUNCTION}"
@@ -425,7 +441,7 @@ case "${ACTION}" in
       resume_function "${PLACE_SEARCH_FUNCTION}"
     fi
     if route_is_deployed; then
-      resume_function "${ROUTE_FUNCTION}"
+      resume_function_bounded "${ROUTE_FUNCTION}" "${ROUTE_PLANNING_CONCURRENCY_LIMIT}"
     fi
     resume_function "${AI_FUNCTION}"
     enable_rule "${SNOW_MANIFEST_RULE}"

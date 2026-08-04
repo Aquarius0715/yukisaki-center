@@ -25,6 +25,7 @@
     "diff": "bash scripts/cdk-with-mapkit-secret.sh diff",
     "deploy": "bash scripts/cdk-with-mapkit-secret.sh deploy",
     "web:secret:sync": "bash scripts/mapkit-secret.sh sync",
+    "web:token:refresh": "bash scripts/refresh-mapkit-token.sh",
     "web:deploy": "bash scripts/cdk-with-mapkit-secret.sh deploy YukisakiWeb-dev --require-approval never"
   },
   "devDependencies": {

@@ -161,15 +161,11 @@ WHERE r.segment_id = %s
 LIMIT 1
 """
 
-SNOWPLOWS_SQL = """
-SELECT
-  p.vehicle_id, v.display_name, p.observed_at, p.received_at, p.latitude, p.longitude,
-  p.speed_kmh, p.heading_degrees, p.accuracy_m, p.operation,
-  p.matched_segment_id, p.match_distance_m, p.run_id, p.is_simulated
-FROM snowplow_positions_latest AS p
-JOIN snowplow_vehicles AS v USING (vehicle_id)
-ORDER BY p.vehicle_id
-"""
+@lru_cache(maxsize=1)
+def _snowplow_live_table():
+    import boto3
+
+    return boto3.resource("dynamodb").Table(os.environ["SNOWPLOW_LIVE_TABLE_NAME"])
 
 
 @lru_cache(maxsize=1)
@@ -259,6 +255,33 @@ class PostgresMapRepository:
             return dict(zip(columns, row, strict=True))
 
     def snowplows(self) -> list[dict[str, Any]]:
-        with _connect() as connection, connection.cursor() as cursor:
-            cursor.execute(SNOWPLOWS_SQL)
-            return _rows(cursor)
+        # Read from the DynamoDB live-position cache instead of RDS: this
+        # endpoint is polled every 5s by every open browser tab and was
+        # never CloudFront-cached, making it the biggest per-tab RDS load
+        # source. matched_segment_id/match_distance_m stay absent here since
+        # this fast path skips road-matching (optional in the API contract).
+        # DynamoDB's resource API returns numeric attributes as Decimal;
+        # convert to float here so callers see the same plain types the
+        # Postgres path always returned (GeoJSON coordinates must be numbers).
+        started_at = time.perf_counter()
+        items = _snowplow_live_table().scan().get("Items", [])
+        rows = sorted(
+            (
+                {
+                    **item,
+                    "display_name": item.get("display_name", item["vehicle_id"]),
+                    **{
+                        field: float(item[field])
+                        for field in ("latitude", "longitude", "speed_kmh", "heading_degrees", "accuracy_m")
+                        if field in item
+                    },
+                }
+                for item in items
+            ),
+            key=lambda row: row["vehicle_id"],
+        )
+        LOGGER.info(
+            "snowplows completed source=dynamodb rows=%d total_ms=%.1f",
+            len(rows), (time.perf_counter() - started_at) * 1000,
+        )
+        return rows

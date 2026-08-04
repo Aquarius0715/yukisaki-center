@@ -1,5 +1,6 @@
 import { App, Stack } from 'aws-cdk-lib';
 import { Match, Template } from 'aws-cdk-lib/assertions';
+import * as dynamodb from 'aws-cdk-lib/aws-dynamodb';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as rds from 'aws-cdk-lib/aws-rds';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
@@ -33,9 +34,13 @@ describe('ApiStack', () => {
     'RoutePlanningFunction',
     'arn:aws:lambda:ap-northeast-1:123456789012:function:route-planning',
   );
+  const snowplowLiveTable = dynamodb.Table.fromTableName(
+    shared, 'SnowplowLiveTable', 'snowplow-live-positions',
+  );
   const stack = new ApiStack(app, 'ApiTestStack', {
     environment: 'test', databaseVpc: vpc, database,
     databaseSecret: secret, databaseName: 'yukisaki', routePlanningFunction,
+    snowplowLiveTable,
   });
   const template = Template.fromStack(stack);
 
@@ -66,6 +71,23 @@ describe('ApiStack', () => {
     });
     template.hasResourceProperties('AWS::ApiGatewayV2::Route', {
       RouteKey: 'GET /v1/places/autocomplete',
+    });
+  });
+
+  test('reads live snowplow positions from DynamoDB instead of RDS', () => {
+    template.hasResourceProperties('AWS::Lambda::Function', {
+      Environment: { Variables: Match.objectLike({
+        SNOWPLOW_LIVE_TABLE_NAME: 'snowplow-live-positions',
+      }) },
+    });
+    template.hasResourceProperties('AWS::IAM::Policy', {
+      PolicyDocument: Match.objectLike({
+        Statement: Match.arrayWith([
+          Match.objectLike({
+            Action: Match.arrayWith([Match.stringLikeRegexp('^dynamodb:.*Scan.*$')]),
+          }),
+        ]),
+      }),
     });
   });
 

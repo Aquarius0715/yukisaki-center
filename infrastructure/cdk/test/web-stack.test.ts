@@ -65,4 +65,47 @@ describe('WebStack', () => {
       }),
     });
   });
+
+  test('maps configured custom domains to CloudFront with IPv4 and IPv6 aliases', () => {
+    const customDomainStack = new WebStack(new App(), 'WebCustomDomainTestStack', {
+      environment: 'test',
+      apiEndpoint: 'https://api.example.com',
+      webSourcePath: path.join(__dirname, '../../../services/web/public'),
+      bundleWebApp: false,
+      customDomain: {
+        domainNames: ['example.com', 'www.example.com'],
+        hostedZoneId: 'Z1234567890',
+        hostedZoneName: 'example.com',
+        certificateArn: 'arn:aws:acm:us-east-1:111111111111:certificate/test',
+      },
+    });
+    const customDomainTemplate = Template.fromStack(customDomainStack);
+
+    customDomainTemplate.hasResourceProperties('AWS::CloudFront::Distribution', {
+      DistributionConfig: Match.objectLike({
+        Aliases: ['example.com', 'www.example.com'],
+        ViewerCertificate: Match.objectLike({
+          AcmCertificateArn: 'arn:aws:acm:us-east-1:111111111111:certificate/test',
+          SslSupportMethod: 'sni-only',
+          MinimumProtocolVersion: 'TLSv1.2_2021',
+        }),
+      }),
+    });
+    customDomainTemplate.resourceCountIs('AWS::Route53::RecordSet', 4);
+    for (const [name, type] of [
+      ['example.com.', 'A'],
+      ['example.com.', 'AAAA'],
+      ['www.example.com.', 'A'],
+      ['www.example.com.', 'AAAA'],
+    ]) {
+      customDomainTemplate.hasResourceProperties('AWS::Route53::RecordSet', {
+        Name: name,
+        Type: type,
+        AliasTarget: Match.objectLike({
+          DNSName: { 'Fn::GetAtt': [Match.anyValue(), 'DomainName'] },
+          HostedZoneId: Match.anyValue(),
+        }),
+      });
+    }
+  });
 });
