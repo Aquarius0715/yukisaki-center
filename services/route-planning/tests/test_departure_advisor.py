@@ -2,7 +2,11 @@ import unittest
 from datetime import datetime, timedelta
 
 from route_planning import departure_advisor
-from route_planning.config import DEPARTURE_CANDIDATE_OFFSETS_MINUTES, DEPARTURE_NO_HISTORY_ELAPSED_MINUTES
+from route_planning.config import (
+    DEPARTURE_CANDIDATE_OFFSETS_MINUTES,
+    DEPARTURE_MAX_TRAINING_SAMPLES,
+    DEPARTURE_NO_HISTORY_ELAPSED_MINUTES,
+)
 
 REFERENCE_TIME = datetime.fromisoformat("2026-01-23T12:00:00+09:00")
 
@@ -52,6 +56,18 @@ class BuildTrainingSamplesTest(unittest.TestCase):
         for elapsed, horizon in features:
             self.assertGreaterEqual(elapsed, 0.0)
             self.assertIn(horizon, [float(o) for o in DEPARTURE_CANDIDATE_OFFSETS_MINUTES])
+
+    def test_sample_count_is_capped_regardless_of_passage_history_span(self):
+        # A wide gap between two passages (as seen with real mock seed data,
+        # up to 1200 minutes) makes the 5-minute-step scan produce far more
+        # than DEPARTURE_MAX_TRAINING_SAMPLES samples; fit_logistic_regression's
+        # pure-Python gradient descent scales with sample count, so an
+        # unbounded result here previously blew past the Lambda's 29s timeout.
+        first = REFERENCE_TIME
+        second = REFERENCE_TIME + timedelta(minutes=10000)
+        features, labels = departure_advisor.build_training_samples({"a": [first, second]})
+        self.assertEqual(DEPARTURE_MAX_TRAINING_SAMPLES, len(features))
+        self.assertEqual(len(features), len(labels))
 
 
 class LogisticRegressionTest(unittest.TestCase):

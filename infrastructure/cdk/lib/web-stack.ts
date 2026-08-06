@@ -73,9 +73,11 @@ export class WebStack extends Stack {
     };
     const mapApiCachePolicy = new cloudfront.CachePolicy(this, 'MapApiCachePolicy', {
       comment: `Shared map API cache (${props.environment})`,
-      defaultTtl: Duration.seconds(90),
+      // Short on purpose: drivability-score colors should reach the map
+      // within seconds of a GPS-triggered rescore, not up to 90s later.
+      defaultTtl: Duration.seconds(3),
       minTtl: Duration.seconds(1),
-      maxTtl: Duration.seconds(210),
+      maxTtl: Duration.seconds(10),
       queryStringBehavior: cloudfront.CacheQueryStringBehavior.all(),
       cookieBehavior: cloudfront.CacheCookieBehavior.none(),
       headerBehavior: cloudfront.CacheHeaderBehavior.none(),

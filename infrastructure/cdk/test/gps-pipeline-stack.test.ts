@@ -31,6 +31,7 @@ describe('GpsPipelineStack', () => {
   );
   const stack = new GpsPipelineStack(app, 'GpsTestStack', {
     environment: 'test', targetReferenceTime: '2026-01-23T12:00:00+09:00',
+    scenarioLeadMinutes: 180,
     targetLatitude: 37.442762, targetLongitude: 138.790865,
     simulatorEnabled: false, emitIntervalSeconds: 5,
     dataBucket: s3.Bucket.fromBucketName(shared, 'DataBucket', 'data-bucket'),
@@ -51,6 +52,18 @@ describe('GpsPipelineStack', () => {
     }, 5);
     template.resourceCountIs('AWS::SQS::Queue', 10);
     template.resourceCountIs('AWS::RDS::DBInstance', 0);
+  });
+
+  test('backs the simulator clock off by scenarioLeadMinutes so it can accumulate history before targetReferenceTime', () => {
+    template.hasResourceProperties('AWS::ECS::TaskDefinition', {
+      ContainerDefinitions: Match.arrayWith([
+        Match.objectLike({
+          Environment: Match.arrayWith([
+            { Name: 'SCENARIO_START_TIME', Value: '2026-01-23T00:00:00.000Z' },
+          ]),
+        }),
+      ]),
+    });
   });
 
   test('provisions an on-demand DynamoDB table for live snowplow positions', () => {

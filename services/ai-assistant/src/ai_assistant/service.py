@@ -171,8 +171,9 @@ class AssistantService:
             )
             if not validator(result):
                 LOGGER.warning(
-                    "Bedrock structured output failed local validation: schema=%s",
+                    "Bedrock structured output failed local validation: schema=%s raw=%s",
                     schema_name,
+                    json.dumps(result, ensure_ascii=False)[:4000],
                 )
                 return fallback, True
             return result, False
@@ -245,7 +246,6 @@ def _route_explanation_is_grounded(
         "通行止め",
         "横風",
         "積雪",
-        "路面",
         "除雪実施率",
         "融雪設備",
         "走行環境の質",

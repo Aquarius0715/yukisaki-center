@@ -71,6 +71,7 @@ const gpsPipelineStack = new GpsPipelineStack(app, `YukisakiGpsPipeline-${enviro
   environment,
   targetReferenceTime:
     app.node.tryGetContext('targetReferenceTime') ?? '2026-01-23T12:00:00+09:00',
+  scenarioLeadMinutes: Number(app.node.tryGetContext('gpsScenarioLeadMinutes') ?? 180),
   targetLatitude: Number(app.node.tryGetContext('targetLatitude') ?? 37.442762),
   targetLongitude: Number(app.node.tryGetContext('targetLongitude') ?? 138.790865),
   simulatorEnabled: contextBoolean('gpsSimulatorEnabled', false),
@@ -123,7 +124,7 @@ new AiAssistantStack(app, `YukisakiAiAssistant-${environment}`, {
   httpApi: apiStack.httpApi,
   modelId:
     app.node.tryGetContext('bedrockModelId') ??
-    'jp.anthropic.claude-sonnet-4-5-20250929-v1:0',
+    'jp.anthropic.claude-haiku-4-5-20251001-v1:0',
   guardrailIdentifier: app.node.tryGetContext('bedrockGuardrailIdentifier'),
   guardrailVersion: app.node.tryGetContext('bedrockGuardrailVersion'),
   env: {

@@ -63,6 +63,13 @@ DEPARTURE_NO_HISTORY_ELAPSED_MINUTES = 240.0
 # How many distinct segments (each needing >=2 historical passages) feed the
 # pooled headway model. Bounds the training query, not the per-request one.
 DEPARTURE_TRAINING_SEGMENT_LIMIT = 300
+# fit_logistic_regression's pure-Python gradient descent costs ~200
+# iterations x len(features); measured at ~0.37ms/sample against production
+# passage volumes, so an unbounded sample count (seen up to ~95k with wide
+# mock seed gaps) can blow past the Lambda's 29s timeout on its own. Capping
+# here keeps worst-case fit time to a few seconds regardless of how much
+# passage history has accumulated.
+DEPARTURE_MAX_TRAINING_SAMPLES = 5000
 # Retrain only this often per warm Lambda container; passage cadence changes
 # slowly relative to a single route request.
 DEPARTURE_MODEL_CACHE_TTL_SECONDS = 600

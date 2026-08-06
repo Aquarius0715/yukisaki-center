@@ -28,6 +28,12 @@ class BedrockStructuredGenerator:
         system_prompt: str,
         payload: dict[str, Any],
     ) -> dict[str, Any]:
+        # Structured output is obtained via forced tool use (a single tool
+        # matching the schema, with toolChoice pinned to it) rather than
+        # Bedrock's native outputConfig/json_schema response format. Tool use
+        # is supported uniformly across Claude model generations on Bedrock,
+        # while the native structured-output response format is not (e.g. it
+        # rejects Haiku 4.5 requests with a validation error).
         request: dict[str, Any] = {
             "modelId": self.model_id,
             "system": [{"text": system_prompt}],
@@ -46,17 +52,17 @@ class BedrockStructuredGenerator:
                 }
             ],
             "inferenceConfig": {"maxTokens": 3200, "temperature": 0},
-            "outputConfig": {
-                "textFormat": {
-                    "type": "json_schema",
-                    "structure": {
-                        "jsonSchema": {
+            "toolConfig": {
+                "tools": [
+                    {
+                        "toolSpec": {
                             "name": schema_name,
                             "description": "Yukisaki assistant structured response",
-                            "schema": json.dumps(schema, separators=(",", ":")),
+                            "inputSchema": {"json": schema},
                         }
-                    },
-                }
+                    }
+                ],
+                "toolChoice": {"tool": {"name": schema_name}},
             },
         }
         if self.guardrail_identifier and self.guardrail_version:
@@ -70,10 +76,10 @@ class BedrockStructuredGenerator:
         if response.get("stopReason") == "guardrail_intervened":
             raise RuntimeError("Bedrock Guardrail intervened")
         content = response.get("output", {}).get("message", {}).get("content", [])
-        text = "".join(item.get("text", "") for item in content if "text" in item)
-        if not text:
-            raise RuntimeError("Bedrock returned no structured text")
-        result = json.loads(text)
+        tool_use = next((item["toolUse"] for item in content if "toolUse" in item), None)
+        if tool_use is None:
+            raise RuntimeError("Bedrock returned no structured tool use")
+        result = tool_use.get("input")
         if not isinstance(result, dict):
             raise RuntimeError("Bedrock response must be an object")
         return result

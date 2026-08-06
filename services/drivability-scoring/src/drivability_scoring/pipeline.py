@@ -152,14 +152,24 @@ CREATE TABLE IF NOT EXISTS drivability_scores (
   is_simulated BOOLEAN NOT NULL DEFAULT false,
   PRIMARY KEY (segment_id, data_timestamp, rule_version)
 );
+-- data_timestamp is the narrative "as of" moment a score claims (pinned to
+-- the fixed demo reference time for a bootstrap run, live GPS-event time for
+-- an incremental one) and is not reliable for picking the most-recently-
+-- computed row: a bootstrap re-run always writes the same pinned
+-- data_timestamp, so it can never outrank an older incremental row whose
+-- data_timestamp happens to be later, even though the bootstrap write is
+-- newer. ingested_at tracks actual write recency for that purpose instead.
+ALTER TABLE drivability_scores
+  ADD COLUMN IF NOT EXISTS ingested_at TIMESTAMPTZ NOT NULL DEFAULT now();
 CREATE INDEX IF NOT EXISTS drivability_scores_route_lookup_idx
   ON drivability_scores (segment_id, rule_version, data_timestamp DESC)
   INCLUDE (score, confidence, factors, is_simulated);
 CREATE INDEX IF NOT EXISTS drivability_scores_version_time_idx
   ON drivability_scores (rule_version, data_timestamp DESC);
-CREATE INDEX IF NOT EXISTS drivability_scores_map_latest_idx
-  ON drivability_scores (segment_id, data_timestamp DESC, rule_version DESC)
-  INCLUDE (score, confidence, is_simulated);
+DROP INDEX IF EXISTS drivability_scores_map_latest_idx;
+CREATE INDEX IF NOT EXISTS drivability_scores_ingested_latest_idx
+  ON drivability_scores (segment_id, ingested_at DESC)
+  INCLUDE (score, confidence, is_simulated, data_timestamp, rule_version);
 """
 
 
@@ -221,11 +231,11 @@ def _score_and_persist(
     cursor.executemany(
         """INSERT INTO drivability_scores (
              segment_id, data_timestamp, score, confidence, factors,
-             rule_version, is_simulated
-           ) VALUES (%s, %s::timestamptz, %s, %s, %s::jsonb, %s, true)
+             rule_version, is_simulated, ingested_at
+           ) VALUES (%s, %s::timestamptz, %s, %s, %s::jsonb, %s, true, now())
            ON CONFLICT (segment_id, data_timestamp, rule_version) DO UPDATE SET
              score=EXCLUDED.score, confidence=EXCLUDED.confidence,
-             factors=EXCLUDED.factors, is_simulated=true""",
+             factors=EXCLUDED.factors, is_simulated=true, ingested_at=now()""",
         projection_rows,
     )
     cursor.execute(

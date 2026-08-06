@@ -26,6 +26,7 @@ import { Construct } from 'constructs';
 export interface GpsPipelineStackProps extends StackProps {
   readonly environment: string;
   readonly targetReferenceTime: string;
+  readonly scenarioLeadMinutes: number;
   readonly targetLatitude: number;
   readonly targetLongitude: number;
   readonly simulatorEnabled: boolean;
@@ -58,6 +59,21 @@ export class GpsPipelineStack extends Stack {
     if (!Number.isInteger(props.emitIntervalSeconds) || props.emitIntervalSeconds < 1) {
       throw new Error('emitIntervalSeconds must be a positive integer');
     }
+    if (!Number.isInteger(props.scenarioLeadMinutes) || props.scenarioLeadMinutes < 0) {
+      throw new Error('scenarioLeadMinutes must be a non-negative integer');
+    }
+    // The simulator's clock starts here and only moves forward with real
+    // elapsed time. route-planning only counts a passage as "recently
+    // plowed" when its observed_at is at or before targetReferenceTime (it
+    // must have already happened relative to the demo's fixed reference
+    // moment), so starting the clock exactly at targetReferenceTime leaves
+    // no room to ever accumulate that history. Backing the start off by
+    // scenarioLeadMinutes gives the simulator time to sweep observed_at up
+    // through targetReferenceTime once, after which those passages remain
+    // valid indefinitely (the passages table is append-only).
+    const scenarioStartTime = new Date(
+      new Date(props.targetReferenceTime).getTime() - props.scenarioLeadMinutes * 60_000,
+    ).toISOString();
     Tags.of(this).add('Project', 'yukisaki-center');
     Tags.of(this).add('Environment', props.environment);
     Tags.of(this).add('Component', 'plow-gps-pipeline');
@@ -94,7 +110,7 @@ export class GpsPipelineStack extends Stack {
         GPS_EVENT_BUS_NAME: this.eventBus.eventBusName,
         VEHICLE_COUNT: '30',
         EMIT_INTERVAL_SECONDS: String(props.emitIntervalSeconds),
-        SCENARIO_START_TIME: props.targetReferenceTime,
+        SCENARIO_START_TIME: scenarioStartTime,
         TARGET_LATITUDE: String(props.targetLatitude),
         TARGET_LONGITUDE: String(props.targetLongitude),
         SPEED_KMH: '18',
@@ -179,7 +195,10 @@ export class GpsPipelineStack extends Stack {
         ROAD_CURATED_BUCKET: props.roadCuratedBucket.bucketName,
         GPS_LOAD_QUEUE_URL: loadQueue.queueUrl,
         SCORING_QUEUE_URL: scoringQueue.queueUrl,
-        SCORING_DELAY_SECONDS: '60',
+        // Just long enough for the (undelayed, batchSize:1) loader to land
+        // the passage in RDS before the scorer reads it; the loader itself
+        // typically finishes in a few seconds.
+        SCORING_DELAY_SECONDS: '10',
       },
     });
     props.roadCuratedBucket.grantRead(this.processorFunction, 'curated/road-segments/*');
@@ -194,13 +213,12 @@ export class GpsPipelineStack extends Stack {
       maxBatchingWindow: Duration.seconds(10),
     }));
     this.processorFunction.addEventSource(new lambdaEventSources.SqsEventSource(processingIngressQueue, {
-      // Wider than the raw-archive queue on purpose: this batch drives the
-      // RDS-bound loader and scorer downstream, so a bigger window means
-      // fewer DB connections opened per minute. 30s is the documented upper
-      // bound for GPS data cadence (snow_safe_route_requirements.md §17),
-      // so this stays within spec while cutting DB writes roughly 3-6x.
+      // Short on purpose: this batch drives the RDS-bound loader and scorer
+      // downstream, and a fresh drivability-score color change on the map
+      // needs to be visible within seconds of a plow passing, not minutes.
+      // Trades away some DB-connection-frequency savings for latency.
       batchSize: 180,
-      maxBatchingWindow: Duration.seconds(30),
+      maxBatchingWindow: Duration.seconds(3),
     }));
 
     // Fast, RDS-free read cache for the live map: a third fan-out branch off

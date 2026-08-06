@@ -55,9 +55,9 @@ describe('WebStack', () => {
   test('caches public map reads by all query-string parameters', () => {
     template.hasResourceProperties('AWS::CloudFront::CachePolicy', {
       CachePolicyConfig: Match.objectLike({
-        DefaultTTL: 90,
+        DefaultTTL: 3,
         MinTTL: 1,
-        MaxTTL: 210,
+        MaxTTL: 10,
         ParametersInCacheKeyAndForwardedToOrigin: Match.objectLike({
           QueryStringsConfig: { QueryStringBehavior: 'all' },
           CookiesConfig: { CookieBehavior: 'none' },

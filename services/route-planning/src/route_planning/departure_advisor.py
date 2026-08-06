@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import bisect
 import math
+import random
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -27,6 +28,7 @@ from typing import Any
 from .config import (
     DEPARTURE_CANDIDATE_OFFSETS_MINUTES,
     DEPARTURE_FRESH_WINDOW_MINUTES,
+    DEPARTURE_MAX_TRAINING_SAMPLES,
     DEPARTURE_MODEL_VERSION,
     DEPARTURE_NO_HISTORY_ELAPSED_MINUTES,
     DEPARTURE_PROBABILITY_THRESHOLD,
@@ -151,6 +153,10 @@ def build_training_samples(
                     features.append((elapsed_now, float(offset)))
                     labels.append(label)
             cursor += step
+    if len(features) > DEPARTURE_MAX_TRAINING_SAMPLES:
+        indices = random.sample(range(len(features)), DEPARTURE_MAX_TRAINING_SAMPLES)
+        features = [features[i] for i in indices]
+        labels = [labels[i] for i in indices]
     return features, labels
 
 

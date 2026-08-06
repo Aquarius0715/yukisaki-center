@@ -37,7 +37,7 @@ def score_segment(segment: dict[str, Any]) -> dict[str, Any]:
         last_plowed = datetime.fromisoformat(last_plowed_at)
         elapsed_minutes = max(0, (data_timestamp - last_plowed).total_seconds() / 60)
         if elapsed_minutes <= 60:
-            factors["plowed_within_60_minutes"] = 10
+            factors["plowed_within_60_minutes"] = 25
         elif elapsed_minutes < 180:
             factors["plowed_60_to_180_minutes_ago"] = -8
         else:

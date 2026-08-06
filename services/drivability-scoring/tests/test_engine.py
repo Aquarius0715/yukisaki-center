@@ -11,7 +11,7 @@ class ScoringTest(unittest.TestCase):
             "snow_pipe_operation_status": "active", "temperature_c": -1,
             "data_timestamp": "2026-01-23T12:00:00+09:00", "is_simulated": True,
         })
-        self.assertEqual(result["score"], 80)
+        self.assertEqual(result["score"], 95)
         self.assertEqual(result["confidence"], 1.0)
 
     def test_penalizes_missing_plow_history_without_inventing_it(self):

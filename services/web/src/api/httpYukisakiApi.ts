@@ -402,9 +402,17 @@ function routeLabel(label: string) {
 function factorLabel(factor: string) {
   return {
     steep_slope: '急勾配区間があります',
+    moderate_slope: 'やや急な勾配の区間があります',
     bridge: '橋梁区間があります',
     no_plow_history: '除雪実績を確認できない区間があります',
     freezing_wet_condition: '凍結しやすい条件の区間があります',
     narrow_road: '狭い生活道路の区間があります',
+    heavy_hourly_snowfall: '強い降雪の区間があります',
+    moderate_hourly_snowfall: '中程度の降雪の区間があります',
+    light_hourly_snowfall: '弱い降雪の区間があります',
+    active_snow_pipe: '消雪パイプが稼働している区間があります',
+    plowed_within_60_minutes: '60分以内に除雪車が通過した区間があります',
+    plowed_60_to_180_minutes_ago: '除雪から60〜180分経過した区間があります',
+    plowed_over_180_minutes_ago: '除雪から180分以上経過した区間があります',
   }[factor] ?? factor.split('_').join(' ')
 }

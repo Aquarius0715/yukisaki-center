@@ -123,12 +123,10 @@ export class DataPipelineStack extends Stack {
       engine: rds.DatabaseInstanceEngine.postgres({
         version: rds.PostgresEngineVersion.VER_16,
       }),
-      // NOTE: this account's plan rejects any DBInstanceClass other than the
-      // free-tier-eligible MICRO size ("This instance size isn't available
-      // with free plan accounts") - confirmed by a failed db.t4g.small
-      // deploy attempt that CloudFormation auto-rolled back. Do not change
-      // this without first resolving that account-level restriction.
-      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MICRO),
+      // Upgraded from db.t4g.micro (previously the only size the account's
+      // free plan allowed) to a non-burstable class sized for ~20 concurrent
+      // route-planning users, after the account moved to a paid plan.
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.M6G, ec2.InstanceSize.LARGE),
       vpc: this.databaseVpc,
       vpcSubnets: { subnetType: ec2.SubnetType.PRIVATE_ISOLATED },
       credentials: rds.Credentials.fromGeneratedSecret('yukisaki_admin'),

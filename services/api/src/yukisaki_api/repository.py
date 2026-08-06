@@ -33,16 +33,27 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) AS snow ON true
 LEFT JOIN LATERAL (
+  -- ingested_at (actual write time), not data_timestamp (the narrative "as
+  -- of" moment a score claims): a full rescore always rewrites the same
+  -- pinned reference-time data_timestamp, so ordering by data_timestamp
+  -- would let it lose to an older but numerically "later" incremental row
+  -- forever.
   SELECT data_timestamp, score, confidence, factors, rule_version, is_simulated
   FROM drivability_scores
   WHERE segment_id = r.segment_id
-  ORDER BY data_timestamp DESC, rule_version DESC
+  ORDER BY ingested_at DESC
   LIMIT 1
 ) AS score ON true
 LEFT JOIN LATERAL (
   SELECT observed_at, vehicle_id
   FROM snowplow_segment_passages
   WHERE segment_id = r.segment_id
+    -- Excludes the departure-time model's synthetic training data
+    -- (services/route-planning departure_advisor.py fixture, tagged with
+    -- this vehicle_id), which intentionally seeds passages spanning up to
+    -- 20 hours out so it never belongs in a "last plowed" fact shown to a
+    -- rider.
+    AND vehicle_id != 'mock-departure-training-seed'
   ORDER BY observed_at DESC
   LIMIT 1
 ) AS passage ON true
@@ -147,10 +158,13 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) AS snow ON true
 LEFT JOIN LATERAL (
+  -- See ROAD_SEGMENTS_SELECT: ordering by ingested_at (write recency), not
+  -- data_timestamp, so a full rescore reliably wins over a stale
+  -- incremental row regardless of which one's data_timestamp is later.
   SELECT data_timestamp, score, confidence, is_simulated
   FROM drivability_scores
   WHERE segment_id = r.segment_id
-  ORDER BY data_timestamp DESC, rule_version DESC
+  ORDER BY ingested_at DESC
   LIMIT 1
 ) AS score ON true
 ORDER BY r.segment_id

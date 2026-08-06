@@ -72,7 +72,7 @@ export class AiAssistantStack extends Stack {
           region: '*',
           account: '',
           resource: 'foundation-model',
-          resourceName: 'anthropic.claude-sonnet-4-5-*',
+          resourceName: 'anthropic.claude-haiku-4-5-*',
         }),
       ],
     }));
